@@ -225,8 +225,11 @@ static bool MarshalServerStopTradelane(FPacketBase* Packet, const FRpcArg* Args,
 // ---------------------------------------------------------------------------
 static bool MarshalServerPopUpDialog(FPacketBase* Packet, const FRpcArg* Args,
                                      unsigned int ArgCount) {
+    // LP64: the receiver (rpc_payload_ch3.cpp case 0x1b) reads FPayloadCommonPopUpDialog::
+    // Field_0x10, which follows two pointers and so sits at +0x20 on a 64-bit build; write it
+    // there (retail's +0x10 on 32-bit). The raw +0x10 store made every popup answer read 0.
     const unsigned int Value = Args[1];
-    return RpcPayloadWrite(Packet, 0x10, Value);
+    return RpcPayloadWrite(Packet, offsetof(FPayloadCommonPopUpDialog, Field_0x10), Value);
 }
 
 // ============================================================================
