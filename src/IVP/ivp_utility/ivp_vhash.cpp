@@ -116,7 +116,7 @@ void IVP_VHash::Rehash(int param_1) // formerly extern "C" FUN_06352320
     int oldMask = SizeMm;
     FVHashElem* oldBuckets = static_cast<FVHashElem*>(Elems);
     SizeMm = param_1 - 1;
-    Elems = calloc(static_cast<size_t>(param_1), 0x8); // FUN_06343f80
+    Elems = calloc(static_cast<size_t>(param_1), sizeof(FVHashElem)); // FUN_06343f80 (retail 8; LP64: 16)
     unsigned preRehashCount = NElemsAndFlags;
 
     if (oldMask >= 0)
@@ -382,7 +382,7 @@ IVP_VHash_Store::IVP_VHash_Store(int param_1) // formerly extern "C" FUN_063525f
     // "slot empty" test throughout is `value == 0` (see the header comment
     // above), so an unzeroed bucket array would make find()/grow() read
     // garbage as live entries.
-    ElemsStore = calloc(static_cast<size_t>(param_1), 0xc);
+    ElemsStore = calloc(static_cast<size_t>(param_1), sizeof(FVHashStoreElem)); // retail 0xc; LP64: 0x18
 }
 
 // Common.dll.c 0x6352620 (aka thunk_FUN_06352620, same body folded by
@@ -406,7 +406,7 @@ void IVP_VHash_Store::Rehash(int param_1) // formerly extern "C" FUN_06352650
     int oldCapacity = Size;
     Size = param_1;
     SizeMm = param_1 - 1;
-    ElemsStore = calloc(static_cast<size_t>(param_1), 0xc); // FUN_06343f80 is calloc, not malloc -- see note in the ctor
+    ElemsStore = calloc(static_cast<size_t>(param_1), sizeof(FVHashStoreElem)); // FUN_06343f80 is calloc, not malloc -- see note in the ctor
     int savedCount = NElems;
     if (oldCapacity > 0)
     {
