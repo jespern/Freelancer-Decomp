@@ -134,6 +134,7 @@
     <ClInclude Include="Client\menu_wincontrol_base.h" />
     <ClInclude Include="Client\mission_briefing.h" />
     <ClInclude Include="Client\client_frame_tick.h" />
+    <ClInclude Include="Client\client_subtitles.h" />
     <ClInclude Include="Client\client_tick_profile.h" />
     <ClInclude Include="Client\widescreen.h" />
     <ClInclude Include="Client\connect_handshake.h" />
@@ -350,6 +351,7 @@
     <ClCompile Include="Client\ui_fast_table.cpp" />
     <ClCompile Include="Client\mission_briefing.cpp" />
     <ClCompile Include="Client\client_frame_tick.cpp" />
+    <ClCompile Include="Client\client_subtitles.cpp" />
     <ClCompile Include="Client\client_tick_profile.cpp" />
     <ClCompile Include="Client\connect_handshake.cpp" />
     <ClCompile Include="Client\connect_lists.cpp" />

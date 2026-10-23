@@ -18,6 +18,14 @@ The version label (`Beta 2`, `src/freelancer/Client/client_tick_profile.cpp`) is
 
 The profiler is enabled by the `FREELANCER_ENABLE_TICK_PROFILE` define (0 by default; the `src/Freelancer.Diagnostics.props` sheet, the command line `/p:FreelancerEnableTickProfile=1` takes priority). When both defines are 0, `DrawClientTickProfile` draws nothing. For physics, a port-only export `PhySys::SetTickProfile` and the contract `src/include/common_tick_profile.h` (`FPhysicsTickProfile`) were added: the client installs a sink for the duration of its `Physics / hits`. These QPC measurements and the API exist only in the port; they do not change the order or arguments of game calls.
 
+## Client: subtitles (CLIENT-SUBTITLES, 2026-10-23)
+
+Status: OPEN — intentional port-only feature for the macOS port. Owner: jespern; freelancer.exe / Client. Removal condition: none; it draws nothing unless `bin/subtitles.txt` exists.
+
+Retail has no subtitles: `FUN_00425080` goes from the batcher flush (`0x0042508f`) to `EndScene` with nothing drawn in between.
+
+The port's `EndSceneHalf` calls `DrawClientSubtitles` (`src/freelancer/Client/client_subtitles.cpp`) after `MaterialBatcher->FlushAll(1)`, before the CLIENT-BETA-LABEL overlay. Once per frame it walks the playing-source list `DAT_00667c70` through the port-only `VisitPlayingClientSounds` (`menu_sound_arch.cpp`, a read-only copy of `FUN_00428000`'s walk). It keys each source by its archetype, a VoiceMsg by `<profile>:<message id>` or a SoundImpl by its wav path, looks the key up in `bin/subtitles.txt` (compiled from the community FLSubs pack by the macOS port's `tools/subtitles.py`), and draws the captions with Font::String in the `fonts.ini` faces. It changes no sound state; `GetStartTick` (which latches flag 8) is not called, and timed captions use the overlay's own clock. `main.cpp` releases its strings (`ShutdownClientSubtitles`) before `FontShutdown`, next to `ShutdownClientTickProfile`. `FLWIN_SUBTITLES=0` turns it off.
+
 ## Client: widescreen resolutions, Hor+ cameras (WIDESCREEN, 2026-10-16)
 
 Status: OPEN — intentional port-only feature at the owner's direct request. Owner: Giperion; freelancer.exe / Client. Removal condition: only an explicit instruction from Giperion. All code is under `FREELANCER_WIDESCREEN_SUPPORT`; a build with `/p:FreelancerWidescreenSupport=0` (the "Freelancer — diagnostics" sheet → "Widescreen resolutions" = Off) gives retail 4:3 behaviour. Do not close on a retail audit.

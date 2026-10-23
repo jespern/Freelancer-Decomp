@@ -3102,6 +3102,20 @@ int CountClientSoundArchSources(void* Arch)
     return Count;
 }
 
+// Port-only (not in retail): the subtitle overlay (client_subtitles.cpp) reads what is playing.
+// The same walk as CountClientSoundArchSources; a source is paused while +0x08 holds its pause
+// tick (or 1 for a streamed source).
+void VisitPlayingClientSounds(FPlayingClientSoundVisitor Visit, void* Context)
+{
+    FPlayingSourceNode* const Head = G_PlayingSources.Head;
+    for (FPlayingSourceNode* Node = Head->Next; Node != Head; Node = Node->Next)
+    {
+        FSoundSource* const Source = Node->Value;
+        if (Source != nullptr && Source->Arch != nullptr)
+            Visit(Context, Source, Source->Arch, Source->Field08 != 0);
+    }
+}
+
 void PauseAllClientSounds()
 {
     // FUN_00428550 (cdecl): every node of DAT_00667c70 from the front gets slot 26 (vt+0x68,
