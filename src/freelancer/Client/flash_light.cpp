@@ -15,6 +15,7 @@
 #include "common_goods.h"
 #include "common_misc.h"    // ICamera
 #include "DALib.h"
+#include "client_cliobj.h"     // CliCompanionAt (retail -> native offsets)
 #include "dacom.h"          // DACOM_CRC::GetCRC32
 #include "render/shading.h" // ITextureLibrary2
 
@@ -50,14 +51,15 @@ namespace
 
     float CompanionFloat(Archetype::ICliObj* Companion, unsigned Offset)
     {
-        return *reinterpret_cast<float const*>(reinterpret_cast<unsigned char const*>(Companion) +
-                                               Offset);
+        // Retail offsets; the port's companion layout differs (LP64), so map them.
+        return *reinterpret_cast<float const*>(
+            Archetype::CliCompanionAt(static_cast<void const*>(Companion), Offset));
     }
 
     Vector CompanionVector(Archetype::ICliObj* Companion, unsigned Offset)
     {
-        return *reinterpret_cast<Vector const*>(reinterpret_cast<unsigned char const*>(Companion) +
-                                                Offset);
+        return *reinterpret_cast<Vector const*>(
+            Archetype::CliCompanionAt(static_cast<void const*>(Companion), Offset));
     }
 
     char const* const kLightsCameraCpp = "E:\\FL\\Scratch\\Source\\Client\\supt\\LightsCamera.cpp";

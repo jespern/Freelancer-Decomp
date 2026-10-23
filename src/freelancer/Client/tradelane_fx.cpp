@@ -13,6 +13,7 @@
 
 #include "cli_projectile_fx.h"
 #include "client_equip_fx.h"
+#include "client_cliobj.h"     // CliCompanionAt (retail -> native offsets)
 #include "client_objdb.h"
 #include "common_cequip.h"
 #include "common_cobject.h"
@@ -93,14 +94,13 @@ namespace
 
     ID_String const* TlCompanionId(Archetype::ICliObj* Companion, unsigned Offset)
     {
-        return reinterpret_cast<ID_String const*>(reinterpret_cast<unsigned char*>(Companion) +
-                                                  Offset);
+        // Retail offsets; the port's companion layout differs (LP64), so map them.
+        return reinterpret_cast<ID_String const*>(Archetype::CliCompanionAt(Companion, Offset));
     }
 
     float TlCompanionFloat(Archetype::ICliObj* Companion, unsigned Offset)
     {
-        return *reinterpret_cast<float const*>(reinterpret_cast<unsigned char*>(Companion) +
-                                               Offset);
+        return *reinterpret_cast<float const*>(Archetype::CliCompanionAt(Companion, Offset));
     }
 
     // FUN_0042a7e0 list node -- {Next, Prev, ship id}, 0xc bytes.

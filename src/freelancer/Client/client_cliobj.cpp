@@ -3027,24 +3027,26 @@ namespace Archetype
         // +0x54 and +0x58 copied when they differ (0040a174..0040a187).
         void CliRedefineTwoDwords(FCliObj* This, ICliObj* Donor)
         {
-            unsigned* Dst = reinterpret_cast<unsigned*>(reinterpret_cast<char*>(This) + 0x54);
-            unsigned const* Src =
-                reinterpret_cast<unsigned const*>(reinterpret_cast<char const*>(Donor) + 0x54);
-            if (Src[0] != Dst[0])
-                Dst[0] = Src[0];
-            if (Src[1] != Dst[1])
-                Dst[1] = Src[1];
+            // Retail offsets; each dword is mapped on its own (LP64 layouts differ).
+            for (unsigned Offset : {0x54u, 0x58u})
+            {
+                unsigned* const Dst = reinterpret_cast<unsigned*>(CliCompanionAt(This, Offset));
+                unsigned const* const Src = reinterpret_cast<unsigned const*>(
+                    CliCompanionAt(static_cast<void const*>(Donor), Offset));
+                if (*Src != *Dst)
+                    *Dst = *Src;
+            }
         }
 
         // FUN_00409bd0 (slot 4 of CliEQShieldGenerator and CliEQRepairDroid): FUN_00407050's body
         // inlined, then 00409c64..00409c6c: the dword at +0x54 copied when it differs.
         void CliRedefineFirstDword(FCliObj* This, ICliObj* Donor)
         {
-            unsigned* Dst = reinterpret_cast<unsigned*>(reinterpret_cast<char*>(This) + 0x54);
-            unsigned const* Src =
-                reinterpret_cast<unsigned const*>(reinterpret_cast<char const*>(Donor) + 0x54);
-            if (Src[0] != Dst[0])
-                Dst[0] = Src[0];
+            unsigned* const Dst = reinterpret_cast<unsigned*>(CliCompanionAt(This, 0x54));
+            unsigned const* const Src = reinterpret_cast<unsigned const*>(
+                CliCompanionAt(static_cast<void const*>(Donor), 0x54));
+            if (*Src != *Dst)
+                *Dst = *Src;
         }
 
         void FCliEQThruster::Redefine(ICliObj* Donor)

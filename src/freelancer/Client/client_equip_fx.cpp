@@ -1131,7 +1131,7 @@ namespace
             if (Comp != nullptr)
             {
                 ID_String const* const Particle = reinterpret_cast<ID_String const*>(
-                    reinterpret_cast<unsigned char const*>(Comp) + 0x54);
+                    Archetype::CliCompanionAt(static_cast<void const*>(Comp), 0x54));
                 Vector const Velocity = Equip->Owner->get_velocity();
                 if (!Particle->IsEmpty())
                 {
