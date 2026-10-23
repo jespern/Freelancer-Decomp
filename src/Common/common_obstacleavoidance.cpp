@@ -29,6 +29,9 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <cstdio>
+#include <ctime>
+#include <map>
 
 using namespace CmnAiSteer;
 
@@ -359,6 +362,21 @@ void ObstacleAvoidance::Update(float Dt)
         // (TEST AH,0x5 / JP skips >=) also records its point and normal.
         HasContact = 1;
         ContactObjectId = HitSimple->Id;
+        // Port dev aid: FLWIN_AVOID_TRACE logs what a ship is steering around (once a second).
+        static bool const bAvoidTrace = getenv("FLWIN_AVOID_TRACE") != nullptr;
+        if (bAvoidTrace)
+        {
+            static std::map<unsigned, time_t> Last;
+            time_t const Now = time(nullptr);
+            time_t& ShipLast = Last[Ship->get_id()];
+            if (Now != ShipLast)
+            {
+                ShipLast = Now;
+                fprintf(stderr, "[avoid] ship %u contact %u hit %.0f target %s (%.0f %.0f %.0f)\n",
+                        Ship->get_id(), HitSimple->Id, static_cast<double>(HitDistance),
+                        bHaveTarget ? "yes" : "no", Target.x, Target.y, Target.z);
+            }
+        }
         if (HitDistance < LookAhead)
         {
             ContactPoint = Hit.Point;

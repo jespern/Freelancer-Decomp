@@ -33,6 +33,7 @@
 #include <cfloat>
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 
@@ -45,6 +46,13 @@ std::map<unsigned int, std::list<FContentNpcShipParams>> GDockLaunchQueues;
 // LAB_06f6eec0: DAT_06fd1c84 = DAT_06fbbcf4 (-0.6f).
 float GDockHostileAttitude = -0.6f;
 
+
+// Port dev aid: FLWIN_DOCK_TRACE=1 also logs Content's dock requests and queues.
+static bool DockQueueTraceOn()
+{
+    static bool const bOn = getenv("FLWIN_DOCK_TRACE") != nullptr;
+    return bOn;
+}
 
 namespace
 {
@@ -625,6 +633,19 @@ void __cdecl UpdateDockQueues()
             }
         }
 
+        if (DockQueueTraceOn())
+        {
+            static double LastLog = 0.0;
+            double const Now = GetContentGameTime();
+            if (Now - LastLog > 5.0 || Now < LastLog)
+            {
+                LastLog = Now;
+                fprintf(stderr, "[dockq] docking ship %u target %u index %d age %.1f docked %d bf20 %d\n",
+                        Entry.ShipId, Entry.DockTargetId, Entry.DockIndex,
+                        GetContentTimeDistance(&Now, &Entry.Time), Entry.bField_0x10 ? 1 : 0,
+                        Entry.bField_0x20 ? 1 : 0);
+            }
+        }
         if (IsShipAtDockPoint(Entry.SystemId, &Entry.ShipId, &Entry.DockTargetId, &Entry.DockIndex))
         {
             MarkDockTerminal(Entry.DockTargetId, Entry.DockIndex, true);
@@ -670,6 +691,9 @@ void __cdecl UpdateDockQueues()
 void __cdecl FinishDocking(std::list<FDockQueueEntry>::iterator* It)
 {
     FDockQueueEntry& Finished = **It;
+    if (DockQueueTraceOn())
+        fprintf(stderr, "[dockq] finished ship %u target %u index %d\n", Finished.ShipId,
+                Finished.DockTargetId, Finished.DockIndex);
     if (GDockLaunchQueues[Finished.DockTargetId].empty())
         MarkDockTerminal(Finished.DockTargetId, Finished.DockIndex, false);
     *It = GDockingShips.erase(*It);
@@ -980,20 +1004,33 @@ int __cdecl ChooseDockTerminal(std::vector<unsigned int> const* ClassIds,
 bool __cdecl IsShipAtDockPoint(unsigned int SystemId, unsigned int const* ShipId,
                                unsigned int const* DockTargetId, int const* DockIndex)
 {
+    auto Trace = [&](int Why, int Value) {
+        if (!DockQueueTraceOn())
+            return;
+        static double LastLog = 0.0;
+        double const Now = GetContentGameTime();
+        if (Now - LastLog > 3.0 || Now < LastLog)
+        {
+            LastLog = Now;
+            fprintf(stderr, "[dockq] at-dock-point ship %u index %d exit %d value %d\n", *ShipId,
+                    *DockIndex, Why, Value);
+        }
+    };
     pub::SpaceObj::TerminalInfo Info;
     if (pub::SpaceObj::GetTerminalInfo(*DockTargetId, *DockIndex, Info) != 0)
-        return false;
+        return Trace(1, 0), false;
     Vector Hardpoint;
     Matrix HardpointOrientation;
     if (pub::SpaceObj::GetHardpoint(*DockTargetId, Info.Name, &Hardpoint, &HardpointOrientation) != 0)
-        return false;
+        return Trace(2, static_cast<int>(Info.Value)), false;
     FSystemInfo* System = FindSystemInfo(&SystemId);
     if (System->FindShip(*ShipId) == nullptr)
-        return false;
+        return Trace(3, static_cast<int>(Info.Value)), false;
     Vector ShipPosition;
     Matrix ShipOrientation;
     if (pub::SpaceObj::GetLocation(*ShipId, ShipPosition, ShipOrientation) != 0)
-        return false;
+        return Trace(4, static_cast<int>(Info.Value)), false;
+    Trace(0, static_cast<int>(Info.Value));
 
     switch (Info.Value)
     {
@@ -1057,6 +1094,18 @@ bool __cdecl IsShipAtDockPoint(unsigned int SystemId, unsigned int const* ShipId
     double const DeltaZ = static_cast<double>(ShipPosition.z) - Hardpoint.z;
     double DistanceSquare = DeltaZ * DeltaZ + DeltaY * DeltaY + DeltaX * DeltaX;
     double Distance = ApproximateSqrt(static_cast<float>(DistanceSquare), DistanceSquare);
+    if (DockQueueTraceOn())
+    {
+        static double LastLog = 0.0;
+        double const Now = GetContentGameTime();
+        if (Now - LastLog > 3.0 || Now < LastLog)
+        {
+            LastLog = Now;
+            fprintf(stderr, "[dockq] berth check ship %u index %d hp (%.0f %.0f %.0f) dist %.0f line %.0f radius %.0f (centre %.0f %.0f %.0f)\n",
+                    *ShipId, *DockIndex, Hardpoint.x, Hardpoint.y, Hardpoint.z, Distance,
+                    ToFar + ToHardpoint, Radius, Center.x, Center.y, Center.z);
+        }
+    }
     // 06f6c206: FCOMPP of Radius * 1.85 against the distance; TEST AH,0x41; JNZ -> false.
     return static_cast<double>(Radius) * 1.85f > Distance;
 }
@@ -1376,6 +1425,10 @@ int HandleDockRequest(FDockRequest const* Request)
                                          &Request->DockTargetId, &DockIndex,
                                          Request->bField_0x0c);
     FSystemInfo* System = FindSystemInfo(&Request->SystemId);
+    if (DockQueueTraceOn())
+        fprintf(stderr, "[dockq] request ship %u target %u -> response %d index %d (docking %zu, waiting %zu)\n",
+                Request->ShipId, Request->DockTargetId, Response, DockIndex, GDockingShips.size(),
+                GDockWaitingShips.size());
 
     if (Response != DOCK_HOST_RESPONSE_5)
     {

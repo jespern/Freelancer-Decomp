@@ -169,10 +169,20 @@ void* DockBehavior::GetWatchedRawBlock() const
 // Common.dll.txt 188633-188787 (LAB_062c3b70), 141 instructions.
 // Port dev aid: FLWIN_DOCK_TRACE=1 logs the dock behaviour's state changes, its approach
 // points and the per-update outcome (at most once a second per kind).
-static bool DockTraceOn()
+// Which exit UpdateApproachTail took last (FLWIN_DOCK_TRACE only): 1 prox hold, 2 can't
+// proceed, 3 move not done, 4 state change, 0 other.
+static int GDockTailExit = 0;
+
+// FLWIN_DOCK_TRACE=2 traces NPC ships too (their lines carry the ship id).
+static bool DockTraceWants(IObjRW* Ship)
 {
-    static bool const bOn = getenv("FLWIN_DOCK_TRACE") != nullptr;
-    return bOn;
+    static int const Level = [] {
+        char const* const Value = getenv("FLWIN_DOCK_TRACE");
+        return Value != nullptr ? atoi(Value) : 0;
+    }();
+    if (Level <= 0 || Ship == nullptr)
+        return false;
+    return Level >= 2 || Ship->is_player();
 }
 
 static bool DockTraceThrottle(int Kind)
@@ -237,8 +247,9 @@ int DockBehavior::Update()
         double const SpeedSq = (static_cast<double>(Velocity.x) * Velocity.x +
                                 static_cast<double>(Velocity.y) * Velocity.y) +
                                static_cast<double>(Velocity.z) * Velocity.z;
-        if (DockTraceOn() && Owner->is_player() && DockTraceThrottle(0))
-            fprintf(stderr, "[dock] update state %d target speed^2 %.3f\n", ModeState320, SpeedSq);
+        if (DockTraceWants(Owner) && DockTraceThrottle(Owner->is_player() ? 0 : 2))
+            fprintf(stderr, "[dock] ship %u update state %d target speed^2 %.3f\n", Owner->get_id(),
+                    ModeState320, SpeedSq);
         if (SpeedSq > static_cast<double>(0.3f))
         {
             // 062c3c68-062c3c9b: the target is moving -- release both Ideas, result 1.
@@ -262,11 +273,12 @@ int DockBehavior::Update()
 
     // 062c3ce8-062c3cf4: FUN_062c4900 with `this`; its EAX is the return value.
     int const Tail = UpdateApproachTail();
-    if (DockTraceOn() && Owner->is_player() && DockTraceThrottle(1))
+    if (DockTraceWants(Owner) && DockTraceThrottle(Owner->is_player() ? 1 : 3))
     {
         Vector const& Pos = Owner->get_position();
-        fprintf(stderr, "[dock] tail %d state %d ship (%.0f %.0f %.0f) dest (%.0f %.0f %.0f) mount (%.0f %.0f %.0f) icpt (%.0f %.0f %.0f) sphere %d\n",
-                Tail, ModeState320, Pos.x, Pos.y, Pos.z, DestPoint3cc.x, DestPoint3cc.y, DestPoint3cc.z,
+        fprintf(stderr, "[dock] ship %u exit %d prox %p/%u tail %d state %d ship (%.0f %.0f %.0f) dest (%.0f %.0f %.0f) mount (%.0f %.0f %.0f) icpt (%.0f %.0f %.0f) sphere %d\n",
+                Owner->get_id(), GDockTailExit, const_cast<void*>(static_cast<void const*>(ProxWatcher450.Watcher.target())),
+                static_cast<unsigned>(ProxWatcher450.Flags14), Tail, ModeState320, Pos.x, Pos.y, Pos.z, DestPoint3cc.x, DestPoint3cc.y, DestPoint3cc.z,
                 SavedPosition3fc.x, SavedPosition3fc.y, SavedPosition3fc.z, InterceptPoint39c.x,
                 InterceptPoint39c.y, InterceptPoint39c.z, Field43c);
     }
@@ -552,6 +564,7 @@ void DockBehavior::RecomputeApproach()
 
         RefreshApproachState();                                      // 062c3847 FUN_062c50e0
     }
+
 
     // WIRED FOR REAL (2026-09-17, claude:common-orchestrator). This block used
     // to be FULLPORT-DEFERRED on the claim that "ThreatSourcePtr14's class is
@@ -950,8 +963,9 @@ void DockBehavior::EnterState(int NewState)
 
     // 062c3d71: .rdata:DAT_0639f47c == 0x447a0000 == 1000.0f, unconditional.
     MaxApproachSpeed46c = 1000.0f;
-    if (DockTraceOn() && ThreatSourcePtr14 != nullptr && static_cast<IObjRW*>(ThreatSourcePtr14)->is_player())
-        fprintf(stderr, "[dock] state %d -> %d\n", ModeState320, NewState);
+    if (DockTraceWants(static_cast<IObjRW*>(ThreatSourcePtr14)))
+        fprintf(stderr, "[dock] ship %u state %d -> %d\n",
+                static_cast<IObjRW*>(ThreatSourcePtr14)->get_id(), ModeState320, NewState);
     ModeState320 = NewState;
 
     switch (NewState)
@@ -1396,6 +1410,7 @@ void DockBehavior::RefreshApproachState()
 //     on the not-single-player, player-owner branch (062c5011 / 062c503d).
 int DockBehavior::UpdateApproachTail()
 {
+    GDockTailExit = 0;
     // Retail keeps the eventual result in a stack local ([ESP+0x14], preset to
     // EBX == 1) and stores it into UpdateResult10@0x10 on every exit.
     UpdateResult10 = 1;
@@ -1445,6 +1460,7 @@ int DockBehavior::UpdateApproachTail()
              ((ProxWatcher450.Flags14 & 2) == 0)))
         {
             // LAB_062c49b9: `LEA EDI,[ESI+0x30]` is the receiver for all three.
+            GDockTailExit = 1;
             SubObjectA.SetField44(0);     // 062c49bf FUN_062d88b0
             SubObjectA.Commit();          // 062c49c6 [EDI]+0x10, BaseIdea slot 4
             SubObjectB.Commit();          // 062c49d5 [EAX]+0x10 on this+0xa8
@@ -1455,6 +1471,7 @@ int DockBehavior::UpdateApproachTail()
 
     if (!CheckCanProceed())
     {
+        GDockTailExit = 2;
         Disengage();            // own vtbl slot 4 (offset 0x10), LAB_062c3910
         RecomputeApproach();    // own vtbl slot 3 (offset 0x0c), LAB_062c3720
         UpdateResult10 = 1;
@@ -1505,7 +1522,10 @@ int DockBehavior::UpdateApproachTail()
             // result decides between the tail and the default case.
             (void)SubObjectB.Update(DeltaTime);
             if (SubObjectA.Update(DeltaTime) != 1)
+            {
+                GDockTailExit = 3;
                 break;   // 062c4c2f JZ switchD_062c4a25::caseD_4
+            }
         }
 
         // LAB_062c4c35.
