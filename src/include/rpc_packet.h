@@ -19,6 +19,7 @@
 #pragma once
 
 #include <iosfwd>
+#include <cstdint>
 #include <map>
 #include <string>
 
@@ -130,7 +131,7 @@ public:
     // and +0x1c and leaves +0x14 / +0x18 alone, as retail's does.
     unsigned int MarshalCursor;   // +0x10  bytes emitted/consumed so far
     unsigned int MarshalLimit;    // +0x14  capacity of the caller's buffer
-    unsigned int MarshalPtr;      // +0x18  moving read/write pointer into that buffer
+    std::uintptr_t MarshalPtr;    // +0x18 retail; native-width moving buffer pointer
     unsigned int MarshalError;    // +0x1c  0 = ok, 0x16 = encode overflow, 0x17 = decode overrun
 };
 

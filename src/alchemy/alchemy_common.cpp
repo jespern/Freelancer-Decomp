@@ -1695,7 +1695,12 @@ namespace AlchemyImpl
                 TotalIndices += Indices;
                 Member = BatchLinksOf(Member)->BatchNext_;
             }
-            Head->BeginBatchedDraw(TotalVerts, TotalIndices);
+            // A large modded effect can exceed the shared dynamic buffer.
+            // BeginBatchedDraw then leaves the vertex pointer unlocked; calling
+            // FillBatchedGeometry would write through it and crash. Skip this
+            // batch when its allocation fails.
+            if (Head->BeginBatchedDraw(TotalVerts, TotalIndices) != GR_OK)
+                continue;
             Member = Head;
             while (Member != nullptr)
             {

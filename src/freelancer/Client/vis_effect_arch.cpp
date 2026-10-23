@@ -889,6 +889,13 @@ void EffectArchShutdown()
     VisEffectUnbindFxRuntime();
 }
 
+void VisEffectArchShutdown()
+{
+    // Host static destructors otherwise run after FlushMaterialCache and
+    // AleLibShutdown. Live visual effects retain pointers into those stores.
+    G_VisEffects.clear();
+}
+
 FVisEffectArch* FindVisEffectByNickname(char const* Nickname)
 {
     // FUN_0042dd20 (cdecl; retail takes the StringAlloc'd CacheString by address): the lower

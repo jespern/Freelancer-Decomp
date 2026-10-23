@@ -114,6 +114,9 @@ void EffectArchDestruct(FEffectArch* Arch);
 // FUN_0040ef30 (client teardown 0x005b22aa) -- every registered EffectArch destroyed and
 // freed, the registry emptied, then FUN_0042e2f0 unbinds the FxRuntime.
 void EffectArchShutdown();
+// Port shutdown: destroy the static VisEffect map while its material cache and
+// ALE handle registry still exist. The host C++ atexit order differs from VC6.
+void VisEffectArchShutdown();
 
 FVisEffectArch* FindVisEffectByNickname(char const* Nickname);
 FBeamEffectArch* FindBeamEffectArchByNickname(char const* Nickname);

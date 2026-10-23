@@ -558,6 +558,7 @@ namespace
         ShutdownRichText();
         ShutdownDebrisArchDb(); // FUN_00530fa0 (0x005b22a5)
         EffectArchShutdown();      // FUN_0040ef30 (0x005b22aa)
+        VisEffectArchShutdown();   // Port: release retained material entries before the cache
         ClearClientVoices();       // FUN_00431850
         ShutdownClientSoundArch(); // FUN_0042b4d0
         ShutdownRenderMgr(false);  // FUN_004247c0(0)

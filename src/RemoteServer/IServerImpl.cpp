@@ -21,6 +21,8 @@
 #include <string.h>
 #include <cwchar>
 #include <new>
+#include <cstdio>
+#include <cstdlib>
 
 namespace
 {
@@ -71,6 +73,14 @@ FPacketSerializer::~FPacketSerializer() {
 void RpcDispatchMsgs(IServerImpl* Server, const unsigned char* Data, unsigned int Size) {
     const unsigned char* Cursor = Data;
     unsigned int Remaining = Size;
+    const bool Trace = std::getenv("FLWIN_RPC_TRACE") != nullptr;
+    if (Trace) {
+        std::fprintf(stderr, "[rpc] receive size=%u serializer=%p first=", Size,
+                     static_cast<void*>(Server->Serializer));
+        for (unsigned int i = 0; i < Size && i < 24; ++i)
+            std::fprintf(stderr, "%02x ", Data[i]);
+        std::fprintf(stderr, "\n");
+    }
     
     while (Remaining >= 2) {
         unsigned short PacketId = *(const unsigned short*)Cursor;
@@ -82,8 +92,13 @@ void RpcDispatchMsgs(IServerImpl* Server, const unsigned char* Data, unsigned in
         
         FPacketBase* Packet = nullptr;
         if (Server->Serializer && Server->Serializer->Allocate(Channel, Opcode, &Packet) == 0) {
+            if (Trace)
+                std::fprintf(stderr, "[rpc] packet channel=%u opcode=%u ptr=%p remaining=%u\n",
+                             Channel, Opcode, static_cast<void*>(Packet), Remaining);
             unsigned int BytesRead = 0;
             if (Packet->Decode(Cursor, Remaining, &BytesRead) == 0) {
+                if (Trace)
+                    std::fprintf(stderr, "[rpc] decoded bytes=%u\n", BytesRead);
                 Cursor += BytesRead;
                 Remaining -= BytesRead;
                 Server->HandlePacket(Packet->AsRaw());
@@ -1078,4 +1093,3 @@ void IServerImpl::SubmitChat(CHAT_ID SenderId, unsigned long Size, const void* M
         this->PushToServer(Packet->AsRaw());
     }
 }
-

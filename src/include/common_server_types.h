@@ -10,6 +10,7 @@
 #include "common_physys.h"   // Quaternion (SSPObjUpdateInfo::Orientation)
 
 #include <cfloat>
+#include <cstdint>
 #include <cstring>
 #include <list>
 #include <vector>
@@ -390,7 +391,7 @@ public:
     unsigned int PacketId;     // +0x0c  Channel << 16 | Opcode
     unsigned int Field_0x10;   // +0x10  zeroed by the ctor; TODO: semantics unproven
     unsigned int Field_0x14;   // +0x14  the ctor does not touch it
-    unsigned int Field_0x18;   // +0x18  the ctor does not touch it
+    std::uintptr_t Field_0x18; // +0x18 retail; native-width marshal pointer
     unsigned int Field_0x1c;   // +0x1c  zeroed by the ctor; TODO: semantics unproven
     // Payload starts at +0x20 and belongs to the derived packet class.
 

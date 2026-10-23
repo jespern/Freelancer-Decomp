@@ -32,9 +32,6 @@
 
 namespace
 {
-    IClient* GGameClient = static_cast<IClient*>(&Client);
-    IChatClient* GGameChatClient = static_cast<IChatClient*>(&Client);
-
     HMODULE GClientModule = nullptr;
     IClient* GLoadedClient = nullptr;
     IChatClient* GLoadedChatClient = nullptr;
@@ -258,11 +255,10 @@ IClient& IClient::operator=(const IClient& Other) { return *this; }
 
 void HandlePacket(unsigned int ClientId, CDAPacket* Packet)
 {
-    IClient* Client = GGameClient;
+    IClient* Client = GLoadedClient;
 
     unsigned int Channel = Packet->GetChannel();
     unsigned int Opcode = Packet->GetOpcode();
-    const unsigned char* Payload = (const unsigned char*)Packet + 0x20;
 
     if (Channel == 1)
     {
@@ -307,7 +303,7 @@ void HandlePacket(unsigned int ClientId, CDAPacket* Packet)
             case 0x05:
             {
                 const FRpcChatMsgPacket* Wire = reinterpret_cast<const FRpcChatMsgPacket*>(Packet);
-                GGameChatClient->SendCommonChatMsg(CHAT_ID(1u), CHAT_ID(Wire->Field_0x04), Wire->DataSize,
+                GLoadedChatClient->SendCommonChatMsg(CHAT_ID(1u), CHAT_ID(Wire->Field_0x04), Wire->DataSize,
                     Wire->Data);
                 break;
             }
@@ -491,4 +487,3 @@ void HandlePacket(unsigned int ClientId, CDAPacket* Packet)
         RpcReceiveServerChannel(ClientId, reinterpret_cast<FPacketBase*>(Packet), Client);
     }
 }
-
