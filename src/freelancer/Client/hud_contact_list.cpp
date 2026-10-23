@@ -5,6 +5,7 @@
 // Author: Giperion.
 
 #include "hud_contact_list.h"
+#include "star_sys.h" // GetAttitudeClass (kill:@hostile)
 #include "hd_plugins.h"
 
 #include "best_path.h"               // BestPath* (FUN_004c4fb0 / 004c4ff0 / 004c5110 / 004c52d0)
@@ -352,6 +353,16 @@ namespace
                 continue;
             if (Player != nullptr && Player->get_id() == It->Id)
                 continue;
+            // kill:@hostile -- every listed ship hostile to the player (the attitude test
+            // FLWIN_AUTOAIM uses), whatever its label.
+            if (strcmp(Want, "@hostile") == 0)
+            {
+                unsigned Type = 0;
+                Obj->get_type(Type);
+                if ((Type & 0x7f0000) != 0 && Player != nullptr && GetAttitudeClass(Player, Obj) == -1)
+                    Ids.push_back(It->Id);
+                continue;
+            }
             char Lower[0x100];
             ContactLabelLower(Obj, Lower, sizeof(Lower));
             if (strstr(Lower, Want) != nullptr)
@@ -396,6 +407,14 @@ namespace
                 SendSelectTarget(It->Id);
                 FlScriptSelectDone();
                 return;
+            }
+            // Not listed (out of scanner range): any solar of the system with that id, as the
+            // nav map can target one, so a goto (F2) can head for it.
+            if (CObject* const Solar = CObject::Find(WantId, CObject::ClassSolar))
+            {
+                Solar->Release();
+                SendSelectTarget(WantId);
+                FlScriptSelectDone();
             }
             return;
         }
