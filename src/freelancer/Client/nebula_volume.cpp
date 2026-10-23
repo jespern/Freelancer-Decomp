@@ -237,6 +237,7 @@ namespace
         float MaxNebulae;
         float ReplaceExteriorBits;
         float ReplaceFillSheets;
+        float BurnthroughOverVolume;
         float LodStartDistance;
         float LodEndDistance;
         float LodMinStepFraction;
@@ -365,6 +366,7 @@ namespace
         {"max_nebulae", &FNebulaVolumeSettings::MaxNebulae},
         {"replace_exterior_bits", &FNebulaVolumeSettings::ReplaceExteriorBits},
         {"replace_fill_sheets", &FNebulaVolumeSettings::ReplaceFillSheets},
+        {"burnthrough_over_volume", &FNebulaVolumeSettings::BurnthroughOverVolume},
         {"lod_start_distance", &FNebulaVolumeSettings::LodStartDistance},
         {"lod_end_distance", &FNebulaVolumeSettings::LodEndDistance},
         {"lod_min_step_fraction", &FNebulaVolumeSettings::LodMinStepFraction},
@@ -491,6 +493,7 @@ namespace
         S.MaxNebulae = 4.0f;
         S.ReplaceExteriorBits = 1.0f;
         S.ReplaceFillSheets = 1.0f;
+        S.BurnthroughOverVolume = 1.0f;
         S.LodStartDistance = 5000.0f;
         S.LodEndDistance = 50000.0f;
         S.LodMinStepFraction = 0.5f;
@@ -3580,6 +3583,12 @@ bool NebulaVolume::ReplacesFillSheets(FNebulaEffect const* Nebula)
 {
     FVolumeEntry const* const Entry = FullEntry(Nebula);
     return Entry != nullptr && Entry->Settings.ReplaceFillSheets > 0.5f;
+}
+
+bool NebulaVolume::DefersBurnthrough(FNebulaEffect const* Controller)
+{
+    FVolumeEntry const* const Entry = FindEntry(Controller);
+    return Entry != nullptr && Entry->bInside && Entry->Settings.BurnthroughOverVolume > 0.5f;
 }
 
 bool NebulaVolume::ShowsRealBackground()

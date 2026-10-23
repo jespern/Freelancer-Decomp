@@ -64,6 +64,11 @@ float G_SunEffectQuality = 0.0f; // .data past raw size -> zero-initialised in t
 
 // DAT_00613470 / 00613471 / 00613472 / 00613473 — enable gates (PE defaults 1).
 static unsigned char G_StarBillboardEnabled = 1;
+#ifdef FREELANCER_RP9
+// Port-only: DrawBillboard keeps the depth test on (no depth write) -- the sun_burnthrough drawn
+// after the volumetric nebula stays behind the scene's geometry, as retail's drawn before it.
+bool G_StarBillboardDepthTested = false; // star_sphere.h
+#endif
 static unsigned char G_StarSpinesEnabled = 1;
 static unsigned char G_StarCoronaDrawEnabled = 1;
 static unsigned char G_StarLensFlareEnabled = 1;
@@ -1706,7 +1711,10 @@ static FStarFxChild40* AllocChild40(float Field38, float Field3C)
             return;
 
         Win3DDisable(kWin3DCullFace);  // FUN_00421ed0(0xb44)
-        Win3DDisable(kWin3DDepthTest); // FUN_00421ed0(0xb71)
+#ifdef FREELANCER_RP9
+        if (!G_StarBillboardDepthTested)
+#endif
+            Win3DDisable(kWin3DDepthTest); // FUN_00421ed0(0xb71)
         Win3DSetDepthWrite(0);         // FUN_00422190(0)
 
         // 0x00511901..0x00511930: the camera's near / far (slots +0x20 / +0x24), the far plane

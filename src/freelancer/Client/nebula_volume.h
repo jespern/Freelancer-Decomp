@@ -87,6 +87,10 @@ namespace NebulaVolume
     // FUN_005074e0), both for the controller and for the far-bucket ZItemNebula nodes.
     bool ReplacesExteriorBits(FNebulaEffect const* Nebula);
     bool ReplacesFillSheets(FNebulaEffect const* Nebula);
+    // The camera is inside Controller and the volume draws it: retail's sun_burnthrough sprites
+    // (the star seen through the fog, DrainMeshAndAsteroids) are drawn after the volume instead,
+    // over it as retail draws them over its fog, rather than fogged away by the whole ray.
+    bool DefersBurnthrough(FNebulaEffect const* Controller);
     // [Nebula] real_background: while the volume draws the field controller from inside, also
     // fully inside, SpaceObjDrawPass draws the star sphere and clears to the system's space
     // colour instead of the fog colour -- the volume's haze provides the fog. True from

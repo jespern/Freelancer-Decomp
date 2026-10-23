@@ -1800,6 +1800,34 @@ namespace
     // FUN_0040fb60(Cam, Cam vt+0x20 GetZNear(), far) with far = DAT_00610534 (250000) or the
     // queue's +8 (DAT_00675368). No test of the camera, the pipeline, the controller's vtable
     // entries, a star entry or its slot.
+#ifdef FREELANCER_RP9
+    // Port-only: set by DrainMeshAndAsteroids when the volumetric nebula takes over retail's
+    // sun_burnthrough sprites this frame (NebulaVolume::DefersBurnthrough).
+    bool G_BurnthroughDeferred = false;
+
+    // The burnthrough loop of DrainMeshAndAsteroids, run after NebulaVolume::Draw: the same
+    // sprites with the same A / B, now over the volume as retail has them over its fog.
+    void DrawDeferredBurnthrough(FSpaceCamera* Cam)
+    {
+        if (!G_BurnthroughDeferred || G_FieldController == nullptr)
+            return;
+        G_BurnthroughDeferred = false;
+        // Behind the scene's geometry (the depth buffer survives the volume's composite), as
+        // retail draws these before the asteroids and solars.
+        Win3DEnable(kWin3DDepthTest);
+        G_StarBillboardDepthTested = true;
+        FStarSphereListNode* const Sentinel = StarSphereList()->Sentinel;
+        for (FStarSphereListNode* Node = Sentinel->Next; Node != Sentinel; Node = Node->Next)
+        {
+            float const B = G_FieldController->GetFloat2C8();
+            float const A = static_cast<float>(static_cast<double>(G_FieldController->GetFloat294()) *
+                                               G_FieldController->GetFloat2C4());
+            Node->Sphere->DrawBillboard(Cam, A, B);
+        }
+        G_StarBillboardDepthTested = false;
+    }
+#endif
+
     void DrainMeshAndAsteroids(FSpaceCamera* Cam)
     {
         typedef void(__thiscall* FFieldCamSlot)(void* Self, FSpaceCamera* C);
@@ -1858,6 +1886,11 @@ namespace
         // then A = float(vt+0x24() * float(vt+0x28())) (vt+0x28 first, stored float; vt+0x24
         // after it); then star vt+0x18 (DrawBillboard, LAB_005118d0)(Cam, A, B).
         FStarSphereListNode* const Sentinel = StarSphereList()->Sentinel;
+#ifdef FREELANCER_RP9
+        // Port-only: under the volumetric nebula these go after it (DrawDeferredBurnthrough).
+        G_BurnthroughDeferred = NebulaVolume::DefersBurnthrough(G_FieldController);
+        if (!G_BurnthroughDeferred)
+#endif
         for (FStarSphereListNode* Node = Sentinel->Next; Node != Sentinel; Node = Node->Next)
         {
             FStarSphere* const Star = Node->Sphere;
@@ -2726,6 +2759,7 @@ void SpaceObjDrawPass(FSpaceCamera* Cam, unsigned LayerFlags, unsigned Param2)
     // Port-only: the volumetric nebula over the opaque scene, before the effects (which retail
     // also draws over its fog). The scene above was drawn with near = GetZNear, far = Far.
     NebulaVolume::Draw(Camera, Camera->GetZNear(), Far);
+    DrawDeferredBurnthrough(Cam);
 #endif
 
     // 0x0051c6f9..0x0051c7d8: layer bit 0x100 -- the effects.

@@ -784,6 +784,19 @@ wait for a shader reload, a failed target for an ini reload, the noise for a res
 `RenderEx::Shutdown` calls `NebulaVolume::Shutdown`, which destroys everything through
 `IRenderPipelineEx`. The frame allocates no memory: the constants are static arrays.
 
+**Tuning against retail (macOS port, 2026-10-23).** Compared with the retail fog frame by frame
+at seven spots (Badlands deep and at West Point, Walker, Okamura, Grasmere, West Leeds, Tahoe):
+with `cloud_density 12` the clouds were opaque within ~150 m, so deep inside a nebula everything
+went near black (Badlands median luminance 2 against retail's 11) and the Badlands spire field
+showed as black streaks against a lit gap. The defaults are now `cloud_density 3`,
+`ambient_scale 4`, `emission 0.6`, `tonemap 1` (Reinhard; the filmic curve crushed the dark
+nebulae), which land within ~10 % of retail's brightness in the clear nebulae, plus a Badlands
+override (`haze_emission 0.3`, `ambient_scale 2.5`, `emission 0.4`). And `burnthrough_over_volume`: retail's `sun_burnthrough` sprites
+(the star glowing through the fog, drawn in `DrainMeshAndAsteroids` without depth) were composited
+under the volume and fogged away by the whole ray; while the camera is inside a drawn nebula they
+are now drawn right after `Draw`, depth-tested (`G_StarBillboardDepthTested`) so they stay behind
+the scene's geometry -- the glow behind the Badlands spires is back.
+
 **Known limitations.**
 
 - Everything `SpaceObjDrawPass` draws before `Draw` without writing depth, apart from star glows

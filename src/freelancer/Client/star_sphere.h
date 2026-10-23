@@ -200,3 +200,8 @@ Vector* StarSphereGetOwnerPosition(FStarSphere const* Sphere, Vector* Out);
 // FUN_00512620 (thiscall on the sphere) -- max(glow scale, centre scale or 0) * Radius; the glow
 // is read with no test. Caller: the Solar radius slot FUN_00548110 (0x00548144).
 float StarSphereMaxGlowScale(FStarSphere const* Sphere);
+
+#ifdef FREELANCER_RP9
+// Port-only (star_sphere.cpp): FStarSphere::DrawBillboard leaves the depth test on while set.
+extern bool G_StarBillboardDepthTested;
+#endif
