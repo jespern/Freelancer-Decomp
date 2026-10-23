@@ -20,6 +20,10 @@
 #include "x86math.h"          // I3DMathEngine::TransformMatrix
 
 #include <cmath>
+#include <cstdio>
+#include <cstdlib>
+#include <ctime>
+#include <map>
 #include <cstring>
 
 using namespace CmnIdea;
@@ -332,6 +336,24 @@ int MoveIdea::Update(float DeltaTime)
     // unordered, so bClose is strictly-less.
     double const Gate = ScaledSpeed + ArrivalRange;
     bool const bClose = (static_cast<double>(BestDistSq) < Gate * Gate);
+
+    // Port dev aid: FLWIN_MOVE_TRACE logs the arrival test (once a second per object).
+    static bool const bMoveTrace = getenv("FLWIN_MOVE_TRACE") != nullptr;
+    if (bMoveTrace)
+    {
+        static std::map<void const*, time_t> Last;
+        time_t const Now = time(nullptr);
+        time_t& ObjLast = Last[Object];
+        if (Now != ObjLast)
+        {
+            ObjLast = Now;
+            Vector const V = Handle->SelfTarget.Iface->get_velocity();
+            fprintf(stderr, "[move] obj %u kind %d mode %d stop %d v %.0f stopdist %.0f range %.0f dist %.0f close %d thr %.2f\n",
+                    ObjInspectOf(Object)->get_id(), TargetKind48, ModeEff, StopStyle,
+                    VelocityMagnitude(V), Speed, ArrivalRange, std::sqrt(static_cast<double>(BestDistSq)),
+                    bClose ? 1 : 0, Throttle);
+        }
+    }
 
     // The three velocity re-fetches below are genuinely three separate retail
     // calls (062d5394, 062d547b, 062d5573), one per ModeEff arm -- not one

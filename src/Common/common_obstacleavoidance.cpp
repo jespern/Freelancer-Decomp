@@ -191,8 +191,10 @@ void ObstacleAvoidance::Update(float Dt)
         }
     }
 
-    // 062de522-062de551: no physics system bound.
-    if (PhysSystemId == 0)
+    // 062de522-062de551: no physics system bound. (Port dev aid: FLWIN_NO_AVOID treats a docking
+    // ship (behaviour 7) as unbound, i.e. switches its obstacle avoidance off, for diagnosis.)
+    static bool const bNoAvoid = getenv("FLWIN_NO_AVOID") != nullptr;
+    if (PhysSystemId == 0 || (bNoAvoid && Owner->CurrentBehaviorIndex == 7))
     {
         ContactObjectId = 0;
         ContactCloseRate = 0.0f;
@@ -329,6 +331,13 @@ void ObstacleAvoidance::Update(float Dt)
         CSimple const* const HitSimple = (CSimple const*)HitObject;
         unsigned const HitType = HitSimple->TypeBits;
         if ((HitType & 0x20c150) == 0 || HitType == OwnType)
+        {
+            continue;
+        }
+        // Port deviation: the pathfinder's excluded object (PathfindManager::Field_064, the dock
+        // target while docking -- see DockBehavior::UpdateApproachTail) is no ray obstacle either.
+        if (Owner->Pathfind->Field_064 != 0 &&
+            HitSimple->Id == static_cast<unsigned>(Owner->Pathfind->Field_064))
         {
             continue;
         }
@@ -1211,6 +1220,10 @@ int PathfindManager::ClassifyObstaclePhase()
             bool const bCandidateClose = (Type & 7u) != 0;
 
             unsigned const CandidateId = Candidate->get_id();
+            // Port deviation: the excluded object (Field_064, the dock target while docking --
+            // see DockBehavior::UpdateApproachTail) is no capsule obstacle either.
+            if (This->Field_064 != 0 && CandidateId == static_cast<unsigned>(This->Field_064))
+                continue;
             ObstacleAvoidance::Slot* SlotPtr = nullptr;
             for (int Cached = 0; Cached < 8; ++Cached)
             {

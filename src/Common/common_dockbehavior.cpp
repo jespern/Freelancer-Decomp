@@ -20,6 +20,7 @@
                            // directly (Common.dll.txt 062c5025)
 
 #include <cmath>
+#include "common_pathfind.h" // PathfindManager::Field_064 (FLWIN_DOCK_TRACE)
 #include <cstdint>
 #include <cstdlib>   // rand -- EnterState(2)'s spread
 #include <cstring>
@@ -276,6 +277,18 @@ int DockBehavior::Update()
     if (DockTraceWants(Owner) && DockTraceThrottle(Owner->is_player() ? 1 : 3))
     {
         Vector const& Pos = Owner->get_position();
+        if (ModeState320 == 2)
+        {
+            Matrix const& R = Owner->get_transform().Rotation;
+            double const Tx = InterceptPoint39c.x - Pos.x, Ty = InterceptPoint39c.y - Pos.y,
+                         Tz = InterceptPoint39c.z - Pos.z;
+            double const L = std::sqrt(Tx * Tx + Ty * Ty + Tz * Tz) + 1e-9;
+            fprintf(stderr, "[dock] ship %u excl %d fwd (%.2f %.2f %.2f) to-icpt (%.2f %.2f %.2f) speed %.0f\n",
+                    Owner->get_id(), static_cast<IBehaviorManager*>(SubObjectA.Context)->Pathfind->Field_064, -R.E[0][2], -R.E[1][2], -R.E[2][2], Tx / L, Ty / L, Tz / L,
+                    std::sqrt(static_cast<double>(Owner->get_velocity().x) * Owner->get_velocity().x +
+                              static_cast<double>(Owner->get_velocity().y) * Owner->get_velocity().y +
+                              static_cast<double>(Owner->get_velocity().z) * Owner->get_velocity().z));
+        }
         fprintf(stderr, "[dock] ship %u exit %d prox %p/%u tail %d state %d ship (%.0f %.0f %.0f) dest (%.0f %.0f %.0f) mount (%.0f %.0f %.0f) icpt (%.0f %.0f %.0f) sphere %d\n",
                 Owner->get_id(), GDockTailExit, const_cast<void*>(static_cast<void const*>(ProxWatcher450.Watcher.target())),
                 static_cast<unsigned>(ProxWatcher450.Flags14), Tail, ModeState320, Pos.x, Pos.y, Pos.z, DestPoint3cc.x, DestPoint3cc.y, DestPoint3cc.z,
@@ -564,6 +577,7 @@ void DockBehavior::RecomputeApproach()
 
         RefreshApproachState();                                      // 062c3847 FUN_062c50e0
     }
+
 
 
     // WIRED FOR REAL (2026-09-17, claude:common-orchestrator). This block used
@@ -1411,6 +1425,20 @@ void DockBehavior::RefreshApproachState()
 int DockBehavior::UpdateApproachTail()
 {
     GDockTailExit = 0;
+
+    // Port deviation: keep the dock target excluded from the pathfinder's obstacle nudge
+    // (PathfindManager::Field_064, FindClosestObstacleToAvoid) through the approach. Retail
+    // publishes it only on the lane branch of RecomputeApproach; here something clears it
+    // again before the approach runs, and NPCs (and the player's autopilot) docking at a berth
+    // inside a solar's radius (Mactan, solar_radius 500) are pushed out to that sphere and
+    // hover there for good.
+    if (ModeState320 >= 2 && ModeState320 <= 9 && static_cast<signed char>(StateFlags32c) >= 0)
+    {
+        Watchable const* const DockWatched = Watcher324.target();
+        if (DockWatched != nullptr)
+            SubObjectA.PublishTargetId(ObjInspectOf(reinterpret_cast<char const*>(DockWatched) -
+                                                    FlWatchableOffset())->get_id());
+    }
     // Retail keeps the eventual result in a stack local ([ESP+0x14], preset to
     // EBX == 1) and stores it into UpdateResult10@0x10 on every exit.
     UpdateResult10 = 1;
