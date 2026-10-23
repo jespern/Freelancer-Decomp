@@ -449,6 +449,15 @@ namespace
                 !bShipBought)
                 SetShipBoughtReputation();
             break;
+        case pub::Controller::EMessage::Heartbeat:
+        {
+            // Port dev aid: with FLWIN_STORY_NO_GRIND the next mission also starts by itself on
+            // the story's heartbeat, without a worth change (a purchase) to prompt the check.
+            static bool const bNoGrindTick = getenv("FLWIN_STORY_NO_GRIND") != nullptr;
+            if (bNoGrindTick && DeltaWorth != -1.0f && MissionNum != 42)
+                AdvanceMission();
+            break;
+        }
         case pub::Controller::EMessage::PlayerMissionChanged:
             if (DeltaWorth != -1.0f && MissionNum != 42 &&
                 static_cast<unsigned int const*>(MessageParms)[1] == PlayerId &&
