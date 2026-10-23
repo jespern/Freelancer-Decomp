@@ -834,8 +834,9 @@ namespace
     // segment's [0,1] parameter range in the edge case.
     inline void IVP_FlagOwnerContactOutsideFeature(IVP_Impact_Solver_Long_Term* Owner)
     {
-        uint32_t* const State = reinterpret_cast<uint32_t*>(reinterpret_cast<char*>(Owner) + 0x54);
-        *State = (*State & 0xFFFFFDFFu) | 0x00000100u;
+        // The dword at +0x54 only has bits 8 and 9 touched: byte +0x55, FrictionIsBroken, bit 1
+        // cleared and bit 0 set -- by member, as ivp_contact_point.cpp does (LP64 moves it).
+        Owner->FrictionIsBroken = (uint8_t)((Owner->FrictionIsBroken & 0xfdu) | 0x01u);
     }
 
     // The owner's ContactNormalWS (+0x00) and TangentAxis0 (+0x78) are 16-byte

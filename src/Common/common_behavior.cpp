@@ -451,7 +451,9 @@ void Behavior::set_afterburner(bool bOn)
     void* const NavHelper = GetNavHelper();
 
     // 062d2114-062d213d: both out-bytes pre-cleared, then slot 0x5c on the -8 adjusted head.
-    void* const Head = *reinterpret_cast<void* const*>(static_cast<char*>(NavHelper) + 0x8);
+    // NavHelper +0x8 is the SystemManager's Watcher; read by member (LP64 moves it).
+    Watchable* const Head =
+        const_cast<Watchable*>(static_cast<SystemManager*>(NavHelper)->Watcher.target());
     bool bCruise = false;
     bool bTradeLane = false;
     (void)ObjInspectOf(ObjRwFromWatchable(Head))->is_cruise_active(bCruise, bTradeLane);
@@ -510,7 +512,6 @@ CObject const* CmnBehavior::FollowerPlayerShipOrNull(CObject const* Object)
 {
     if (Object == nullptr)
         return nullptr;
-    unsigned int const Class = *reinterpret_cast<unsigned int const*>(
-        reinterpret_cast<char const*>(Object) + 0x4c);
+    unsigned int const Class = static_cast<unsigned int>(Object->ObjectClass);
     return ((Class & 0x503u) == 0x503u) ? Object : nullptr;
 }

@@ -9,6 +9,7 @@
 //          FUN_0050d300 / FUN_004215b0 / 00422690 / FUN_00554e90.
 
 #include "star_sphere.h"
+#include "client_gameobj.h" // ClientGameobjObject
 
 #include "DALib.h"
 #include "cli_asteroid.h"
@@ -432,8 +433,8 @@ static FStarFxChild40* AllocChild40(float Field38, float Field3C)
     {
         if (Record == nullptr)
             return nullptr;
-        unsigned char* const Inner = static_cast<unsigned char*>(Record) + 0xc;
-        return *reinterpret_cast<CObject**>(Inner + 0x4);
+        // The client gameobj's Object, through the class (the retail offsets move on LP64).
+        return ClientGameobjObject(Record);
     }
 
     // FUN_0050c750 — is the ray From -> To blocked by something big enough on screen?

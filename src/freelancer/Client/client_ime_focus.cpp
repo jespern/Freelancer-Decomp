@@ -17,6 +17,7 @@
 #include "DALib.h"
 #include "dacom.h"
 #include "render/IRenderPipeline.h"
+#include "fl_ime_input_box.h" // FLImeInputBox::CompositionString
 
 #include <cstring>
 #include <new>
@@ -159,8 +160,8 @@ void ClientIMEFocus::DrawRect(int X1, int Y1, int X2, int Y2, DWORD Color)
     // 0x00563e75..0x00563e88: IMEFocus::GetFocus()+0x9c (the client IMEInputBox's FontString,
     // FUN_00564280) -> vt+0x18 GetSize; the x extents move left by the text width.
     IMEInputBox* Box = GetFocus();
-    FontStringChild* SizeProbe =
-        *reinterpret_cast<FontStringChild**>(reinterpret_cast<char*>(Box) + 0x9c);
+    // +0x9c is the client box's CompositionString (by member: LP64 moves it).
+    FontStringChild* SizeProbe = static_cast<FLImeInputBox*>(Box)->CompositionString;
     int SizeWH[2];
     SizeProbe->GetSize(SizeWH);
     int const Left = X1 - SizeWH[0];

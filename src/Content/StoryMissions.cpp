@@ -59,7 +59,9 @@ namespace
         FGenericMission(unsigned int const* InControllerId, FStoryMissionCreateParms const* Parms)
             : FMissionScript(InControllerId, Parms)
         {
-            LoadMissionIni(reinterpret_cast<char const*>(Parms) + 0xc);
+            // Retail +0xc = the size of the shared parameter prefix; native it is larger, so
+            // count from that (Story.cpp asserts the path sits there).
+            LoadMissionIni(reinterpret_cast<char const*>(Parms) + sizeof(FStoryMissionCreateParms));
         }
     };
 

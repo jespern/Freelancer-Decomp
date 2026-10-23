@@ -1030,7 +1030,7 @@ void StarSysUpdate(float Dt)
         // 005550c4: the client Gameobj's +0x158 word (the jump / dock arm state read by
         // space_scene_obj_draw.cpp GameobjJumpArmState); FClientGameobj keeps it in OpaqueTail.
         if (Player != nullptr)
-            bPlayerFlag = *reinterpret_cast<int*>(static_cast<unsigned char*>(Player) + 0x158) != 0;
+            bPlayerFlag = static_cast<FClientShipGameobj*>(static_cast<IObjRW*>(Player))->Field_0x158 != 0;
     }
 
     // 0x005550d1..0x0055512c: the sum stays on the FPU -- FST stores it to DAT_00679964 as a
@@ -1166,8 +1166,8 @@ void StarSysNoteDamage(IObjRW* Victim, void const* DamageRecord)
     if (Player == nullptr)
         return;
     unsigned const PlayerId = Player->get_id();
-    unsigned const InflictorId =
-        *reinterpret_cast<unsigned const*>(static_cast<unsigned char const*>(DamageRecord) + 0x14);
+    // DamageList +0x14 retail; through the accessor (LP64 moves it behind the std::list).
+    unsigned const InflictorId = static_cast<DamageList const*>(DamageRecord)->get_inflictor_id();
 
     bool bFlag = false;
     if (Victim->get_id() == PlayerId)

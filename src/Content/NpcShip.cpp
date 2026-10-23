@@ -32,14 +32,46 @@
 namespace
 {
     // FUN_06f34100's read: the dword at a fixed byte offset of the directive, the offset
-    // chosen by its GetType() code alone (no cast in retail). MissionObjList.h pins every
-    // class's member at these offsets with static_asserts.
-    unsigned int ReadDirectiveDword(FObjListDirective const* Directive, size_t Offset)
+    // chosen by its GetType() code alone (no cast in retail). MissionObjList.h pins which
+    // member each class has at those retail offsets; on LP64 the offsets differ, so the
+    // member is read by name after resolving the class (GetType 5 is shared by three).
+    template <typename T> unsigned int DirectiveDword(T const& Field)
     {
         unsigned int Value;
-        memcpy(&Value, reinterpret_cast<unsigned char const*>(Directive) + Offset,
-               sizeof(Value));
+        static_assert(sizeof(Field) == sizeof(Value), "a dword member");
+        memcpy(&Value, &Field, sizeof(Value));
         return Value;
+    }
+
+    unsigned int ReadDirectiveDword(FObjListDirective const* Directive, size_t RetailOffset)
+    {
+        if (RetailOffset == 0x17c)
+        {
+            if (auto const* D = dynamic_cast<FObjListGotoShip const*>(Directive))
+                return DirectiveDword(D->Field_0x17c);
+            if (auto const* D = dynamic_cast<FObjListGotoSpline const*>(Directive))
+                return DirectiveDword(D->Field_0x17c);
+            if (auto const* D = dynamic_cast<FObjListGotoVec const*>(Directive))
+                return DirectiveDword(D->Field_0x17c);
+            if (auto const* D = dynamic_cast<FObjListGuide const*>(Directive))
+                return DirectiveDword(D->Op.GotoParams.Field_64);
+            if (auto const* D = dynamic_cast<FObjListGuideShip const*>(Directive))
+                return DirectiveDword(D->Op.GotoParams.Field_64);
+        }
+        else if (RetailOffset == 0x10c)
+        {
+            if (auto const* D = dynamic_cast<FObjListFollow const*>(Directive))
+                return DirectiveDword(D->Field_0x10c);
+        }
+        else if (RetailOffset == 0x1c8)
+        {
+            // GetType 8 / 9 -- no directive class answers either, so retail never gets here.
+            if (auto const* D = dynamic_cast<FObjListGuide const*>(Directive))
+                return DirectiveDword(D->Field_0x1c8);
+            if (auto const* D = dynamic_cast<FObjListGuideShip const*>(Directive))
+                return DirectiveDword(D->Field_0x1c8);
+        }
+        return 0;
     }
 
     // Message 0x100e (ship_in_sights_event) to SpaceSupport.

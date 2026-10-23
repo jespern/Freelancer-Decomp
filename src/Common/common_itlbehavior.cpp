@@ -4,6 +4,7 @@
 // developed by Digital Anvil.
 // Author: Giperion.
 
+#include <cstring>
 #include "common_itlbehavior.h"
 #include "common_cobject.h"  // CObject::ObjectClass, CShip::request_exit_tradelane
 #include "common_systemmanager.h"  // SystemManager::Thrust -- TurnOff
@@ -345,13 +346,15 @@ bool InstantTradeLaneBehavior::AttachDirective(void* Directive)
     // adjacent offsets.
     Flags28 &= ~0x1;
 
-    char* const DirectiveBytes = static_cast<char*>(Directive);
+    // The op's +0xc / +0x10 / +0x14 by member: BaseOp's vptr moves them on LP64.
+    pub::AI::DirectiveInstantTradelaneOp const* const Op =
+        static_cast<pub::AI::DirectiveInstantTradelaneOp const*>(Directive);
     SystemManagerTimerTable const* const LookupThis = &NavHelperPtr24->Timers;
 
-    SubObjPtr34 = LookupThis->FindVerifiedObject((unsigned const*)(DirectiveBytes + 0xc));
-    LanePtr38 = LookupThis->FindVerifiedObject((unsigned const*)(DirectiveBytes + 0x10));
+    SubObjPtr34 = LookupThis->FindVerifiedObject((unsigned const*)(&Op->TradeLaneId));
+    LanePtr38 = LookupThis->FindVerifiedObject((unsigned const*)(&Op->Field_10));
 
-    Field58 = *reinterpret_cast<float*>(DirectiveBytes + 0x14);
+    std::memcpy(&Field58, &Op->Field_14, sizeof(Field58));
 
     if (SubObjPtr34 != nullptr)
         Flags28 |= 0x2;

@@ -26,6 +26,7 @@
 #include "win3d.h"
 #include "win3d_renderables.h"     // Win3DFlushBeforeOverlayDraw (FUN_0045a9f0)
 #include "win_factory.h"
+#include "wire_controls.h" // WireStaticControl::WireState2
 
 #include "common_misc.h"           // SinglePlayer
 #include "dacom.h"                 // FDUMP
@@ -164,8 +165,9 @@ bool NnPause::Create(Win3D* NewParent, void* Data)
         // 0x004a6e0c..0x004a6e16: the last box gets +0x35d |= 1 (no null test).
         if (Index == Count - 1)
         {
-            unsigned char* const Wire = reinterpret_cast<unsigned char*>(ButtonBox[Index]);
-            Wire[0x35d] = static_cast<unsigned char>(Wire[0x35d] | 1);
+            // +0x35d is WireState2 (by member: LP64 moves it).
+            WireStaticControl* const Wire = static_cast<WireStaticControl*>(ButtonBox[Index]);
+            Wire->WireState2 = static_cast<unsigned char>(Wire->WireState2 | 1);
         }
 
         // FUN_005a0e30(name, "ButtonText", {0x32300000, Y + 0.005, -1}, 0, 0.27, 0.03, 1.5, 0,

@@ -528,6 +528,17 @@ public:
 
 namespace IVP_LedgeSweepEvaluatorsDeferred
 {
+    // The bodies below read their evaluator at retail byte offsets, which count from a
+    // 0x14-byte base (4-byte vptr + four 4-byte fields). Natively the base is
+    // sizeof(IVP_Ledge_Sweep_Evaluator) (8-byte vptr), and every derived member -- floats and
+    // four-float IVP_U_Points, all 4-byte aligned -- follows it at the retail spacing, so one
+    // shift maps them (checked against the members in ivp_ledge_sweep_solver.cpp).
+    inline const char *EvaluatorField(const void *EvaluatorThis, int RetailOffset)
+    {
+        return static_cast<const char *>(EvaluatorThis) + RetailOffset +
+               static_cast<int>(sizeof(IVP_Ledge_Sweep_Evaluator) - 0x14);
+    }
+
     // Common.dll.txt:448988-449017 (decomp-tracker item 3363, 26 insns).
     // Fully hand-traced this pass (FPU stack + ESP-relative offsets
     // simulated instruction-by-instruction across both CALLs):
@@ -541,9 +552,9 @@ namespace IVP_LedgeSweepEvaluatorsDeferred
                                      const IVP_U_Matrix *FrameB)
     {
         const IVP_U_Point *P0 =
-            reinterpret_cast<const IVP_U_Point *>(static_cast<const char *>(EvaluatorThis) + 0x14);
+            reinterpret_cast<const IVP_U_Point *>(EvaluatorField(EvaluatorThis, 0x14));
         const IVP_U_Point *P1 =
-            reinterpret_cast<const IVP_U_Point *>(static_cast<const char *>(EvaluatorThis) + 0x24);
+            reinterpret_cast<const IVP_U_Point *>(EvaluatorField(EvaluatorThis, 0x24));
         IVP_U_Point Local1, Local2;
         FrameA->vmult(P0, &Local1);
         FrameB->vmult(P1, &Local2);
@@ -566,9 +577,9 @@ namespace IVP_LedgeSweepEvaluatorsDeferred
                                      const IVP_U_Matrix *FrameB)
     {
         const IVP_U_Point *P0 =
-            reinterpret_cast<const IVP_U_Point *>(static_cast<const char *>(EvaluatorThis) + 0x14);
+            reinterpret_cast<const IVP_U_Point *>(EvaluatorField(EvaluatorThis, 0x14));
         const IVP_U_Point *P1 =
-            reinterpret_cast<const IVP_U_Point *>(static_cast<const char *>(EvaluatorThis) + 0x24);
+            reinterpret_cast<const IVP_U_Point *>(EvaluatorField(EvaluatorThis, 0x24));
         IVP_U_Point Local1, Local2;
         FrameB->vmult(P1, &Local1);
         FrameA->vimult(&Local1, &Local2);
@@ -594,13 +605,13 @@ namespace IVP_LedgeSweepEvaluatorsDeferred
     inline const IVP_U_Point *EvaluatorPoint(const void *EvaluatorThis, int Offset)
     {
         return reinterpret_cast<const IVP_U_Point *>(
-            static_cast<const char *>(EvaluatorThis) + Offset);
+            EvaluatorField(EvaluatorThis, Offset));
     }
 
     inline float EvaluatorFloat(const void *EvaluatorThis, int Offset)
     {
         return *reinterpret_cast<const float *>(
-            static_cast<const char *>(EvaluatorThis) + Offset);
+            EvaluatorField(EvaluatorThis, Offset));
     }
 
     // Common.dll.txt:448882-448975, bytes 0x0635d5b0-0x0635d6c1 (item 3362,

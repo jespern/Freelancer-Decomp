@@ -68,6 +68,7 @@
 // side as retail's mask/jump pair (unordered sets C3, C2 and C0).
 // ============================================================================
 
+#include <cstddef>
 #include <cstdio>
 #include "ivp_ledge_sweep_solver.h"
 
@@ -1179,6 +1180,23 @@ namespace
             return IVP_LedgeSweepEvaluatorsDeferred::Evaluate_0635d7b0(this, FrameA, FrameB);
         }
     };
+
+    // EvaluatorField (ivp_ledge_sweep_solver.h) maps the bodies' retail offsets with one shift;
+    // these hold it to the members it stands for.
+    constexpr std::size_t kEvalShift = sizeof(IVP_Ledge_Sweep_Evaluator) - 0x14;
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Winvalid-offsetof"
+    static_assert(offsetof(IVP_Sweep_PointPlane_Evaluator, Anchor) == 0x34 + kEvalShift, "PointPlane");
+    static_assert(offsetof(IVP_Sweep_EdgeEdge_Evaluator, Scale) == 0x54 + kEvalShift, "EdgeEdge");
+    static_assert(offsetof(IVP_Sweep_VertexEdgeMoment_Evaluator, PointA) == 0x18 + kEvalShift,
+                  "VertexEdgeMoment");
+    static_assert(offsetof(IVP_Sweep_VertexEdgeMoment_Evaluator, MeasureB) == 0x48 + kEvalShift,
+                  "VertexEdgeMoment");
+    static_assert(offsetof(IVP_Sweep_EdgeFanEdge_Evaluator, DirectionB) == 0x44 + kEvalShift,
+                  "EdgeFanEdge");
+    static_assert(offsetof(IVP_Sweep_VertexFanEdge_Evaluator, Direction) == 0x34 + kEvalShift,
+                  "VertexFanEdge");
+#pragma clang diagnostic pop
     static_assert(sizeof(IVP_Sweep_VertexFanEdge_Evaluator) == 0x44,
                   "evaluator must be retail's 0x44-byte frame local");
 }

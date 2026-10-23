@@ -159,7 +159,7 @@ EvaluateResult FormationBehavior::evaluate(unsigned int Context)
     CObject const* OwnShip = Owner->cobject();
     unsigned int OwnGroup = 0;
     if (OwnShip != nullptr && (static_cast<unsigned int>(OwnShip->ObjectClass) & 0x503u) == 0x503u)
-        OwnGroup = *reinterpret_cast<unsigned int const*>(reinterpret_cast<char const*>(OwnShip) + 0x1b4);
+        OwnGroup = static_cast<CShip const*>(OwnShip)->GroupId;
     else
         OwnShip = nullptr;
 
@@ -176,11 +176,11 @@ EvaluateResult FormationBehavior::evaluate(unsigned int Context)
         CObject const* const A = FollowerPlayerShipOrNull(Owner->cobject());
         CObject const* const B = FollowerPlayerShipOrNull(ObjInspectOf(Target)->cobject());
         if (A != nullptr && B != nullptr &&
-            *(reinterpret_cast<unsigned char const*>(A) + 0x2bd) != 0 &&
-            *(reinterpret_cast<unsigned char const*>(B) + 0x2bd) != 0)
+            static_cast<CShip const*>(A)->bIsPlayer != 0 &&
+            static_cast<CShip const*>(B)->bIsPlayer != 0)
         {
-            unsigned int const GroupA = *reinterpret_cast<unsigned int const*>(reinterpret_cast<char const*>(A) + 0x1b4);
-            unsigned int const GroupB = *reinterpret_cast<unsigned int const*>(reinterpret_cast<char const*>(B) + 0x1b4);
+            unsigned int const GroupA = static_cast<CShip const*>(A)->GroupId;
+            unsigned int const GroupB = static_cast<CShip const*>(B)->GroupId;
             if (GroupA == 0 || GroupB == 0 || GroupA != GroupB)
                 return EvalSkip;
         }
@@ -227,11 +227,11 @@ EvaluateResult FormationBehavior::evaluate(unsigned int Context)
     // 062cc2b1-062cc2f8: against the owner's ship captured at the top.
     CObject const* const TargetShip = FollowerPlayerShipOrNull(ObjInspectOf(Target)->cobject());
     if (OwnShip != nullptr && TargetShip != nullptr &&
-        *(reinterpret_cast<unsigned char const*>(TargetShip) + 0x2bd) != 0)
+        static_cast<CShip const*>(TargetShip)->bIsPlayer != 0)
     {
         if (OwnGroup == 0)
             return EvalSkip;
-        if (*reinterpret_cast<unsigned int const*>(reinterpret_cast<char const*>(TargetShip) + 0x1b4) != OwnGroup)
+        if (static_cast<CShip const*>(TargetShip)->GroupId != OwnGroup)
             return EvalSkip;
     }
 
@@ -267,7 +267,7 @@ EvaluateResult FormationBehavior::evaluate(unsigned int Context)
     {
         CObject const* const TargetObj = ObjInspectOf(Target)->cobject();
         if (TargetObj != nullptr && (static_cast<unsigned int>(TargetObj->ObjectClass) & 0x503u) == 0x503u &&
-            *reinterpret_cast<unsigned int const*>(reinterpret_cast<char const*>(TargetObj) + 0x1b4) == OwnGroup)
+            static_cast<CShip const*>(TargetObj)->GroupId == OwnGroup)
             Attitude = 0.0f;
     }
     if (Attitude > -0.6f)

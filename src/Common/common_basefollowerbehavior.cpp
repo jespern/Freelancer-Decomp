@@ -211,13 +211,13 @@ int BaseFollowerBehavior::Slot7()
             CObject const* const OwnerShip = FollowerPlayerShipOrNull(Owner->cobject());
             CObject const* const LeaderShip = FollowerPlayerShipOrNull(Node->cobject());
             if (OwnerShip != nullptr && LeaderShip != nullptr &&
-                *(reinterpret_cast<unsigned char const*>(OwnerShip) + 0x2bd) != 0 &&
-                *(reinterpret_cast<unsigned char const*>(LeaderShip) + 0x2bd) != 0)
+                static_cast<CShip const*>(OwnerShip)->bIsPlayer != 0 &&
+                static_cast<CShip const*>(LeaderShip)->bIsPlayer != 0)
             {
                 unsigned int const OwnerGroup =
-                    *reinterpret_cast<unsigned int const*>(reinterpret_cast<char const*>(OwnerShip) + 0x1b4);
+                    static_cast<CShip const*>(OwnerShip)->GroupId;
                 unsigned int const LeaderGroup =
-                    *reinterpret_cast<unsigned int const*>(reinterpret_cast<char const*>(LeaderShip) + 0x1b4);
+                    static_cast<CShip const*>(LeaderShip)->GroupId;
                 if (OwnerGroup == 0 || LeaderGroup == 0 || OwnerGroup != LeaderGroup)
                 {
                     UpdateResult = 3;
@@ -499,7 +499,7 @@ int BaseFollowerBehavior::Slot7()
     if (!Rec->FollowerDirectiveGateA() || Rec->FollowerDirectiveGateB())
     {
         if (Rec->FollowerDirectiveGateB() &&
-            *(reinterpret_cast<unsigned char*>(Sys) + 0x1958) != 0)
+            Sys->PersonalityData.JobParams.bForceAttackFormation != 0)
         {
             ReachedPayload = true;
         }

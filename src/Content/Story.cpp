@@ -16,6 +16,7 @@
 #include "common_ini.h"
 #include "common_server.h"
 
+#include <cstddef>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -45,6 +46,10 @@ namespace
         IStoryMissionEvents* StoryEvents;
         char GenericMissionPath[0x3c];
     };
+    // FGenericMission (StoryMissions.cpp) finds the path right after the shared prefix.
+    static_assert(offsetof(FStoryOnLoadCreateParms, GenericMissionPath) ==
+                      sizeof(FStoryMissionCreateParms),
+                  "GenericMission path follows the FStoryMissionCreateParms prefix");
 
     // Message 4 / 5 parameter blocks (HandleMessage 06ea6140 / 06ea6198).
     struct FStorySaveMessage

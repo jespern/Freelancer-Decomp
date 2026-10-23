@@ -5,6 +5,7 @@
 // Author: Giperion.
 
 #include "room_control.h"
+#include "gf_thorn_scene.h" // FThorn_Scene::Ambient (GetAmbientOverride)
 #ifdef FREELANCER_WALK_MODE
 #include "base_walk.h"
 #endif
@@ -2257,7 +2258,11 @@ int const* FRoomObject::GetAmbientOverride() const
     // FUN_00559590.
     if (AmbientSource == nullptr)
         return nullptr;
-    return reinterpret_cast<int const*>(static_cast<unsigned char const*>(AmbientSource) + 0x6c);
+    // +0x6c is the scene's Ambient (three raw dwords from its script blob); by member, since
+    // the scene's LP64 layout puts it elsewhere. SetScene only ever stores scene components.
+    FThorn_Scene const* const Scene =
+        static_cast<FThorn_Scene const*>(static_cast<FThornComponent const*>(AmbientSource));
+    return reinterpret_cast<int const*>(Scene->Ambient);
 }
 
 // ---------------------------------------------------------------------------
