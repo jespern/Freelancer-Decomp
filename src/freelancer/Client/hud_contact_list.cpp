@@ -346,7 +346,18 @@ namespace
             dlsym(RTLD_DEFAULT, "_ZN3pub8SpaceObj7DestroyEj11DestroyType"));
         IObjRW* const Player = static_cast<IObjRW*>(GetPlayerObjRW());
         std::vector<unsigned> Ids;
-        for (std::list<FHudContactEntry>::iterator It = Contacts.begin(); It != Contacts.end(); ++It)
+        // kill:#Nickname -- the solar whose id is the nickname's CreateID (a mission solar too),
+        // listed or not.
+        if (Want[0] == '#')
+        {
+            unsigned const WantId = CreateID(Want + 1);
+            if (CObject* const Solar = CObject::Find(WantId, CObject::ClassSolar))
+            {
+                Solar->Release();
+                Ids.push_back(WantId);
+            }
+        }
+        for (std::list<FHudContactEntry>::iterator It = Contacts.begin(); It != Contacts.end() && Want[0] != '#'; ++It)
         {
             IObjRW* const Obj = It->Object();
             if (Obj == nullptr || It->Kind == 3 || It->Kind == 4)
