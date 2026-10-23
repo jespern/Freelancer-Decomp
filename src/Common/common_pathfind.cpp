@@ -257,6 +257,17 @@ void PathfindManager::Update(float Dt)
         return;
     }
 
+    // Port dev aid: FLWIN_PLAYER_NO_AVOID=1 (read every tick; input scripts flip it with
+    // `avoid:0` / `avoid:1`) turns every obstacle-avoidance path off for the player's ship, so
+    // its autopilot flies straight through race gates and rings instead of steering round them.
+    char const* const NoAvoid = getenv("FLWIN_PLAYER_NO_AVOID");
+    if (NoAvoid != nullptr && NoAvoid[0] == '1' && PathfindOwnerObject(Owner)->is_player())
+    {
+        Avoidance.ResetContact();
+        Reaction.ResetState();
+        return;
+    }
+
     // 062dd778-062dd7a3: EBX = the owner's CurrentBehaviorIndex, read before the probe.
     // Timer1E0 += Dt; the unrounded sum against Period1E4 (TEST AH,0x41 / JNZ skips <=, ==
     // and unordered).

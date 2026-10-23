@@ -310,6 +310,10 @@ bool CEEngine::EngageCruise(bool Engage, bool Instant)
     if (Engage)
     {
         OwnerShipOrNull(Owner)->set_throttle(1.0f);                            // 06296299
+        // Port dev aid: FLWIN_PLAYER_CRUISE_THROUGH=1 also skips the player's cruise charge.
+        if (char const* const Through = getenv("FLWIN_PLAYER_CRUISE_THROUGH"))
+            if (Through[0] == '1' && OwnerShipOrNull(Owner)->is_player())
+                Instant = true;
         if (Instant)
         {
             // 062962a6..062962cb: Elapsed = CruiseChargeTime, notify 3, wakeup.

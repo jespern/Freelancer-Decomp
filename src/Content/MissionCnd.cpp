@@ -726,6 +726,30 @@ bool CndDistCircle::Matches(pub::Controller::EMessage /*EventId*/, void const* /
             }
         }
     }
+    // Port dev aid: FLWIN_MSN_TRACE=2 logs every gate (circle) test.
+    static bool const bCircleTrace = [] {
+        char const* const Value = getenv("FLWIN_MSN_TRACE");
+        return Value != nullptr && atoi(Value) >= 2;
+    }();
+    if (bCircleTrace)
+    {
+        double const Dx = static_cast<double>(Position.x) - LastPosition.x;
+        double const Dy = static_cast<double>(Position.y) - LastPosition.y;
+        double const Dz = static_cast<double>(Position.z) - LastPosition.z;
+        double const Side = Position.x * Normal.x + Position.y * Normal.y + Position.z * Normal.z + PlaneOffset;
+        double const Cx = CircleCenter.x - Position.x, Cy = CircleCenter.y - Position.y, Cz = CircleCenter.z - Position.z;
+        static unsigned LastObj = 0;
+        if (LastObj != CircleObjId)
+        {
+            LastObj = CircleObjId;
+            fprintf(stderr, "[circle] obj %u centre %.0f %.0f %.0f normal %.3f %.3f %.3f\n", CircleObjId,
+                    CircleCenter.x, CircleCenter.y, CircleCenter.z, Normal.x, Normal.y, Normal.z);
+        }
+        fprintf(stderr, "[circle] obj %u step %.0f along %.2f side %.0f dist %.0f radius %.0f hit %d\n", CircleObjId,
+                sqrt(Dx * Dx + Dy * Dy + Dz * Dz),
+                (Dx * Normal.x + Dy * Normal.y + Dz * Normal.z) / (sqrt(Dx * Dx + Dy * Dy + Dz * Dz) + 1e-9),
+                Side, sqrt(Cx * Cx + Cy * Cy + Cz * Cz), Radius, bResult ? 1 : 0);
+    }
     LastPosition = Position;
     return bResult;
 }

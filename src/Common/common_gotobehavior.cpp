@@ -1410,6 +1410,11 @@ int GotoBehavior::Update()
             bCruise = BehaviorMgrPtr20->Pathfind->IsCruiseUnobstructed() ? 1 : 0;
         if (Flag36a != 0)
             bCruise = 1;
+        // Port dev aid: FLWIN_PLAYER_CRUISE_THROUGH=1 (see MoveIdea::Update) also cruises the
+        // player's autopilot on legs shorter than the 1750 m it needs to choose cruise itself.
+        if (char const* const Through = getenv("FLWIN_PLAYER_CRUISE_THROUGH"))
+            if (Through[0] == '1' && Elem->Iface->is_player())
+                bCruise = 1;
         if (Flag36b != 0)
             bCruise = 0;
 

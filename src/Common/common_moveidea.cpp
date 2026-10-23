@@ -270,7 +270,12 @@ int MoveIdea::Update(float DeltaTime)
     // DAT_063a0470 the double 300.0, so the threshold is 900.0 and retail
     // compares its SQUARE against BestDistSq. `TEST AH,0x41; JNZ` skips unless
     // the threshold squared is strictly greater, i.e. unless we are inside 900.
-    if (Mode == 2 && StopStyle != 2)
+    // Port dev aid: FLWIN_PLAYER_CRUISE_THROUGH=1 keeps the player's autopilot in cruise up to
+    // the target (races: gates closer together than the 900 m cruise exit).
+    char const* const CruiseThrough = getenv("FLWIN_PLAYER_CRUISE_THROUGH");
+    bool const bKeepCruise = CruiseThrough != nullptr && CruiseThrough[0] == '1' &&
+                             ObjInspectOf(Object)->is_player();
+    if (Mode == 2 && StopStyle != 2 && !bKeepCruise)
     {
         double const Threshold = 3.0 * 300.0;
         if (Threshold * Threshold > static_cast<double>(BestDistSq))
@@ -388,7 +393,9 @@ int MoveIdea::Update(float DeltaTime)
         // LAB_062d5414: the unrounded bearing FCOMPs MaxThrustBearing; TEST AH,0x5 +
         // JP to 062d544c on greater, equal or unordered.
         double const Bearing = BearingAngleToPoint(Object, Goal);    // 062d541d
-        if (Bearing < MaxThrustBearing)
+        // FLWIN_PLAYER_CRUISE_THROUGH: hold cruise through gentle turns (three times the bearing
+        // that would drop it); only a sharp turn drops it.
+        if (Bearing < MaxThrustBearing || (bKeepCruise && Bearing < 3.0 * MaxThrustBearing))
         {
             Handle->Thrust.SetThrottle(Throttle, 2); // 062d543a
         }

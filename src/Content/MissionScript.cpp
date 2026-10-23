@@ -405,7 +405,7 @@ void ActivateMissionTrigger(FMissionScript* Script, unsigned int const* TriggerI
     {
         Trigger.State = G_TriggerStateComplete;
         if (MissionTraceOn())
-            fprintf(stderr, "[msn] fire %u (activate)\n", *TriggerId);
+            fprintf(stderr, "[msn] fire %u (activate) t=%.2f\n", *TriggerId, GetContentGameTime());
         MissionSignalTrigger(*TriggerId);
         std::list<Act*>::iterator ActIt = Trigger.Actions.begin();
         for (; ActIt != Trigger.Actions.end(); ++ActIt)
@@ -479,7 +479,7 @@ void DispatchMissionTriggerEvent(FMissionScript* Script, EMessage const* EventId
             if (Trigger.Condition->Matches(*EventId, EventParms))
             {
                 if (MissionTraceOn())
-                    fprintf(stderr, "[msn] fire %u (event %d)\n", (*ActiveIt)->first, (int)*EventId);
+                    fprintf(stderr, "[msn] fire %u (event %d) t=%.2f\n", (*ActiveIt)->first, (int)*EventId, GetContentGameTime());
                 MissionSignalTrigger((*ActiveIt)->first);
                 Trigger.State = G_TriggerStateComplete;
                 std::list<Act*>::iterator ActIt = Trigger.Actions.begin();

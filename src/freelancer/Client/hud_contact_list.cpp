@@ -418,6 +418,36 @@ namespace
             }
             return;
         }
+        // select:@near:X,Y,Z,R -- selects nothing: done once the player's ship is within R of
+        // the point (a script's way to wait for the ship to get somewhere).
+        if (strncmp(Want, "@near:", 6) == 0)
+        {
+            Vector Pos{0.0f, 0.0f, 0.0f};
+            float Range = 0.0f;
+            IObjRW* const Ship = static_cast<IObjRW*>(GetPlayerObjRW());
+            if (Ship != nullptr && sscanf(Want + 6, "%f,%f,%f,%f", &Pos.x, &Pos.y, &Pos.z, &Range) == 4)
+            {
+                Vector const& Here = Ship->get_position();
+                double const Dx = Here.x - Pos.x, Dy = Here.y - Pos.y, Dz = Here.z - Pos.z;
+                if (Dx * Dx + Dy * Dy + Dz * Dz < static_cast<double>(Range) * Range)
+                    FlScriptSelectDone();
+            }
+            return;
+        }
+        // select:@pos:X,Y,Z -- a player waypoint at that point of the current system (as a nav map
+        // click sets one), targeted, so a goto (F2) flies there: e.g. just past a race gate.
+        if (strncmp(Want, "@pos:", 5) == 0)
+        {
+            Vector Pos{0.0f, 0.0f, 0.0f};
+            if (sscanf(Want + 5, "%f,%f,%f", &Pos.x, &Pos.y, &Pos.z) == 3)
+            {
+                ResetPlayerWaypointsRetail();
+                AddPlayerWaypointRetail(Pos, GetPlayerStarSystemIdRetail(), 0);
+                HudWaypointSelectPlayerWaypoint(0);
+            }
+            FlScriptSelectDone();
+            return;
+        }
         // select:@waypoint -- the player's mission waypoint row, as clicking it would (its
         // object becomes the target; F3 then docks with a waypoint lane ring or gate).
         if (strcmp(Want, "@waypoint") == 0)

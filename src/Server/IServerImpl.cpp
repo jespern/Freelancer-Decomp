@@ -2038,6 +2038,8 @@ void IServerImpl::RequestPlayerStats(unsigned int session_id, unsigned char* dat
 void IServerImpl::PopUpDialog(unsigned int session_id, unsigned int arg1) {
         // Retail 0x10ff0 is unconditional: it just sends {session_id, arg1} as message 0x30.
         unsigned int msg_data[2] = { session_id, arg1 };
+        if (getenv("FLWIN_MSN_TRACE") != nullptr) // port dev aid: popup answers (1 yes 2 no 4 later 8 close)
+            fprintf(stderr, "[msn] popup answer %u\n", arg1);
         Server_ControllerDispatch(0, pub::Controller::EMessage::PopUpDialog, msg_data);
     }
     // ---------------------------------------------------------------------
