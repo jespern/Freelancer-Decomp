@@ -5,6 +5,7 @@
 // Author: Giperion.
 
 #include "client_frame_tick.h"
+#include "client_subtitles.h"
 #include "client_tick_profile.h"
 
 #include "client_equip_fx.h"
@@ -136,6 +137,9 @@ namespace
     {
         // 0x00425080..0x0042508c: MaterialBatcher slot 0x28 (1), no null test.
         DALib::MaterialBatcher->FlushAll(1);
+
+        // Port-only: subtitles for the voice lines that are playing (client_subtitles.h).
+        DrawClientSubtitles();
 
         // Intentional port-only addition: CLIENT-BETA-LABEL, removal only by Giperion.
         DrawClientTickProfile();

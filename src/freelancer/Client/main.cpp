@@ -26,6 +26,7 @@
 #include "effect_base.h"      // EffectSystemShutdown (FUN_004f7140)
 #include "vis_effect_arch.h"  // EffectArchShutdown (FUN_0040ef30)
 #include "font_imp.h"         // FontShutdown (FUN_004174a0)
+#include "client_subtitles.h"    // Port-only subtitles, released before fonts
 #include "client_tick_profile.h" // Port-only diagnostics, released before fonts
 #include "gameflow.h"
 #include "globals.h"
@@ -554,6 +555,7 @@ namespace
         ClearEffectShapesFiles(); // FUN_004f73b0 (0x005b2290)
         UiScrollClearShapes(); // FUN_00595400
         ShutdownClientTickProfile(); // CLIENT-BETA-LABEL: release cached atlas owners first
+        ShutdownClientSubtitles();   // port: its font strings hold atlas pages too
         FontShutdown(); // FUN_004174a0 (0x005b229a)
         ShutdownRichText();
         ShutdownDebrisArchDb(); // FUN_00530fa0 (0x005b22a5)

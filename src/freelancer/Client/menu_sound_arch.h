@@ -109,6 +109,11 @@ void ResumePausedClientSounds();
 // FUN_00428000(Arch) -- how many live sources play Arch. Caller: FUN_00564760 (the UI sound
 // table's "anything still playing" test).
 int CountClientSoundArchSources(void* Arch);
+// Port-only: every started source with its archetype (a SoundImpl or a VoiceMsg) and whether it
+// is paused, in start order. Used by the subtitle overlay (client_subtitles.h).
+typedef void (*FPlayingClientSoundVisitor)(void* Context, void* Source, Archetype::ISound* Arch,
+                                           bool bPaused);
+void VisitPlayingClientSounds(FPlayingClientSoundVisitor Visit, void* Context);
 
 // FUN_00428ba0 / FUN_00428bc0: copy global BGM/ambient source.
 unsigned char BindClientBackgroundMusic(void** OutSource);
