@@ -46,6 +46,7 @@
 #include "common_archetype.h"
 #include "common_cobject.h"         // CShip
 #include "common_goods.h"
+#include "nn_messaging.h" // NnVoiceEnqueue
 #include "common_id.h"              // CreateID
 #include "common_server.h"          // IServer
 #include "common_text.h"            // RenderDisplayList, StyleNode
@@ -158,12 +159,10 @@ namespace
         List->Refresh(-1);
     }
 
-    // FUN_00489e80(Id, 0) -- the NN voice queue (DAT_00671f50, FUN_00489b50) is not in the port.
-    // HOLE: each call is reported instead of queueing the line.
+    // FUN_00489e80(Id, 0) -- the NN voice queue (nn_messaging).
     void QueueTradeVoice(unsigned VoiceId)
     {
-        FDUMP(0x100002, "NN_Trade: HOLE FUN_00489e80 (voice %u) -- voice queue not ported",
-              VoiceId);
+        NnVoiceEnqueue(VoiceId, 0);
     }
 
     // FUN_004bff30 (cdecl) -- blink a '|' caret at the end of Text every half second.

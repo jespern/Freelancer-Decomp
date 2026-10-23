@@ -80,13 +80,13 @@ namespace
         // +0x00..+0x18 — the MissionVendorProperties cache (FUN_0043c0d0, torn down at
         // 0x00439cda). Its +0x14 byte (bComplete) is what FUN_0043aaf0 sets (Runtime+0x14).
         // Filled by the MirrorDatabase listener LAB_004378f0 -> FUN_0043a960 (upsert) /
-        // LAB_004378d0 -> FUN_0043a9f0 (erase): HOLE, the listener is not ported (W4-D), so the
-        // list stays empty. Read by NN_MissionVendor (FUN_0048b6e0 / FUN_0048c770).
+        // LAB_004378d0 -> FUN_0043a9f0 (erase), both in client_iclient.cpp. Read by
+        // NN_MissionVendor (FUN_0048b6e0 / FUN_0048c770).
         TMirrorPropertyBucket<MissionVendorProperties> MissionOffers; // +0x00
         // +0x18..+0x30 — the NewsBroadcastProperties cache (FUN_0043c310; MetaList vftable
-        // 0x005cb02c). Its +0x14 byte (Runtime+0x2c) is what FUN_0043a860 sets. Same listener
-        // HOLE as above, so the list stays empty. Read by NN_News (FUN_004a4fd0 through
-        // FUN_0043a630).
+        // 0x005cb02c). Its +0x14 byte (Runtime+0x2c) is what FUN_0043a860 sets. Filled by the
+        // same listener (FUN_0043a6c0 upsert, client_iclient.cpp). Read by NN_News
+        // (FUN_004a4fd0 through FUN_0043a630).
         TMirrorPropertyBucket<NewsBroadcastProperties> News;          // +0x18
         FClientMarket Market;     // +0x30 — FUN_0042abc0, filled by FUN_00437de0 (client_base_market.h)
         unsigned NewsId;          // +0x44 — the randomly picked news item, 0xffffffff = none

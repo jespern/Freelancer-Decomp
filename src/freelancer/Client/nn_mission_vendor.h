@@ -84,7 +84,7 @@ public:
 
     // FUN_0048d4a0 (cdecl) -- the server's answer to an accept: bAccepted closes the window at
     // the next Update, otherwise the selection is cleared and the reason is shown. Caller: the
-    // MirrorDatabase listener 0x004379b0 (unported, HOLE).
+    // MirrorDatabase listener 0x004379b0 (client_iclient.cpp).
     static void OnAcceptResult(MissionVendorAcceptance const& Result);
 
     float BasePosition[3];               // +0x330 {0, -0.1, -1.498}, set by Create
