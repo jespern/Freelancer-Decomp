@@ -5,6 +5,8 @@
 // Author: Giperion.
 
 #include <cstdlib>
+#include <ctime>
+#include <cstdio>
 #include "common_gotobehavior.h"
 #include "common_iface.h"   // IObjInspect / IObjRW, ObjInspectOf, ObjRwFromWatchable
 #include "common_csys.h"          // Transform, Matrix, Acquire3DMathEngine
@@ -1422,7 +1424,21 @@ int GotoBehavior::Update()
         // E+0x50). Retail zeroes only its first four dwords; the flag byte is value-initialised
         // here as well (the callee writes it on every path that returns true).
         FormationFollowerEnvelope Envelope{};
-        if (Sys->GunConvergenceStateBytes.ComputeFormationFollowerEnvelope(&Envelope))
+        bool const bEnvelope = Sys->GunConvergenceStateBytes.ComputeFormationFollowerEnvelope(&Envelope);
+        // Port dev aid: FLWIN_MOVE_TRACE logs the formation envelope a player's goto gets.
+        static bool const bEnvTrace = getenv("FLWIN_MOVE_TRACE") != nullptr;
+        if (bEnvTrace && Elem->Iface->is_player())
+        {
+            static time_t Last = 0;
+            time_t const Now = time(nullptr);
+            if (Now != Last)
+            {
+                Last = Now;
+                fprintf(stderr, "[goto] player envelope %d throttle %.2f speed %.1f flag10 %d cruise %d own throttle %.2f\n",
+                        bEnvelope ? 1 : 0, Envelope.Throttle, Envelope.Speed, Envelope.Flag10, bCruise, Throttle);
+            }
+        }
+        if (bEnvelope)
         {
             // 062fe2f4-062fe31e: MoveIdea angle pi (`PUSH 0x40490fdb`), Throttle clamped down to
             // the envelope's (`TEST AH,0x5; JP` -> assign only when strictly less), MoveIdea
