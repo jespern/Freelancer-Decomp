@@ -88,8 +88,9 @@ struct FPrefVideoMode
 
 #ifdef FREELANCER_WIDESCREEN_SUPPORT
 // Port-only: the resolutions come from the device instead of retail's fixed five, so the table
-// grows. The layout past +0x8cc no longer matches retail under the define.
-constexpr int kPrefVideoResolutionCount = 24;
+// grows. The layout past +0x8cc no longer matches retail under the define. 24 are used unless
+// FLSharp's better_resolutions is on (63, its 127-mode table at 16 and 32 bpp).
+constexpr int kPrefVideoResolutionCount = 63;
 #else
 constexpr int kPrefVideoResolutionCount = 5;
 #endif
@@ -114,7 +115,7 @@ public:
     // slot 20 FUN_004adac0 (RET 8)
     bool KeyEvent(unsigned Key, unsigned char* Modifiers) override;
     // slot 23 FUN_004ada30 (RET 0xc)
-    bool Slot23(unsigned Msg, unsigned A, unsigned B) override;
+    bool Slot23(unsigned Msg, uintptr_t A, uintptr_t B) override;
     // slot 42 FUN_004ac0a0 (RET 0xc)
     intptr_t SetProperty(int Msg, uintptr_t A, uintptr_t B) override;
 
@@ -217,6 +218,10 @@ public:
     int ModeCount;                                  // +0x950
     int CycleIndex[kPrefVideoModeCount];            // +0x954
     unsigned char bBigVram;         // +0x97c
+    // HD: FLSharp better_resolutions -- the heights that go with SelWidth / CurWidth (FLSharp's
+    // +0x980 / +0x984), so same-width modes differ; compared only with the fix on.
+    int SelHeight;
+    int CurHeight;
 
 private:
     // FUN_004abdf0 (RET 4) -- hide / show the current page's row widgets.
@@ -270,7 +275,7 @@ private:
     // FUN_004b1450 (RET 0xc)
     void SetSliderOption(int Id, int Value, int Row);
     // FUN_004b1c00 (RET 8)
-    bool TryApplyVideoMode(int Width, unsigned char b32);
+    bool TryApplyVideoMode(int Width, int Height, unsigned char b32);
     // FUN_004b1d20 (RET 0xc)
     void SetToggleOption(int Id, int Value, int Row);
     // FUN_004b1f30 (RET 8)

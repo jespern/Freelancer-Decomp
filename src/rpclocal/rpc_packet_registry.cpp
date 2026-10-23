@@ -51,10 +51,29 @@
 
 namespace {
 
+// A field at a native payload offset: freelancer-mac's tools/rpc_seed_offsets.py maps the retail offsets of the
+// payloads that hold pointers to their members' native offsets.
+template<typename T>
+inline T& RpcPacketFieldNative(FPacketBase* Packet, unsigned int PayloadOffset) {
+    return *reinterpret_cast<T*>(Packet->Payload() + PayloadOffset);
+}
+
+inline void RpcPacketStoreNative(FPacketBase* Packet, unsigned int PayloadOffset, unsigned int Width,
+                                 unsigned int Value) {
+    unsigned char* Bytes = Packet->Payload() + PayloadOffset;
+    if (Width == 1)
+        *Bytes = (unsigned char)(Value & 0xffu);
+    else if (Width == 2)
+        *reinterpret_cast<unsigned short*>(Bytes) = (unsigned short)(Value & 0xffffu);
+    else
+        *reinterpret_cast<unsigned int*>(Bytes) = Value;
+}
+
 // A field at a packet-relative offset, exactly as the retail bodies address it.
 template<typename T>
 inline T& RpcPacketField(FPacketBase* Packet, unsigned int Offset) {
-    return *reinterpret_cast<T*>(reinterpret_cast<unsigned char*>(Packet) + Offset);
+    // Offset is retail's packet-relative one; the payload begins after the native base.
+    return *reinterpret_cast<T*>(Packet->Payload() + (Offset - 0x20u));
 }
 
 // One node of an MSVCP60 std::list<T*> embedded in a packet: { _Next, _Prev, _Myval }.
@@ -90,7 +109,7 @@ public:
             ::operator delete(Handle);                  // 06da220b CALL FUN_06db1dc2
         }
     }
-    unsigned char EquipBody[0x04];   // +0x20 the handle pointer
+    alignas(void*) unsigned char EquipBody[sizeof(void*)];   // +0x20 the handle pointer (a dword in retail)
 };
 
 // Vtable 06db3fb4, slot 0 the purecall stub LAB_06db1dd0: abstract. CREATESHIP and
@@ -130,23 +149,23 @@ static_assert(sizeof(FRpcCreateObjectPacket) == 0x20u,
 class FPacket_FLPACKET_COMMON_FIREWEAPON : public FPacketBase {
 public:
     FPacket_FLPACKET_COMMON_FIREWEAPON() : FPacketBase(0x10002u) {
-        RpcPacketStoreField(this, 0x20u, 4, 0u);   // 06d9afc5
-        RpcPacketStoreField(this, 0x24u, 4, 0x7f7fffffu);   // 06d9afcd
-        RpcPacketStoreField(this, 0x28u, 4, 0x7f7fffffu);   // 06d9afd0
-        RpcPacketStoreField(this, 0x2cu, 4, 0x7f7fffffu);   // 06d9afd3
-        RpcPacketStoreField(this, 0x30u, 1, 0u);   // 06d9afda byte copied from an uninitialised stack slot
-        RpcPacketStoreField(this, 0x34u, 4, 0u);   // 06d9afdd
-        RpcPacketStoreField(this, 0x38u, 4, 0u);   // 06d9afe0
-        RpcPacketStoreField(this, 0x3cu, 4, 0u);   // 06d9afe3
+        RpcPacketStoreNative(this, 0x0u /* ObjectId, retail 0x20 */, 4, 0u);   // 06d9afc5
+        RpcPacketStoreNative(this, 0x4u /* TargetPos.x, retail 0x24 */, 4, 0x7f7fffffu);   // 06d9afcd
+        RpcPacketStoreNative(this, 0x8u /* TargetPos.y, retail 0x28 */, 4, 0x7f7fffffu);   // 06d9afd0
+        RpcPacketStoreNative(this, 0xcu /* TargetPos.z, retail 0x2c */, 4, 0x7f7fffffu);   // 06d9afd3
+        RpcPacketStoreNative(this, 0x10u /* Hardpoints.AllocPad, retail 0x30 */, 1, 0u);   // 06d9afda byte copied from an uninitialised stack slot
+        RpcPacketFieldNative<void*>(this, 0x18u /* Hardpoints.Begin, retail 0x34 */) = nullptr;   // 06d9afdd
+        RpcPacketFieldNative<void*>(this, 0x20u /* Hardpoints.End, retail 0x38 */) = nullptr;   // 06d9afe0
+        RpcPacketFieldNative<void*>(this, 0x28u /* Hardpoints.Cap, retail 0x3c */) = nullptr;   // 06d9afe3
     }
     // FUN_06d9b020
     ~FPacket_FLPACKET_COMMON_FIREWEAPON() override {
         // No test: 06d9b023 MOV EAX,[ESI+0x34] / 06d9b027 CALL free, then the three
         // dwords of the hardpoint vector cleared (06d9b031..06d9b037).
-        ::operator delete(RpcPacketField<void*>(this, 0x34u));
-        RpcPacketField<unsigned int>(this, 0x34u) = 0;
-        RpcPacketField<unsigned int>(this, 0x38u) = 0;
-        RpcPacketField<unsigned int>(this, 0x3cu) = 0;
+        ::operator delete(RpcPacketFieldNative<void*>(this, 0x18u /* Hardpoints.Begin, retail 0x34 */));
+        RpcPacketFieldNative<unsigned int>(this, 0x18u /* Hardpoints.Begin, retail 0x34 */) = 0;
+        RpcPacketFieldNative<unsigned int>(this, 0x20u /* Hardpoints.End, retail 0x38 */) = 0;
+        RpcPacketFieldNative<unsigned int>(this, 0x28u /* Hardpoints.Cap, retail 0x3c */) = 0;
     }
     unsigned int Encode(unsigned char** BufferHolder, unsigned int Capacity,
                         unsigned int* OutLength) override {   // 06da4f60
@@ -156,7 +175,7 @@ public:
                         unsigned int* OutLength) override {   // 06da5550
         return RpcDecodeCommonFireWeapon(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x20];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x20)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_COMMON_FIREWEAPON) == 0x40u, "FLPACKET_COMMON_FIREWEAPON is operator new(0x40)");
 
@@ -182,7 +201,7 @@ public:
                         unsigned int* OutLength) override {   // 06da4ca0
         return RpcDecodeCommonUpdateObject(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x2c];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x2c)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_COMMON_UPDATEOBJECT) == 0x4cu, "FLPACKET_COMMON_UPDATEOBJECT is operator new(0x4c)");
 
@@ -192,15 +211,15 @@ static_assert(sizeof(FPacket_FLPACKET_COMMON_UPDATEOBJECT) == 0x4cu, "FLPACKET_C
 class FPacket_FLPACKET_COMMON_CHATMSG : public FPacketBase {
 public:
     FPacket_FLPACKET_COMMON_CHATMSG() : FPacketBase(0x10005u) {
-        RpcPacketStoreField(this, 0x2cu, 4, 0u);   // 06d9b791
-        RpcPacketStoreField(this, 0x28u, 4, 0u);   // 06d9b794
-        RpcPacketStoreField(this, 0x24u, 4, 0u);   // 06d9b797
-        RpcPacketStoreField(this, 0x20u, 4, 0u);   // 06d9b79a
+        RpcPacketFieldNative<void*>(this, 0x10u /* Buffer, retail 0x2c */) = nullptr;   // 06d9b791
+        RpcPacketStoreNative(this, 0x8u /* Size, retail 0x28 */, 4, 0u);   // 06d9b794
+        RpcPacketStoreNative(this, 0x4u /* Field_0x04, retail 0x24 */, 4, 0u);   // 06d9b797
+        RpcPacketStoreNative(this, 0x0u /* Field_0x00, retail 0x20 */, 4, 0u);   // 06d9b79a
     }
     // FUN_06d9b7c0
     ~FPacket_FLPACKET_COMMON_CHATMSG() override {
-        if (RpcPacketField<void*>(this, 0x2cu) != nullptr) {   // 06d9b7c3..06d9b7d1
-            ::operator delete(RpcPacketField<void*>(this, 0x2cu));
+        if (RpcPacketFieldNative<void*>(this, 0x10u /* Buffer, retail 0x2c */) != nullptr) {   // 06d9b7c3..06d9b7d1
+            ::operator delete(RpcPacketFieldNative<void*>(this, 0x10u /* Buffer, retail 0x2c */));
         }
     }
     unsigned int Encode(unsigned char** BufferHolder, unsigned int Capacity,
@@ -211,7 +230,7 @@ public:
                         unsigned int* OutLength) override {   // 06da65d0
         return RpcDecodeCommonChatMsg(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x10];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x10)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_COMMON_CHATMSG) == 0x30u, "FLPACKET_COMMON_CHATMSG is operator new(0x30)");
 
@@ -231,7 +250,7 @@ public:
                         unsigned int* OutLength) override {   // 06da68f0
         return RpcDecodeCommonActivateEquip(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x8];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x8)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_COMMON_ACTIVATEEQUIP) == 0x28u, "FLPACKET_COMMON_ACTIVATEEQUIP is operator new(0x28)");
 
@@ -252,7 +271,7 @@ public:
                         unsigned int* OutLength) override {   // 06da8cd0
         return RpcDecodeWireDwordDwordWordWord(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0xc];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0xc)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_COMMON_SETTARGET) == 0x2cu, "FLPACKET_COMMON_SETTARGET is operator new(0x2c)");
 
@@ -271,7 +290,7 @@ public:
                         unsigned int* OutLength) override {   // 06da6a50
         return RpcDecodeWireDwordTwoBytes(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x8];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x8)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_COMMON_ACTIVATECRUISE) == 0x28u, "FLPACKET_COMMON_ACTIVATECRUISE is operator new(0x28)");
 
@@ -290,7 +309,7 @@ public:
                         unsigned int* OutLength) override {   // 06daf230
         return RpcDecodeWireDwordByte(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x8];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x8)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_COMMON_ACTIVATETHRUSTERS) == 0x28u, "FLPACKET_COMMON_ACTIVATETHRUSTERS is operator new(0x28)");
 
@@ -309,7 +328,7 @@ public:
                         unsigned int* OutLength) override {   // 06da6cf0
         return RpcDecodeCommonGoTradelane(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x10];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x10)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_COMMON_GOTRADELANE) == 0x30u, "FLPACKET_COMMON_GOTRADELANE is operator new(0x30)");
 
@@ -331,7 +350,7 @@ public:
                         unsigned int* OutLength) override {   // 06da6e40
         return RpcDecodeWireThreeDwords(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0xc];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0xc)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_COMMON_STOPTRADELANE) == 0x2cu, "FLPACKET_COMMON_STOPTRADELANE is operator new(0x2c)");
 
@@ -341,15 +360,15 @@ static_assert(sizeof(FPacket_FLPACKET_COMMON_STOPTRADELANE) == 0x2cu, "FLPACKET_
 class FPacket_FLPACKET_COMMON_SET_WEAPON_GROUP : public FPacketBase {
 public:
     FPacket_FLPACKET_COMMON_SET_WEAPON_GROUP() : FPacketBase(0x10011u) {
-        RpcPacketStoreField(this, 0x20u, 4, 0u);   // 06d9b0b1
-        RpcPacketStoreField(this, 0x28u, 1, 0u);   // 06d9b0b4
+        RpcPacketFieldNative<void*>(this, offsetof(FPayloadCommonBuffer, Buffer) /* retail 0x20 */) = nullptr;   // 06d9b0b1
+        RpcPacketStoreNative(this, offsetof(FPayloadCommonBuffer, bOwnsBuffer) /* retail 0x28 */, 1, 0u);   // 06d9b0b4
     }
     // FUN_06d9b0e0
     ~FPacket_FLPACKET_COMMON_SET_WEAPON_GROUP() override {
         // 06d9b0e3: the byte at +0x28 says whether the packet owns the block at +0x20 -- the
         // IClient-side sender sets it on the CALLER's pointer, the IServerImpl-side one on
         // its own copy, the wire decoder on its own allocation.
-        if (RpcPacketField<unsigned char>(this, 0x28u) != 0 &&
+        if (RpcPacketFieldNative<unsigned char>(this, offsetof(FPayloadCommonBuffer, bOwnsBuffer) /* retail 0x28 */) != 0 &&
             RpcPacketField<void*>(this, 0x20u) != nullptr) {   // 06d9b0f0
             ::operator delete(RpcPacketField<void*>(this, 0x20u));   // 06d9b0f8
             RpcPacketField<void*>(this, 0x20u) = nullptr;            // 06d9b100
@@ -363,7 +382,7 @@ public:
                         unsigned int* OutLength) override {   // 06da5bc0
         return RpcDecodeWireOwnedString(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0xc];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0xc)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_COMMON_SET_WEAPON_GROUP) == 0x2cu, "FLPACKET_COMMON_SET_WEAPON_GROUP is operator new(0x2c)");
 
@@ -390,7 +409,7 @@ public:
                         unsigned int* OutLength) override {   // 06da7430
         return RpcDecodeCommonPlayerTrade(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x24];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x24)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_COMMON_PLAYER_TRADE) == 0x44u, "FLPACKET_COMMON_PLAYER_TRADE is operator new(0x44)");
 
@@ -400,15 +419,15 @@ static_assert(sizeof(FPacket_FLPACKET_COMMON_PLAYER_TRADE) == 0x44u, "FLPACKET_C
 class FPacket_FLPACKET_COMMON_SET_VISITED_STATE : public FPacketBase {
 public:
     FPacket_FLPACKET_COMMON_SET_VISITED_STATE() : FPacketBase(0x10013u) {
-        RpcPacketStoreField(this, 0x20u, 4, 0u);   // 06d9b171
-        RpcPacketStoreField(this, 0x28u, 1, 0u);   // 06d9b174
+        RpcPacketFieldNative<void*>(this, offsetof(FPayloadCommonBuffer, Buffer) /* retail 0x20 */) = nullptr;   // 06d9b171
+        RpcPacketStoreNative(this, offsetof(FPayloadCommonBuffer, bOwnsBuffer) /* retail 0x28 */, 1, 0u);   // 06d9b174
     }
     // FUN_06d9b1a0
     ~FPacket_FLPACKET_COMMON_SET_VISITED_STATE() override {
         // 06d9b1a3: the byte at +0x28 says whether the packet owns the block at +0x20 -- the
         // IClient-side sender sets it on the CALLER's pointer, the IServerImpl-side one on
         // its own copy, the wire decoder on its own allocation.
-        if (RpcPacketField<unsigned char>(this, 0x28u) != 0 &&
+        if (RpcPacketFieldNative<unsigned char>(this, offsetof(FPayloadCommonBuffer, bOwnsBuffer) /* retail 0x28 */) != 0 &&
             RpcPacketField<void*>(this, 0x20u) != nullptr) {   // 06d9b1b0
             ::operator delete(RpcPacketField<void*>(this, 0x20u));   // 06d9b1b8
             RpcPacketField<void*>(this, 0x20u) = nullptr;            // 06d9b1c0
@@ -422,7 +441,7 @@ public:
                         unsigned int* OutLength) override {   // 06da62d0
         return RpcDecodeWireOwnedBuffer(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0xc];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0xc)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_COMMON_SET_VISITED_STATE) == 0x2cu, "FLPACKET_COMMON_SET_VISITED_STATE is operator new(0x2c)");
 
@@ -444,7 +463,7 @@ public:
                         unsigned int* OutLength) override {   // 06da78d0
         return RpcDecodeWireDwordWordDword(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0xc];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0xc)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_COMMON_JETTISONCARGO) == 0x2cu, "FLPACKET_COMMON_JETTISONCARGO is operator new(0x2c)");
 
@@ -454,15 +473,15 @@ static_assert(sizeof(FPacket_FLPACKET_COMMON_JETTISONCARGO) == 0x2cu, "FLPACKET_
 class FPacket_FLPACKET_COMMON_REQUEST_BEST_PATH : public FPacketBase {
 public:
     FPacket_FLPACKET_COMMON_REQUEST_BEST_PATH() : FPacketBase(0x10016u) {
-        RpcPacketStoreField(this, 0x20u, 4, 0u);   // 06d9b231
-        RpcPacketStoreField(this, 0x28u, 1, 0u);   // 06d9b234
+        RpcPacketFieldNative<void*>(this, offsetof(FPayloadCommonBuffer, Buffer) /* retail 0x20 */) = nullptr;   // 06d9b231
+        RpcPacketStoreNative(this, offsetof(FPayloadCommonBuffer, bOwnsBuffer) /* retail 0x28 */, 1, 0u);   // 06d9b234
     }
     // FUN_06d9b260
     ~FPacket_FLPACKET_COMMON_REQUEST_BEST_PATH() override {
         // 06d9b263: the byte at +0x28 says whether the packet owns the block at +0x20 -- the
         // IClient-side sender sets it on the CALLER's pointer, the IServerImpl-side one on
         // its own copy, the wire decoder on its own allocation.
-        if (RpcPacketField<unsigned char>(this, 0x28u) != 0 &&
+        if (RpcPacketFieldNative<unsigned char>(this, offsetof(FPayloadCommonBuffer, bOwnsBuffer) /* retail 0x28 */) != 0 &&
             RpcPacketField<void*>(this, 0x20u) != nullptr) {   // 06d9b270
             ::operator delete(RpcPacketField<void*>(this, 0x20u));   // 06d9b278
             RpcPacketField<void*>(this, 0x20u) = nullptr;            // 06d9b280
@@ -476,7 +495,7 @@ public:
                         unsigned int* OutLength) override {   // 06da62d0
         return RpcDecodeWireOwnedBuffer(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0xc];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0xc)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_COMMON_REQUEST_BEST_PATH) == 0x2cu, "FLPACKET_COMMON_REQUEST_BEST_PATH is operator new(0x2c)");
 
@@ -486,15 +505,15 @@ static_assert(sizeof(FPacket_FLPACKET_COMMON_REQUEST_BEST_PATH) == 0x2cu, "FLPAC
 class FPacket_FLPACKET_COMMON_REQUEST_PLAYER_STATS : public FPacketBase {
 public:
     FPacket_FLPACKET_COMMON_REQUEST_PLAYER_STATS() : FPacketBase(0x10018u) {
-        RpcPacketStoreField(this, 0x20u, 4, 0u);   // 06d9b2f1
-        RpcPacketStoreField(this, 0x28u, 1, 0u);   // 06d9b2f4
+        RpcPacketFieldNative<void*>(this, offsetof(FPayloadCommonBuffer, Buffer) /* retail 0x20 */) = nullptr;   // 06d9b2f1
+        RpcPacketStoreNative(this, offsetof(FPayloadCommonBuffer, bOwnsBuffer) /* retail 0x28 */, 1, 0u);   // 06d9b2f4
     }
     // FUN_06d9b320
     ~FPacket_FLPACKET_COMMON_REQUEST_PLAYER_STATS() override {
         // 06d9b323: the byte at +0x28 says whether the packet owns the block at +0x20 -- the
         // IClient-side sender sets it on the CALLER's pointer, the IServerImpl-side one on
         // its own copy, the wire decoder on its own allocation.
-        if (RpcPacketField<unsigned char>(this, 0x28u) != 0 &&
+        if (RpcPacketFieldNative<unsigned char>(this, offsetof(FPayloadCommonBuffer, bOwnsBuffer) /* retail 0x28 */) != 0 &&
             RpcPacketField<void*>(this, 0x20u) != nullptr) {   // 06d9b330
             ::operator delete(RpcPacketField<void*>(this, 0x20u));   // 06d9b338
             RpcPacketField<void*>(this, 0x20u) = nullptr;            // 06d9b340
@@ -508,7 +527,7 @@ public:
                         unsigned int* OutLength) override {   // 06da62d0
         return RpcDecodeWireOwnedBuffer(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0xc];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0xc)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_COMMON_REQUEST_PLAYER_STATS) == 0x2cu, "FLPACKET_COMMON_REQUEST_PLAYER_STATS is operator new(0x2c)");
 
@@ -518,20 +537,20 @@ static_assert(sizeof(FPacket_FLPACKET_COMMON_REQUEST_PLAYER_STATS) == 0x2cu, "FL
 class FPacket_FLPACKET_COMMON_POP_UP_DIALOG : public FPacketBase {
 public:
     FPacket_FLPACKET_COMMON_POP_UP_DIALOG() : FPacketBase(0x1001bu) {
-        RpcPacketStoreField(this, 0x20u, 4, 0u);   // 06d9b3a4
-        RpcPacketStoreField(this, 0x24u, 4, 0u);   // 06d9b3a7
-        RpcPacketStoreField(this, 0x28u, 4, 0u);   // 06d9b3aa
-        RpcPacketStoreField(this, 0x2cu, 4, 0u);   // 06d9b3ad
-        RpcPacketStoreField(this, 0x30u, 4, 0u);   // 06d9b3bd
+        RpcPacketStoreNative(this, 0x0u /* SizeA, retail 0x20 */, 4, 0u);   // 06d9b3a4
+        RpcPacketFieldNative<void*>(this, 0x8u /* BufferA, retail 0x24 */) = nullptr;   // 06d9b3a7
+        RpcPacketStoreNative(this, 0x10u /* SizeB, retail 0x28 */, 4, 0u);   // 06d9b3aa
+        RpcPacketFieldNative<void*>(this, 0x18u /* BufferB, retail 0x2c */) = nullptr;   // 06d9b3ad
+        RpcPacketStoreNative(this, 0x20u /* Field_0x10, retail 0x30 */, 4, 0u);   // 06d9b3bd
     }
     // FUN_06d9b3f0
     ~FPacket_FLPACKET_COMMON_POP_UP_DIALOG() override {
         // Retail frees +0x2c FIRST and +0x24 second.
-        if (RpcPacketField<void*>(this, 0x2cu) != nullptr) {   // 06d9b3f9..06d9b403
-            ::operator delete(RpcPacketField<void*>(this, 0x2cu));
+        if (RpcPacketFieldNative<void*>(this, 0x18u /* BufferB, retail 0x2c */) != nullptr) {   // 06d9b3f9..06d9b403
+            ::operator delete(RpcPacketFieldNative<void*>(this, 0x18u /* BufferB, retail 0x2c */));
         }
-        if (RpcPacketField<void*>(this, 0x24u) != nullptr) {   // 06d9b409..06d9b413
-            ::operator delete(RpcPacketField<void*>(this, 0x24u));
+        if (RpcPacketFieldNative<void*>(this, 0x8u /* BufferA, retail 0x24 */) != nullptr) {   // 06d9b409..06d9b413
+            ::operator delete(RpcPacketFieldNative<void*>(this, 0x8u /* BufferA, retail 0x24 */));
         }
     }
     unsigned int Encode(unsigned char** BufferHolder, unsigned int Capacity,
@@ -542,7 +561,7 @@ public:
                         unsigned int* OutLength) override {   // 06da5fe0
         return RpcDecodeCommonPopUpDialog(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x14];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x14)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_COMMON_POP_UP_DIALOG) == 0x34u, "FLPACKET_COMMON_POP_UP_DIALOG is operator new(0x34)");
 
@@ -552,15 +571,15 @@ static_assert(sizeof(FPacket_FLPACKET_COMMON_POP_UP_DIALOG) == 0x34u, "FLPACKET_
 class FPacket_FLPACKET_COMMON_REQUEST_GROUP_POSITIONS : public FPacketBase {
 public:
     FPacket_FLPACKET_COMMON_REQUEST_GROUP_POSITIONS() : FPacketBase(0x10017u) {
-        RpcPacketStoreField(this, 0x20u, 4, 0u);   // 06d9b491
-        RpcPacketStoreField(this, 0x28u, 1, 0u);   // 06d9b494
+        RpcPacketFieldNative<void*>(this, offsetof(FPayloadCommonBuffer, Buffer) /* retail 0x20 */) = nullptr;   // 06d9b491
+        RpcPacketStoreNative(this, offsetof(FPayloadCommonBuffer, bOwnsBuffer) /* retail 0x28 */, 1, 0u);   // 06d9b494
     }
     // FUN_06d9b4c0
     ~FPacket_FLPACKET_COMMON_REQUEST_GROUP_POSITIONS() override {
         // 06d9b4c3: the byte at +0x28 says whether the packet owns the block at +0x20 -- the
         // IClient-side sender sets it on the CALLER's pointer, the IServerImpl-side one on
         // its own copy, the wire decoder on its own allocation.
-        if (RpcPacketField<unsigned char>(this, 0x28u) != 0 &&
+        if (RpcPacketFieldNative<unsigned char>(this, offsetof(FPayloadCommonBuffer, bOwnsBuffer) /* retail 0x28 */) != 0 &&
             RpcPacketField<void*>(this, 0x20u) != nullptr) {   // 06d9b4d0
             ::operator delete(RpcPacketField<void*>(this, 0x20u));   // 06d9b4d8
             RpcPacketField<void*>(this, 0x20u) = nullptr;            // 06d9b4e0
@@ -574,7 +593,7 @@ public:
                         unsigned int* OutLength) override {   // 06da62d0
         return RpcDecodeWireOwnedBuffer(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0xc];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0xc)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_COMMON_REQUEST_GROUP_POSITIONS) == 0x2cu, "FLPACKET_COMMON_REQUEST_GROUP_POSITIONS is operator new(0x2c)");
 
@@ -584,15 +603,15 @@ static_assert(sizeof(FPacket_FLPACKET_COMMON_REQUEST_GROUP_POSITIONS) == 0x2cu, 
 class FPacket_FLPACKET_COMMON_SET_MISSION_LOG : public FPacketBase {
 public:
     FPacket_FLPACKET_COMMON_SET_MISSION_LOG() : FPacketBase(0x10019u) {
-        RpcPacketStoreField(this, 0x20u, 4, 0u);   // 06d9b551
-        RpcPacketStoreField(this, 0x28u, 1, 0u);   // 06d9b554
+        RpcPacketFieldNative<void*>(this, offsetof(FPayloadCommonBuffer, Buffer) /* retail 0x20 */) = nullptr;   // 06d9b551
+        RpcPacketStoreNative(this, offsetof(FPayloadCommonBuffer, bOwnsBuffer) /* retail 0x28 */, 1, 0u);   // 06d9b554
     }
     // FUN_06d9b580
     ~FPacket_FLPACKET_COMMON_SET_MISSION_LOG() override {
         // 06d9b583: the byte at +0x28 says whether the packet owns the block at +0x20 -- the
         // IClient-side sender sets it on the CALLER's pointer, the IServerImpl-side one on
         // its own copy, the wire decoder on its own allocation.
-        if (RpcPacketField<unsigned char>(this, 0x28u) != 0 &&
+        if (RpcPacketFieldNative<unsigned char>(this, offsetof(FPayloadCommonBuffer, bOwnsBuffer) /* retail 0x28 */) != 0 &&
             RpcPacketField<void*>(this, 0x20u) != nullptr) {   // 06d9b590
             ::operator delete(RpcPacketField<void*>(this, 0x20u));   // 06d9b598
             RpcPacketField<void*>(this, 0x20u) = nullptr;            // 06d9b5a0
@@ -606,7 +625,7 @@ public:
                         unsigned int* OutLength) override {   // 06da62d0
         return RpcDecodeWireOwnedBuffer(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0xc];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0xc)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_COMMON_SET_MISSION_LOG) == 0x2cu, "FLPACKET_COMMON_SET_MISSION_LOG is operator new(0x2c)");
 
@@ -616,15 +635,15 @@ static_assert(sizeof(FPacket_FLPACKET_COMMON_SET_MISSION_LOG) == 0x2cu, "FLPACKE
 class FPacket_FLPACKET_COMMON_REQUEST_RANK_LEVEL : public FPacketBase {
 public:
     FPacket_FLPACKET_COMMON_REQUEST_RANK_LEVEL() : FPacketBase(0x1001au) {
-        RpcPacketStoreField(this, 0x20u, 4, 0u);   // 06d9b6d1
-        RpcPacketStoreField(this, 0x28u, 1, 0u);   // 06d9b6d4
+        RpcPacketFieldNative<void*>(this, offsetof(FPayloadCommonBuffer, Buffer) /* retail 0x20 */) = nullptr;   // 06d9b6d1
+        RpcPacketStoreNative(this, offsetof(FPayloadCommonBuffer, bOwnsBuffer) /* retail 0x28 */, 1, 0u);   // 06d9b6d4
     }
     // FUN_06d9b700
     ~FPacket_FLPACKET_COMMON_REQUEST_RANK_LEVEL() override {
         // 06d9b703: the byte at +0x28 says whether the packet owns the block at +0x20 -- the
         // IClient-side sender sets it on the CALLER's pointer, the IServerImpl-side one on
         // its own copy, the wire decoder on its own allocation.
-        if (RpcPacketField<unsigned char>(this, 0x28u) != 0 &&
+        if (RpcPacketFieldNative<unsigned char>(this, offsetof(FPayloadCommonBuffer, bOwnsBuffer) /* retail 0x28 */) != 0 &&
             RpcPacketField<void*>(this, 0x20u) != nullptr) {   // 06d9b710
             ::operator delete(RpcPacketField<void*>(this, 0x20u));   // 06d9b718
             RpcPacketField<void*>(this, 0x20u) = nullptr;            // 06d9b720
@@ -638,7 +657,7 @@ public:
                         unsigned int* OutLength) override {   // 06da62d0
         return RpcDecodeWireOwnedBuffer(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0xc];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0xc)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_COMMON_REQUEST_RANK_LEVEL) == 0x2cu, "FLPACKET_COMMON_REQUEST_RANK_LEVEL is operator new(0x2c)");
 
@@ -648,15 +667,15 @@ static_assert(sizeof(FPacket_FLPACKET_COMMON_REQUEST_RANK_LEVEL) == 0x2cu, "FLPA
 class FPacket_FLPACKET_COMMON_SET_INTERFACE_STATE : public FPacketBase {
 public:
     FPacket_FLPACKET_COMMON_SET_INTERFACE_STATE() : FPacketBase(0x1001cu) {
-        RpcPacketStoreField(this, 0x20u, 4, 0u);   // 06d9b611
-        RpcPacketStoreField(this, 0x28u, 1, 0u);   // 06d9b614
+        RpcPacketFieldNative<void*>(this, offsetof(FPayloadCommonBuffer, Buffer) /* retail 0x20 */) = nullptr;   // 06d9b611
+        RpcPacketStoreNative(this, offsetof(FPayloadCommonBuffer, bOwnsBuffer) /* retail 0x28 */, 1, 0u);   // 06d9b614
     }
     // FUN_06d9b640
     ~FPacket_FLPACKET_COMMON_SET_INTERFACE_STATE() override {
         // 06d9b643: the byte at +0x28 says whether the packet owns the block at +0x20 -- the
         // IClient-side sender sets it on the CALLER's pointer, the IServerImpl-side one on
         // its own copy, the wire decoder on its own allocation.
-        if (RpcPacketField<unsigned char>(this, 0x28u) != 0 &&
+        if (RpcPacketFieldNative<unsigned char>(this, offsetof(FPayloadCommonBuffer, bOwnsBuffer) /* retail 0x28 */) != 0 &&
             RpcPacketField<void*>(this, 0x20u) != nullptr) {   // 06d9b650
             ::operator delete(RpcPacketField<void*>(this, 0x20u));   // 06d9b658
             RpcPacketField<void*>(this, 0x20u) = nullptr;            // 06d9b660
@@ -670,7 +689,7 @@ public:
                         unsigned int* OutLength) override {   // 06da62d0
         return RpcDecodeWireOwnedBuffer(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0xc];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0xc)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_COMMON_SET_INTERFACE_STATE) == 0x2cu, "FLPACKET_COMMON_SET_INTERFACE_STATE is operator new(0x2c)");
 
@@ -680,20 +699,20 @@ static_assert(sizeof(FPacket_FLPACKET_COMMON_SET_INTERFACE_STATE) == 0x2cu, "FLP
 class FPacket_FLPACKET_COMMON_TRACTOROBJECTS : public FPacketBase {
 public:
     FPacket_FLPACKET_COMMON_TRACTOROBJECTS() : FPacketBase(0x1001du) {
-        RpcPacketStoreField(this, 0x20u, 4, 0u);   // 06d9bbd9
-        RpcPacketStoreField(this, 0x24u, 2, 0u);   // 06d9bbdc
-        RpcPacketStoreField(this, 0x28u, 1, 0u);   // 06d9bbe0 byte copied from an uninitialised stack slot
-        RpcPacketStoreField(this, 0x2cu, 4, 0u);   // 06d9bbe3
-        RpcPacketStoreField(this, 0x30u, 4, 0u);   // 06d9bbe6
-        RpcPacketStoreField(this, 0x34u, 4, 0u);   // 06d9bbe9
+        RpcPacketStoreNative(this, 0x0u /* ObjectId, retail 0x20 */, 4, 0u);   // 06d9bbd9
+        RpcPacketStoreNative(this, 0x4u /* TractorEquipId, retail 0x24 */, 2, 0u);   // 06d9bbdc
+        RpcPacketStoreNative(this, 0x8u /* TargetIds.AllocPad, retail 0x28 */, 1, 0u);   // 06d9bbe0 byte copied from an uninitialised stack slot
+        RpcPacketFieldNative<void*>(this, 0x10u /* TargetIds.Begin, retail 0x2c */) = nullptr;   // 06d9bbe3
+        RpcPacketFieldNative<void*>(this, 0x18u /* TargetIds.End, retail 0x30 */) = nullptr;   // 06d9bbe6
+        RpcPacketFieldNative<void*>(this, 0x20u /* TargetIds.Cap, retail 0x34 */) = nullptr;   // 06d9bbe9
     }
     // FUN_06d9bc20
     ~FPacket_FLPACKET_COMMON_TRACTOROBJECTS() override {
         // No test: 06d9bc23 / 06d9bc27 CALL free, then the three vector dwords cleared.
-        ::operator delete(RpcPacketField<void*>(this, 0x2cu));
-        RpcPacketField<unsigned int>(this, 0x2cu) = 0;
-        RpcPacketField<unsigned int>(this, 0x30u) = 0;
-        RpcPacketField<unsigned int>(this, 0x34u) = 0;
+        ::operator delete(RpcPacketFieldNative<void*>(this, 0x10u /* TargetIds.Begin, retail 0x2c */));
+        RpcPacketFieldNative<unsigned int>(this, 0x10u /* TargetIds.Begin, retail 0x2c */) = 0;
+        RpcPacketFieldNative<unsigned int>(this, 0x18u /* TargetIds.End, retail 0x30 */) = 0;
+        RpcPacketFieldNative<unsigned int>(this, 0x20u /* TargetIds.Cap, retail 0x34 */) = 0;
     }
     unsigned int Encode(unsigned char** BufferHolder, unsigned int Capacity,
                         unsigned int* OutLength) override {   // 06da7a00
@@ -703,7 +722,7 @@ public:
                         unsigned int* OutLength) override {   // 06da7b90
         return RpcDecodeCommonTractorObjects(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x18];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x18)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_COMMON_TRACTOROBJECTS) == 0x38u, "FLPACKET_COMMON_TRACTOROBJECTS is operator new(0x38)");
 
@@ -730,7 +749,7 @@ public:
     void Dump(std::ostream& Out) const override {   // 06da8240
         RpcDumpServerConnectResponse(*this, Out);
     }
-    unsigned char Body[0x4];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x4)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_SERVER_CONNECTRESPONSE) == 0x24u, "FLPACKET_SERVER_CONNECTRESPONSE is operator new(0x24)");
 
@@ -753,7 +772,7 @@ public:
     void Dump(std::ostream& Out) const override {   // 06da84a0
         RpcDumpServerLoginResponse(*this, Out);
     }
-    unsigned char Body[0x4];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x4)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_SERVER_LOGINRESPONSE) == 0x24u, "FLPACKET_SERVER_LOGINRESPONSE is operator new(0x24)");
 
@@ -800,7 +819,7 @@ public:
                         unsigned int* OutLength) override {   // 06daf230
         return RpcDecodeWireDwordByte(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x8];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x8)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_SERVER_DESTROYOBJECT) == 0x28u, "FLPACKET_SERVER_DESTROYOBJECT is operator new(0x28)");
 
@@ -878,7 +897,7 @@ public:
                         unsigned int* OutLength) override {   // 06daa990
         return RpcDecodeServerRequestReturned(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x8];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x8)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_SERVER_REQUEST_RETURNED) == 0x28u, "FLPACKET_SERVER_REQUEST_RETURNED is operator new(0x28)");
 
@@ -888,7 +907,7 @@ static_assert(sizeof(FPacket_FLPACKET_SERVER_REQUEST_RETURNED) == 0x28u, "FLPACK
 class FPacket_FLPACKET_SERVER_CHARACTERINFO : public FPacketBase {
 public:
     FPacket_FLPACKET_SERVER_CHARACTERINFO() : FPacketBase(0x20003u) {
-        RpcPacketBuildListSentinel(this, 0x24u, 0x0cu);   // 06d9d549 operator new(0xc), Head
+        RpcPacketBuildListSentinel(&reinterpret_cast<FPayloadServerCharacterInfo*>(Payload())->Records);   // 06d9d549 operator new(0xc), Head
     }
     // FUN_06d93350
     ~FPacket_FLPACKET_SERVER_CHARACTERINFO() override {
@@ -896,7 +915,7 @@ public:
         // equipment handle, the two strings, the record), then 06d93472..06d934ab the
         // nodes through FUN_06d901f0 and the sentinel.
         RpcCharacterInfoWireListRelease(
-            reinterpret_cast<FRpcCharacterInfoWireList*>(Payload() + 0x04));
+            &reinterpret_cast<FPayloadServerCharacterInfo*>(Payload())->Records);
     }
     unsigned int Encode(unsigned char** BufferHolder, unsigned int Capacity,
                         unsigned int* OutLength) override {   // 06d949d0
@@ -909,7 +928,7 @@ public:
     void Dump(std::ostream& Out) const override {   // 06d93310
         RpcDumpServerCharacterInfo(*this, Out);
     }
-    unsigned char Body[0x10];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x10)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_SERVER_CHARACTERINFO) == 0x30u, "FLPACKET_SERVER_CHARACTERINFO is operator new(0x30)");
 
@@ -938,7 +957,7 @@ public:
     void Dump(std::ostream& Out) const override {   // 06daaee0
         RpcDumpServerLaunch(*this, Out);
     }
-    unsigned char Body[0x28];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x28)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_SERVER_LAUNCH) == 0x48u, "FLPACKET_SERVER_LAUNCH is operator new(0x48)");
 
@@ -960,7 +979,7 @@ public:
     void Dump(std::ostream& Out) const override {   // 06dac020
         RpcDumpServerCharSelectVerified(*this, Out);
     }
-    unsigned char Body[0x10];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x10)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_SERVER_CHARSELECTVERIFIED) == 0x30u, "FLPACKET_SERVER_CHARSELECTVERIFIED is operator new(0x30)");
 
@@ -979,7 +998,7 @@ public:
                         unsigned int* OutLength) override {   // 06da8f80
         return RpcDecodeServerActivateObject(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0xc];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0xc)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_SERVER_ACTIVATEOBJECT) == 0x2cu, "FLPACKET_SERVER_ACTIVATEOBJECT is operator new(0x2c)");
 
@@ -998,7 +1017,7 @@ public:
                         unsigned int* OutLength) override {   // 06da6e40
         return RpcDecodeWireThreeDwords(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0xc];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0xc)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_SERVER_LAND) == 0x2cu, "FLPACKET_SERVER_LAND is operator new(0x2c)");
 
@@ -1017,7 +1036,7 @@ public:
                         unsigned int* OutLength) override {   // 06db03f0
         return RpcDecodeWireDword(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x4];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x4)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_SERVER_GFCOMPLETENEWSBROADCASTLIST) == 0x24u, "FLPACKET_SERVER_GFCOMPLETENEWSBROADCASTLIST is operator new(0x24)");
 
@@ -1036,7 +1055,7 @@ public:
                         unsigned int* OutLength) override {   // 06db03f0
         return RpcDecodeWireDword(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x4];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x4)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_SERVER_GFCOMPLETEMISSIONCOMPUTERLIST) == 0x24u, "FLPACKET_SERVER_GFCOMPLETEMISSIONCOMPUTERLIST is operator new(0x24)");
 
@@ -1055,7 +1074,7 @@ public:
                         unsigned int* OutLength) override {   // 06db03f0
         return RpcDecodeWireDword(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x4];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x4)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_SERVER_GFCOMPLETECHARLIST) == 0x24u, "FLPACKET_SERVER_GFCOMPLETECHARLIST is operator new(0x24)");
 
@@ -1074,7 +1093,7 @@ public:
                         unsigned int* OutLength) override {   // 06db03f0
         return RpcDecodeWireDword(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x4];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x4)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_SERVER_GFCOMPLETESCRIPTBEHAVIORLIST) == 0x24u, "FLPACKET_SERVER_GFCOMPLETESCRIPTBEHAVIORLIST is operator new(0x24)");
 
@@ -1093,7 +1112,7 @@ public:
                         unsigned int* OutLength) override {   // 06db03f0
         return RpcDecodeWireDword(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x4];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x4)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_SERVER_GFCOMPLETEAMBIENTSCRIPTLIST) == 0x24u, "FLPACKET_SERVER_GFCOMPLETEAMBIENTSCRIPTLIST is operator new(0x24)");
 
@@ -1112,7 +1131,7 @@ public:
                         unsigned int* OutLength) override {   // 06d95d40
         return RpcDecodeWireDwordPair(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x8];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x8)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_SERVER_SYSTEM_SWITCH_OUT) == 0x28u, "FLPACKET_SERVER_SYSTEM_SWITCH_OUT is operator new(0x28)");
 
@@ -1138,7 +1157,7 @@ public:
                         unsigned int* OutLength) override {   // 06da9430
         return RpcDecodeServerSystemSwitchIn(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x24];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x24)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_SERVER_SYSTEM_SWITCH_IN) == 0x44u, "FLPACKET_SERVER_SYSTEM_SWITCH_IN is operator new(0x44)");
 
@@ -1158,7 +1177,7 @@ public:
                         unsigned int* OutLength) override {   // 06db03f0
         return RpcDecodeWireDword(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x4];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x4)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_SERVER_SETSHIPARCH) == 0x24u, "FLPACKET_SERVER_SETSHIPARCH is operator new(0x24)");
 
@@ -1168,7 +1187,7 @@ static_assert(sizeof(FPacket_FLPACKET_SERVER_SETSHIPARCH) == 0x24u, "FLPACKET_SE
 class FPacket_FLPACKET_SERVER_SETEQUIPMENT : public FRpcEquipListPacket {
 public:
     FPacket_FLPACKET_SERVER_SETEQUIPMENT() : FRpcEquipListPacket(0x20024u) {
-        RpcPacketStoreField(this, 0x20u, 4, 0u);   // 06d9c6b4
+        RpcPacketFieldNative<void*>(this, 0x0u /* the handle, retail 0x20 */) = nullptr;   // 06d9c6b4
     }
     // FUN_06d91310
     ~FPacket_FLPACKET_SERVER_SETEQUIPMENT() override {
@@ -1191,7 +1210,7 @@ static_assert(sizeof(FPacket_FLPACKET_SERVER_SETEQUIPMENT) == 0x24u, "FLPACKET_S
 class FPacket_FLPACKET_SERVER_SETCARGO : public FRpcEquipListPacket {
 public:
     FPacket_FLPACKET_SERVER_SETCARGO() : FRpcEquipListPacket(0x20025u) {
-        RpcPacketStoreField(this, 0x20u, 4, 0u);   // 06d9c724
+        RpcPacketFieldNative<void*>(this, 0x0u /* the handle, retail 0x20 */) = nullptr;   // 06d9c724
     }
     // FUN_06d91670
     ~FPacket_FLPACKET_SERVER_SETCARGO() override {
@@ -1223,7 +1242,7 @@ public:
                         unsigned int* OutLength) override {   // 06da8100
         return RpcDecodeServerRequestCreateShipResp(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x8];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x8)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_SERVER_REQUESTCREATESHIPRESP) == 0x28u, "FLPACKET_SERVER_REQUESTCREATESHIPRESP is operator new(0x28)");
 
@@ -1242,7 +1261,7 @@ public:
                         unsigned int* OutLength) override {   // 06d95d40
         return RpcDecodeWireDwordPair(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x8];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x8)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_SERVER_SETSTARTROOM) == 0x28u, "FLPACKET_SERVER_SETSTARTROOM is operator new(0x28)");
 
@@ -1261,7 +1280,7 @@ public:
                         unsigned int* OutLength) override {   // 06d95d40
         return RpcDecodeWireDwordPair(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x8];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x8)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_SERVER_GFDESTROYCHARACTER) == 0x28u, "FLPACKET_SERVER_GFDESTROYCHARACTER is operator new(0x28)");
 
@@ -1280,7 +1299,7 @@ public:
                         unsigned int* OutLength) override {   // 06d95d40
         return RpcDecodeWireDwordPair(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x8];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x8)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_SERVER_GFDESTROYNEWSBROADCAST) == 0x28u, "FLPACKET_SERVER_GFDESTROYNEWSBROADCAST is operator new(0x28)");
 
@@ -1299,7 +1318,7 @@ public:
                         unsigned int* OutLength) override {   // 06d95d40
         return RpcDecodeWireDwordPair(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x8];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x8)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_SERVER_GFDESTROYMISSIONCOMPUTER) == 0x28u, "FLPACKET_SERVER_GFDESTROYMISSIONCOMPUTER is operator new(0x28)");
 
@@ -1318,7 +1337,7 @@ public:
                         unsigned int* OutLength) override {   // 06d95d40
         return RpcDecodeWireDwordPair(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x8];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x8)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_SERVER_GFDESTROYSCRIPTBEHAVIOR) == 0x28u, "FLPACKET_SERVER_GFDESTROYSCRIPTBEHAVIOR is operator new(0x28)");
 
@@ -1337,7 +1356,7 @@ public:
                         unsigned int* OutLength) override {   // 06d95d40
         return RpcDecodeWireDwordPair(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x8];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x8)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_SERVER_GFDESTROYAMBIENTSCRIPT) == 0x28u, "FLPACKET_SERVER_GFDESTROYAMBIENTSCRIPT is operator new(0x28)");
 
@@ -1348,12 +1367,12 @@ class FPacket_FLPACKET_SERVER_GFSCRIPTBEHAVIOR : public FPacketBase {
 public:
     FPacket_FLPACKET_SERVER_GFSCRIPTBEHAVIOR() : FPacketBase(0x2001au) {
         RpcPacketStoreField(this, 0x20u, 4, 0u);   // 06d9e154
-        RpcPacketStoreField(this, 0x24u, 4, 0u);   // 06d9e157
+        RpcPacketFieldNative<void*>(this, offsetof(FPayloadServerBlob, Buffer) /* retail 0x24 */) = nullptr;   // 06d9e157
     }
     // FUN_06d97540
     ~FPacket_FLPACKET_SERVER_GFSCRIPTBEHAVIOR() override {
-        if (RpcPacketField<void*>(this, 0x24u) != nullptr) {   // 06d97543..06d97551
-            ::operator delete(RpcPacketField<void*>(this, 0x24u));
+        if (RpcPacketFieldNative<void*>(this, offsetof(FPayloadServerBlob, Buffer) /* retail 0x24 */) != nullptr) {   // 06d97543..06d97551
+            ::operator delete(RpcPacketFieldNative<void*>(this, offsetof(FPayloadServerBlob, Buffer) /* retail 0x24 */));
         }
     }
     unsigned int Encode(unsigned char** BufferHolder, unsigned int Capacity,
@@ -1364,7 +1383,7 @@ public:
                         unsigned int* OutLength) override {   // 06d978f0
         return RpcDecodeWireBlobSizeFirst(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x8];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x8)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_SERVER_GFSCRIPTBEHAVIOR) == 0x28u, "FLPACKET_SERVER_GFSCRIPTBEHAVIOR is operator new(0x28)");
 
@@ -1374,13 +1393,13 @@ static_assert(sizeof(FPacket_FLPACKET_SERVER_GFSCRIPTBEHAVIOR) == 0x28u, "FLPACK
 class FPacket_FLPACKET_SERVER_GFUPDATEAMBIENTSCRIPT : public FPacketBase {
 public:
     FPacket_FLPACKET_SERVER_GFUPDATEAMBIENTSCRIPT() : FPacketBase(0x2001fu) {
-        RpcPacketStoreField(this, 0x20u, 4, 0u);   // 06d9e2a4
-        RpcPacketStoreField(this, 0x24u, 4, 0u);   // 06d9e2a7
+        RpcPacketFieldNative<void*>(this, offsetof(FPayloadServerBlobReversed, Buffer) /* retail 0x20 */) = nullptr;   // 06d9e2a4
+        RpcPacketStoreNative(this, offsetof(FPayloadServerBlobReversed, Size) /* retail 0x24 */, 4, 0u);   // 06d9e2a7
     }
     // FUN_06d97700
     ~FPacket_FLPACKET_SERVER_GFUPDATEAMBIENTSCRIPT() override {
-        if (RpcPacketField<void*>(this, 0x20u) != nullptr) {   // 06d97703..06d97711
-            ::operator delete(RpcPacketField<void*>(this, 0x20u));
+        if (RpcPacketFieldNative<void*>(this, offsetof(FPayloadServerBlobReversed, Buffer) /* retail 0x20 */) != nullptr) {   // 06d97703..06d97711
+            ::operator delete(RpcPacketFieldNative<void*>(this, offsetof(FPayloadServerBlobReversed, Buffer) /* retail 0x20 */));
         }
     }
     unsigned int Encode(unsigned char** BufferHolder, unsigned int Capacity,
@@ -1391,7 +1410,7 @@ public:
                         unsigned int* OutLength) override {   // 06d97730
         return RpcDecodeWireBlobBufferFirst(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x8];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x8)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_SERVER_GFUPDATEAMBIENTSCRIPT) == 0x28u, "FLPACKET_SERVER_GFUPDATEAMBIENTSCRIPT is operator new(0x28)");
 
@@ -1410,7 +1429,7 @@ public:
                         unsigned int* OutLength) override {   // 06db03f0
         return RpcDecodeWireDword(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x4];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x4)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_SERVER_MISSIONSAVEA) == 0x24u, "FLPACKET_SERVER_MISSIONSAVEA is operator new(0x24)");
 
@@ -1421,12 +1440,12 @@ class FPacket_FLPACKET_SERVER_GFUPDATEMISSIONCOMPUTER : public FPacketBase {
 public:
     FPacket_FLPACKET_SERVER_GFUPDATEMISSIONCOMPUTER() : FPacketBase(0x2001du) {
         RpcPacketStoreField(this, 0x20u, 4, 0u);   // 06d9e1c4
-        RpcPacketStoreField(this, 0x24u, 4, 0u);   // 06d9e1c7
+        RpcPacketFieldNative<void*>(this, offsetof(FPayloadServerBlob, Buffer) /* retail 0x24 */) = nullptr;   // 06d9e1c7
     }
     // FUN_06d978c0
     ~FPacket_FLPACKET_SERVER_GFUPDATEMISSIONCOMPUTER() override {
-        if (RpcPacketField<void*>(this, 0x24u) != nullptr) {   // 06d978c3..06d978d1
-            ::operator delete(RpcPacketField<void*>(this, 0x24u));
+        if (RpcPacketFieldNative<void*>(this, offsetof(FPayloadServerBlob, Buffer) /* retail 0x24 */) != nullptr) {   // 06d978c3..06d978d1
+            ::operator delete(RpcPacketFieldNative<void*>(this, offsetof(FPayloadServerBlob, Buffer) /* retail 0x24 */));
         }
     }
     unsigned int Encode(unsigned char** BufferHolder, unsigned int Capacity,
@@ -1437,7 +1456,7 @@ public:
                         unsigned int* OutLength) override {   // 06d978f0
         return RpcDecodeWireBlobSizeFirst(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x8];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x8)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_SERVER_GFUPDATEMISSIONCOMPUTER) == 0x28u, "FLPACKET_SERVER_GFUPDATEMISSIONCOMPUTER is operator new(0x28)");
 
@@ -1448,12 +1467,12 @@ class FPacket_FLPACKET_SERVER_GFUPDATENEWSBROADCAST : public FPacketBase {
 public:
     FPacket_FLPACKET_SERVER_GFUPDATENEWSBROADCAST() : FPacketBase(0x2001eu) {
         RpcPacketStoreField(this, 0x20u, 4, 0u);   // 06d9e234
-        RpcPacketStoreField(this, 0x24u, 4, 0u);   // 06d9e237
+        RpcPacketFieldNative<void*>(this, offsetof(FPayloadServerBlob, Buffer) /* retail 0x24 */) = nullptr;   // 06d9e237
     }
     // FUN_06d97ad0
     ~FPacket_FLPACKET_SERVER_GFUPDATENEWSBROADCAST() override {
-        if (RpcPacketField<void*>(this, 0x24u) != nullptr) {   // 06d97ad3..06d97ae1
-            ::operator delete(RpcPacketField<void*>(this, 0x24u));
+        if (RpcPacketFieldNative<void*>(this, offsetof(FPayloadServerBlob, Buffer) /* retail 0x24 */) != nullptr) {   // 06d97ad3..06d97ae1
+            ::operator delete(RpcPacketFieldNative<void*>(this, offsetof(FPayloadServerBlob, Buffer) /* retail 0x24 */));
         }
     }
     unsigned int Encode(unsigned char** BufferHolder, unsigned int Capacity,
@@ -1464,7 +1483,7 @@ public:
                         unsigned int* OutLength) override {   // 06d978f0
         return RpcDecodeWireBlobSizeFirst(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x8];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x8)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_SERVER_GFUPDATENEWSBROADCAST) == 0x28u, "FLPACKET_SERVER_GFUPDATENEWSBROADCAST is operator new(0x28)");
 
@@ -1475,12 +1494,12 @@ class FPacket_FLPACKET_SERVER_GFMISSIONVENDORACCEPTANCE : public FPacketBase {
 public:
     FPacket_FLPACKET_SERVER_GFMISSIONVENDORACCEPTANCE() : FPacketBase(0x20020u) {
         RpcPacketStoreField(this, 0x20u, 4, 0u);   // 06d9e31a
-        RpcPacketStoreField(this, 0x24u, 4, 0u);   // 06d9e31d
+        RpcPacketFieldNative<void*>(this, offsetof(FPayloadServerBlob, Buffer) /* retail 0x24 */) = nullptr;   // 06d9e31d
     }
     // FUN_06d97a30
     ~FPacket_FLPACKET_SERVER_GFMISSIONVENDORACCEPTANCE() override {
-        if (RpcPacketField<void*>(this, 0x24u) != nullptr) {   // 06d97a33..06d97a41
-            ::operator delete(RpcPacketField<void*>(this, 0x24u));
+        if (RpcPacketFieldNative<void*>(this, offsetof(FPayloadServerBlob, Buffer) /* retail 0x24 */) != nullptr) {   // 06d97a33..06d97a41
+            ::operator delete(RpcPacketFieldNative<void*>(this, offsetof(FPayloadServerBlob, Buffer) /* retail 0x24 */));
         }
     }
     unsigned int Encode(unsigned char** BufferHolder, unsigned int Capacity,
@@ -1491,7 +1510,7 @@ public:
                         unsigned int* OutLength) override {   // 06d978f0
         return RpcDecodeWireBlobSizeFirst(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x8];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x8)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_SERVER_GFMISSIONVENDORACCEPTANCE) == 0x28u, "FLPACKET_SERVER_GFMISSIONVENDORACCEPTANCE is operator new(0x28)");
 
@@ -1510,7 +1529,7 @@ public:
                         unsigned int* OutLength) override {   // 06da83c0
         return RpcDecodeWireByte(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x4];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x4)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_SERVER_GFMISSIONVENDORWHYEMPTY) == 0x24u, "FLPACKET_SERVER_GFMISSIONVENDORWHYEMPTY is operator new(0x24)");
 
@@ -1521,12 +1540,12 @@ class FPacket_FLPACKET_SERVER_GFUPDATECHAR : public FPacketBase {
 public:
     FPacket_FLPACKET_SERVER_GFUPDATECHAR() : FPacketBase(0x20026u) {
         RpcPacketStoreField(this, 0x20u, 4, 0u);   // 06d9dc14
-        RpcPacketStoreField(this, 0x24u, 4, 0u);   // 06d9dc17
+        RpcPacketFieldNative<void*>(this, offsetof(FPayloadServerBlob, Buffer) /* retail 0x24 */) = nullptr;   // 06d9dc17
     }
     // FUN_06d974c0
     ~FPacket_FLPACKET_SERVER_GFUPDATECHAR() override {
-        if (RpcPacketField<void*>(this, 0x24u) != nullptr) {   // 06d974c3..06d974d1
-            ::operator delete(RpcPacketField<void*>(this, 0x24u));
+        if (RpcPacketFieldNative<void*>(this, offsetof(FPayloadServerBlob, Buffer) /* retail 0x24 */) != nullptr) {   // 06d974c3..06d974d1
+            ::operator delete(RpcPacketFieldNative<void*>(this, offsetof(FPayloadServerBlob, Buffer) /* retail 0x24 */));
         }
     }
     unsigned int Encode(unsigned char** BufferHolder, unsigned int Capacity,
@@ -1537,7 +1556,7 @@ public:
                         unsigned int* OutLength) override {   // 06d978f0
         return RpcDecodeWireBlobSizeFirst(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x8];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x8)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_SERVER_GFUPDATECHAR) == 0x28u, "FLPACKET_SERVER_GFUPDATECHAR is operator new(0x28)");
 
@@ -1547,14 +1566,14 @@ static_assert(sizeof(FPacket_FLPACKET_SERVER_GFUPDATECHAR) == 0x28u, "FLPACKET_S
 class FPacket_FLPACKET_SERVER_CREATELOOT : public FPacketBase {
 public:
     FPacket_FLPACKET_SERVER_CREATELOOT() : FPacketBase(0x20028u) {
-        RpcPacketStoreField(this, 0x20u, 4, 0u);   // 06d9d17f
-        RpcPacketStoreField(this, 0x24u, 1, 0u);   // 06d9d182
-        RpcPacketBuildListSentinel(this, 0x28u, 0x50u);   // 06d9d19c operator new(0x50), Head
+        RpcPacketStoreNative(this, 0x0u /* Field_0x00, retail 0x20 */, 4, 0u);   // 06d9d17f
+        RpcPacketStoreNative(this, 0x4u /* Field_0x04, retail 0x24 */, 1, 0u);   // 06d9d182
+        RpcPacketBuildListSentinel(&reinterpret_cast<FPayloadServerCreateLoot*>(Payload())->Items);   // 06d9d19c operator new(0x50), Head
     }
     // FUN_06d9d1f0
     ~FPacket_FLPACKET_SERVER_CREATELOOT() override {
         // 06d9d1f5..06d9d238: the list at +0x28 (Head +0x2c, Size +0x30).
-        RpcPacketDestroyEmbeddedList(this, 0x28u);
+        RpcPacketDestroyEmbeddedList(&reinterpret_cast<FPayloadServerCreateLoot*>(Payload())->Items);
     }
     unsigned int Encode(unsigned char** BufferHolder, unsigned int Capacity,
                         unsigned int* OutLength) override {   // 06d928c0
@@ -1564,7 +1583,7 @@ public:
                         unsigned int* OutLength) override {   // 06d92d20
         return RpcDecodeServerCreateLoot(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x14];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x14)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_SERVER_CREATELOOT) == 0x34u, "FLPACKET_SERVER_CREATELOOT is operator new(0x34)");
 
@@ -1574,41 +1593,41 @@ static_assert(sizeof(FPacket_FLPACKET_SERVER_CREATELOOT) == 0x34u, "FLPACKET_SER
 class FPacket_FLPACKET_SERVER_SETREPUTATION : public FPacketBase {
 public:
     FPacket_FLPACKET_SERVER_SETREPUTATION() : FPacketBase(0x20029u) {
-        RpcPacketStoreField(this, 0x20u, 4, 0u);   // 06d9d2d0
-        RpcPacketStoreField(this, 0x24u, 4, 0u);   // 06d9d2d3
-        RpcPacketStoreField(this, 0x28u, 4, 0u);   // 06d9d2d6
-        RpcPacketStoreField(this, 0x2cu, 4, 0u);   // 06d9d2d9
-        RpcPacketStoreField(this, 0x38u, 4, 0x00000002u);   // 06d9d2e1
-        RpcPacketStoreField(this, 0x30u, 4, 0u);   // 06d9d2ec
-        RpcPacketStoreField(this, 0x34u, 4, 0x00000001u);   // 06d9d2ef
-        RpcPacketStoreField(this, 0x3cu, 4, 0x00000004u);   // 06d9d2f2
-        RpcPacketStoreField(this, 0x40u, 4, 0x00000008u);   // 06d9d2f9
-        RpcPacketStoreField(this, 0x44u, 4, 0x00000010u);   // 06d9d300
-        RpcPacketBuildListSentinel(this, 0x48u, 0x0cu);   // 06d9d31a operator new(0xc), Head
-        RpcPacketStoreField(this, 0x54u, 1, 0u);   // 06d9d323
-        RpcPacketStoreField(this, 0x58u, 4, 0u);   // 06d9d326
-        RpcPacketStoreField(this, 0x60u, 4, 0u);   // 06d9d329
-        RpcPacketStoreField(this, 0x64u, 4, 0u);   // 06d9d32c
-        RpcPacketStoreField(this, 0x5cu, 4, 0xffffffffu);   // 06d9d32f
+        RpcPacketStoreNative(this, 0x0u /* NameASize, retail 0x20 */, 4, 0u);   // 06d9d2d0
+        RpcPacketFieldNative<void*>(this, 0x8u /* NameABuffer, retail 0x24 */) = nullptr;   // 06d9d2d3
+        RpcPacketStoreNative(this, 0x10u /* NameBSize, retail 0x28 */, 4, 0u);   // 06d9d2d6
+        RpcPacketFieldNative<void*>(this, 0x18u /* NameBBuffer, retail 0x2c */) = nullptr;   // 06d9d2d9
+        RpcPacketStoreNative(this, 0x28u /* Field_0x18, retail 0x38 */, 4, 0x00000002u);   // 06d9d2e1
+        RpcPacketStoreNative(this, 0x20u /* Attitude, retail 0x30 */, 4, 0u);   // 06d9d2ec
+        RpcPacketStoreNative(this, 0x24u /* Field_0x14, retail 0x34 */, 4, 0x00000001u);   // 06d9d2ef
+        RpcPacketStoreNative(this, 0x2cu /* Field_0x1c, retail 0x3c */, 4, 0x00000004u);   // 06d9d2f2
+        RpcPacketStoreNative(this, 0x30u /* Field_0x20, retail 0x40 */, 4, 0x00000008u);   // 06d9d2f9
+        RpcPacketStoreNative(this, 0x34u /* Field_0x24, retail 0x44 */, 4, 0x00000010u);   // 06d9d300
+        RpcPacketBuildListSentinel(&reinterpret_cast<FPayloadServerSetReputation*>(Payload())->Relations);   // 06d9d31a operator new(0xc), Head
+        RpcPacketStoreNative(this, 0x50u /* Field_0x34, retail 0x54 */, 1, 0u);   // 06d9d323
+        RpcPacketStoreNative(this, 0x54u /* VibeHandle, retail 0x58 */, 4, 0u);   // 06d9d326
+        RpcPacketStoreNative(this, 0x5cu /* DisplayNameLength, retail 0x60 */, 4, 0u);   // 06d9d329
+        RpcPacketFieldNative<void*>(this, 0x60u /* DisplayName, retail 0x64 */) = nullptr;   // 06d9d32c
+        RpcPacketStoreNative(this, 0x58u /* Field_0x3c, retail 0x5c */, 4, 0xffffffffu);   // 06d9d32f
     }
     // FUN_06d91dd0
     ~FPacket_FLPACKET_SERVER_SETREPUTATION() override {
         // 06d91df6..06d91e1c: free every node's value first, testing each for null.
-        FRpcPacketListNode* Sentinel = RpcPacketField<FRpcPacketListNode*>(this, 0x4cu);
+        FRpcPacketListNode* Sentinel = RpcPacketFieldNative<FRpcPacketListNode*>(this, 0x40u /* Relations.Head, retail 0x4c */);
         for (FRpcPacketListNode* Node = Sentinel->Next; Node != Sentinel; Node = Node->Next) {
             if (Node->Value != nullptr) {
                 ::operator delete(Node->Value);
             }
         }
-        if (RpcPacketField<void*>(this, 0x64u) != nullptr) {   // 06d91e1e..06d91e26
-            ::operator delete(RpcPacketField<void*>(this, 0x64u));
+        if (RpcPacketFieldNative<void*>(this, 0x60u /* DisplayName, retail 0x64 */) != nullptr) {   // 06d91e1e..06d91e26
+            ::operator delete(RpcPacketFieldNative<void*>(this, 0x60u /* DisplayName, retail 0x64 */));
         }
-        RpcPacketDestroyEmbeddedList(this, 0x48u);   // 06d91e2f..06d91e66, FUN_06d901f0
-        if (RpcPacketField<void*>(this, 0x2cu) != nullptr) {   // 06d91e69..06d91e73
-            ::operator delete(RpcPacketField<void*>(this, 0x2cu));
+        RpcPacketDestroyEmbeddedList(&reinterpret_cast<FPayloadServerSetReputation*>(Payload())->Relations);   // 06d91e2f..06d91e66, FUN_06d901f0
+        if (RpcPacketFieldNative<void*>(this, 0x18u /* NameBBuffer, retail 0x2c */) != nullptr) {   // 06d91e69..06d91e73
+            ::operator delete(RpcPacketFieldNative<void*>(this, 0x18u /* NameBBuffer, retail 0x2c */));
         }
-        if (RpcPacketField<void*>(this, 0x24u) != nullptr) {   // 06d91e7b..06d91e83
-            ::operator delete(RpcPacketField<void*>(this, 0x24u));
+        if (RpcPacketFieldNative<void*>(this, 0x8u /* NameABuffer, retail 0x24 */) != nullptr) {   // 06d91e7b..06d91e83
+            ::operator delete(RpcPacketFieldNative<void*>(this, 0x8u /* NameABuffer, retail 0x24 */));
         }
     }
     unsigned int Encode(unsigned char** BufferHolder, unsigned int Capacity,
@@ -1622,7 +1641,7 @@ public:
     void Dump(std::ostream& Out) const override {   // 06d92860
         RpcDumpServerSetReputation(*this, Out);
     }
-    unsigned char Body[0x48];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x48)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_SERVER_SETREPUTATION) == 0x68u, "FLPACKET_SERVER_SETREPUTATION is operator new(0x68)");
 
@@ -1641,7 +1660,7 @@ public:
                         unsigned int* OutLength) override {   // 06d95d40
         return RpcDecodeWireDwordPair(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x8];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x8)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_SERVER_ADJUSTATTITUDE) == 0x28u, "FLPACKET_SERVER_ADJUSTATTITUDE is operator new(0x28)");
 
@@ -1651,23 +1670,23 @@ static_assert(sizeof(FPacket_FLPACKET_SERVER_ADJUSTATTITUDE) == 0x28u, "FLPACKET
 class FPacket_FLPACKET_SERVER_SETGROUPFEELINGS : public FPacketBase {
 public:
     FPacket_FLPACKET_SERVER_SETGROUPFEELINGS() : FPacketBase(0x2002bu) {
-        RpcPacketStoreField(this, 0x20u, 4, 0u);   // 06d9c57f
-        RpcPacketStoreField(this, 0x24u, 4, 0u);   // 06d9c582
-        RpcPacketBuildListSentinel(this, 0x28u, 0x0cu);   // 06d9c59f operator new(0xc), Head
+        RpcPacketFieldNative<void*>(this, 0x0u /* Name, retail 0x20 */) = nullptr;   // 06d9c57f
+        RpcPacketStoreNative(this, 0x8u /* NameSize, retail 0x24 */, 4, 0u);   // 06d9c582
+        RpcPacketBuildListSentinel(&reinterpret_cast<FPayloadServerSetGroupFeelings*>(Payload())->Relations);   // 06d9c59f operator new(0xc), Head
     }
     // FUN_06d917a0
     ~FPacket_FLPACKET_SERVER_SETGROUPFEELINGS() override {
         // 06d917a4..06d917c9: free every node's value first, testing each for null.
-        FRpcPacketListNode* Sentinel = RpcPacketField<FRpcPacketListNode*>(this, 0x2cu);
+        FRpcPacketListNode* Sentinel = RpcPacketFieldNative<FRpcPacketListNode*>(this, 0x18u /* Relations.Head, retail 0x2c */);
         for (FRpcPacketListNode* Node = Sentinel->Next; Node != Sentinel; Node = Node->Next) {
             if (Node->Value != nullptr) {
                 ::operator delete(Node->Value);
             }
         }
-        if (RpcPacketField<void*>(this, 0x20u) != nullptr) {   // 06d917cb..06d917d3
-            ::operator delete(RpcPacketField<void*>(this, 0x20u));
+        if (RpcPacketFieldNative<void*>(this, 0x0u /* Name, retail 0x20 */) != nullptr) {   // 06d917cb..06d917d3
+            ::operator delete(RpcPacketFieldNative<void*>(this, 0x0u /* Name, retail 0x20 */));
         }
-        RpcPacketDestroyEmbeddedList(this, 0x28u);   // 06d917db..06d9181f
+        RpcPacketDestroyEmbeddedList(&reinterpret_cast<FPayloadServerSetGroupFeelings*>(Payload())->Relations);   // 06d917db..06d9181f
     }
     unsigned int Encode(unsigned char** BufferHolder, unsigned int Capacity,
                         unsigned int* OutLength) override {   // 06d91890
@@ -1677,7 +1696,7 @@ public:
                         unsigned int* OutLength) override {   // 06d91a40
         return RpcDecodeServerSetGroupFeelings(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x14];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x14)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_SERVER_SETGROUPFEELINGS) == 0x34u, "FLPACKET_SERVER_SETGROUPFEELINGS is operator new(0x34)");
 
@@ -1714,7 +1733,7 @@ public:
                         unsigned int* OutLength) override {   // 06da98d0
         return RpcDecodeServerCreateMine(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x48];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x48)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_SERVER_CREATEMINE) == 0x68u, "FLPACKET_SERVER_CREATEMINE is operator new(0x68)");
 
@@ -1751,7 +1770,7 @@ public:
                         unsigned int* OutLength) override {   // 06da9e40
         return RpcDecodeServerCreateCounter(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x48];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x48)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_SERVER_CREATECOUNTER) == 0x68u, "FLPACKET_SERVER_CREATECOUNTER is operator new(0x68)");
 
@@ -1774,7 +1793,7 @@ public:
                         unsigned int* OutLength) override {   // 06dad820
         return RpcDecodeWireDwordBlock12(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x10];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x10)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_SERVER_EXPLODEASTEROIDMINE) == 0x30u, "FLPACKET_SERVER_EXPLODEASTEROIDMINE is operator new(0x30)");
 
@@ -1784,15 +1803,15 @@ static_assert(sizeof(FPacket_FLPACKET_SERVER_EXPLODEASTEROIDMINE) == 0x30u, "FLP
 class FPacket_FLPACKET_SERVER_LOADHINT : public FPacketBase {
 public:
     FPacket_FLPACKET_SERVER_LOADHINT() : FPacketBase(0x2004du) {
-        RpcPacketStoreField(this, 0x20u, 4, 0u);   // 06d9cfe1
-        RpcPacketStoreField(this, 0x24u, 4, 0u);   // 06d9cfe4
-        RpcPacketStoreField(this, 0x28u, 4, 0u);   // 06d9cfe7
+        RpcPacketFieldNative<void*>(this, 0x0u /* Buffer, retail 0x20 */) = nullptr;   // 06d9cfe1
+        RpcPacketStoreNative(this, 0x8u /* Size, retail 0x24 */, 4, 0u);   // 06d9cfe4
+        RpcPacketStoreNative(this, 0xcu /* Kind, retail 0x28 */, 4, 0u);   // 06d9cfe7
     }
     // FUN_06d909d0
     ~FPacket_FLPACKET_SERVER_LOADHINT() override {
-        if (RpcPacketField<void*>(this, 0x20u) != nullptr) {   // 06d909d3..06d909e9
-            ::operator delete(RpcPacketField<void*>(this, 0x20u));
-            RpcPacketField<void*>(this, 0x20u) = nullptr;
+        if (RpcPacketFieldNative<void*>(this, 0x0u /* Buffer, retail 0x20 */) != nullptr) {   // 06d909d3..06d909e9
+            ::operator delete(RpcPacketFieldNative<void*>(this, 0x0u /* Buffer, retail 0x20 */));
+            RpcPacketFieldNative<void*>(this, 0x0u /* Buffer, retail 0x20 */) = nullptr;
         }
     }
     unsigned int Encode(unsigned char** BufferHolder, unsigned int Capacity,
@@ -1803,7 +1822,7 @@ public:
                         unsigned int* OutLength) override {   // 06d90ba0
         return RpcDecodeServerLoadHint(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0xc];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0xc)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_SERVER_LOADHINT) == 0x2cu, "FLPACKET_SERVER_LOADHINT is operator new(0x2c)");
 
@@ -1861,7 +1880,7 @@ public:
                         unsigned int* OutLength) override {   // 06d90f70
         return RpcDecodeServerSetDirective(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x94];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x94)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_SERVER_SETDIRECTIVE) == 0xb4u, "FLPACKET_SERVER_SETDIRECTIVE is operator new(0xb4)");
 
@@ -1887,7 +1906,7 @@ public:
                         unsigned int* OutLength) override {   // 06da8810
         return RpcDecodeServerCreateGuided(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x38];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x38)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_SERVER_CREATEGUIDED) == 0x58u, "FLPACKET_SERVER_CREATEGUIDED is operator new(0x58)");
 
@@ -1910,7 +1929,7 @@ public:
                         unsigned int* OutLength) override {   // 06da8cd0
         return RpcDecodeWireDwordDwordWordWord(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0xc];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0xc)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_SERVER_ITEMTRACTORED) == 0x2cu, "FLPACKET_SERVER_ITEMTRACTORED is operator new(0x2c)");
 
@@ -1936,7 +1955,7 @@ public:
                         unsigned int* OutLength) override {   // 06da6e40
         return RpcDecodeWireThreeDwords(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0xc];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0xc)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_SERVER_SETREMOVEITEM) == 0x2cu, "FLPACKET_SERVER_SETREMOVEITEM is operator new(0x2c)");
 
@@ -1946,14 +1965,14 @@ static_assert(sizeof(FPacket_FLPACKET_SERVER_SETREMOVEITEM) == 0x2cu, "FLPACKET_
 class FPacket_FLPACKET_SERVER_SETADDITEM : public FPacketBase {
 public:
     FPacket_FLPACKET_SERVER_SETADDITEM() : FPacketBase(0x2002eu) {
-        RpcPacketStoreField(this, 0x28u, 4, 0u);   // 06d9c454
-        RpcPacketStoreField(this, 0x39u, 1, 0u);   // 06d9c457
-        RpcPacketStoreField(this, 0x3cu, 4, 0u);   // 06d9c45a
+        RpcPacketStoreNative(this, 0x8u /* HardpointSize, retail 0x28 */, 4, 0u);   // 06d9c454
+        RpcPacketStoreNative(this, 0x19u /* bMission, retail 0x39 */, 1, 0u);   // 06d9c457
+        RpcPacketFieldNative<void*>(this, 0x20u /* Hardpoint, retail 0x3c */) = nullptr;   // 06d9c45a
     }
     // FUN_06d96f40
     ~FPacket_FLPACKET_SERVER_SETADDITEM() override {
-        if (RpcPacketField<void*>(this, 0x3cu) != nullptr) {   // 06d96f43..06d96f51
-            ::operator delete(RpcPacketField<void*>(this, 0x3cu));
+        if (RpcPacketFieldNative<void*>(this, 0x20u /* Hardpoint, retail 0x3c */) != nullptr) {   // 06d96f43..06d96f51
+            ::operator delete(RpcPacketFieldNative<void*>(this, 0x20u /* Hardpoint, retail 0x3c */));
         }
     }
     unsigned int Encode(unsigned char** BufferHolder, unsigned int Capacity,
@@ -1964,7 +1983,7 @@ public:
                         unsigned int* OutLength) override {   // 06d97210
         return RpcDecodeServerSetAddItem(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x20];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x20)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_SERVER_SETADDITEM) == 0x40u, "FLPACKET_SERVER_SETADDITEM is operator new(0x40)");
 
@@ -1983,7 +2002,7 @@ public:
                         unsigned int* OutLength) override {   // 06db03f0
         return RpcDecodeWireDword(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x4];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x4)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_SERVER_SETCASH) == 0x24u, "FLPACKET_SERVER_SETCASH is operator new(0x24)");
 
@@ -1993,17 +2012,17 @@ static_assert(sizeof(FPacket_FLPACKET_SERVER_SETCASH) == 0x24u, "FLPACKET_SERVER
 class FPacket_FLPACKET_SERVER_REQUESTSPACESCRIPT : public FPacketBase {
 public:
     FPacket_FLPACKET_SERVER_REQUESTSPACESCRIPT() : FPacketBase(0x20032u) {
-        RpcPacketStoreField(this, 0x20u, 4, 0u);   // 06d9db25
-        RpcPacketStoreField(this, 0x28u, 4, 0u);   // 06d9db28
-        RpcPacketStoreField(this, 0x2cu, 4, 0u);   // 06d9db2b
-        RpcPacketStoreField(this, 0x30u, 4, 0u);   // 06d9db2e
-        RpcPacketStoreField(this, 0x34u, 1, 0x00000001u);   // 06d9db31
-        RpcPacketStoreField(this, 0x38u, 4, 0u);   // 06d9db34
+        RpcPacketStoreNative(this, 0x0u /* Field_0x00, retail 0x20 */, 4, 0u);   // 06d9db25
+        RpcPacketStoreNative(this, 0x8u /* Field_0x08, retail 0x28 */, 4, 0u);   // 06d9db28
+        RpcPacketStoreNative(this, 0xcu /* Field_0x0c, retail 0x2c */, 4, 0u);   // 06d9db2b
+        RpcPacketStoreNative(this, 0x10u /* Field_0x10, retail 0x30 */, 4, 0u);   // 06d9db2e
+        RpcPacketStoreNative(this, 0x14u /* Field_0x14, retail 0x34 */, 1, 0x00000001u);   // 06d9db31
+        RpcPacketFieldNative<void*>(this, 0x18u /* Name, retail 0x38 */) = nullptr;   // 06d9db34
     }
     // FUN_06d98690
     ~FPacket_FLPACKET_SERVER_REQUESTSPACESCRIPT() override {
-        if (RpcPacketField<void*>(this, 0x38u) != nullptr) {   // 06d98693..06d986a1
-            ::operator delete(RpcPacketField<void*>(this, 0x38u));
+        if (RpcPacketFieldNative<void*>(this, 0x18u /* Name, retail 0x38 */) != nullptr) {   // 06d98693..06d986a1
+            ::operator delete(RpcPacketFieldNative<void*>(this, 0x18u /* Name, retail 0x38 */));
         }
     }
     unsigned int Encode(unsigned char** BufferHolder, unsigned int Capacity,
@@ -2014,7 +2033,7 @@ public:
                         unsigned int* OutLength) override {   // 06d98850
         return RpcDecodeServerRequestSpaceScript(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x1c];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x1c)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_SERVER_REQUESTSPACESCRIPT) == 0x3cu, "FLPACKET_SERVER_REQUESTSPACESCRIPT is operator new(0x3c)");
 
@@ -2033,7 +2052,7 @@ public:
                         unsigned int* OutLength) override {   // 06dacea0
         return RpcDecodeWireDwordDwordWord(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0xc];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0xc)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_SERVER_SETMISSIONOBJECTIVESTATE) == 0x2cu, "FLPACKET_SERVER_SETMISSIONOBJECTIVESTATE is operator new(0x2c)");
 
@@ -2052,7 +2071,7 @@ public:
                         unsigned int* OutLength) override {   // 06dab350
         return RpcDecodeServerCfgInterfaceNotification(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0xc];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0xc)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_SERVER_CFGINTERFACENOTIFICATION) == 0x2cu, "FLPACKET_SERVER_CFGINTERFACENOTIFICATION is operator new(0x2c)");
 
@@ -2071,7 +2090,7 @@ public:
                         unsigned int* OutLength) override {   // 06daf230
         return RpcDecodeWireDwordByte(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x8];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x8)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_SERVER_MARKOBJ) == 0x28u, "FLPACKET_SERVER_MARKOBJ is operator new(0x28)");
 
@@ -2081,17 +2100,17 @@ static_assert(sizeof(FPacket_FLPACKET_SERVER_MARKOBJ) == 0x28u, "FLPACKET_SERVER
 class FPacket_FLPACKET_SERVER_SETMISSIONOBJECTIVES : public FPacketBase {
 public:
     FPacket_FLPACKET_SERVER_SETMISSIONOBJECTIVES() : FPacketBase(0x20035u) {
-        RpcPacketStoreField(this, 0x28u, 4, 0u);   // 06d9da7f
-        RpcPacketStoreField(this, 0x2cu, 4, 0u);   // 06d9da82
-        RpcPacketStoreField(this, 0x30u, 4, 0u);   // 06d9da85
-        RpcPacketStoreField(this, 0x34u, 4, 0u);   // 06d9da88
-        RpcPacketStoreField(this, 0x38u, 4, 0u);   // 06d9da8f
-        RpcPacketBuildListSentinel(this, 0x3cu, 0x0cu);   // 06d9daad operator new(0xc), Head
+        RpcPacketStoreNative(this, 0x8u /* TextASize, retail 0x28 */, 4, 0u);   // 06d9da7f
+        RpcPacketFieldNative<void*>(this, 0x10u /* TextABuffer, retail 0x2c */) = nullptr;   // 06d9da82
+        RpcPacketStoreNative(this, 0x18u /* TextBSize, retail 0x30 */, 4, 0u);   // 06d9da85
+        RpcPacketFieldNative<void*>(this, 0x20u /* TextBBuffer, retail 0x34 */) = nullptr;   // 06d9da88
+        RpcPacketStoreNative(this, 0x28u /* Count, retail 0x38 */, 4, 0u);   // 06d9da8f
+        RpcPacketBuildListSentinel(&reinterpret_cast<FPayloadServerSetMissionObjectives*>(Payload())->Objectives);   // 06d9daad operator new(0xc), Head
     }
     // FUN_06d8fb00
     ~FPacket_FLPACKET_SERVER_SETMISSIONOBJECTIVES() override {
         // 06d8fb28..06d8fb65: every record, then its text block before the record itself.
-        FRpcPacketListNode* Sentinel = RpcPacketField<FRpcPacketListNode*>(this, 0x40u);
+        FRpcPacketListNode* Sentinel = RpcPacketFieldNative<FRpcPacketListNode*>(this, 0x38u /* Objectives.Head, retail 0x40 */);
         for (FRpcPacketListNode* Node = Sentinel->Next; Node != Sentinel; Node = Node->Next) {
             unsigned char* Record = static_cast<unsigned char*>(Node->Value);
             if (Record != nullptr) {                                   // 06d8fb43
@@ -2102,12 +2121,12 @@ public:
                 ::operator delete(Record);                             // 06d8fb58
             }
         }
-        RpcPacketDestroyEmbeddedList(this, 0x3cu);   // 06d8fb67..06d8fb97, FUN_06d901f0
-        if (RpcPacketField<void*>(this, 0x34u) != nullptr) {   // 06d8fb9a..06d8fba6
-            ::operator delete(RpcPacketField<void*>(this, 0x34u));
+        RpcPacketDestroyEmbeddedList(&reinterpret_cast<FPayloadServerSetMissionObjectives*>(Payload())->Objectives);   // 06d8fb67..06d8fb97, FUN_06d901f0
+        if (RpcPacketFieldNative<void*>(this, 0x20u /* TextBBuffer, retail 0x34 */) != nullptr) {   // 06d8fb9a..06d8fba6
+            ::operator delete(RpcPacketFieldNative<void*>(this, 0x20u /* TextBBuffer, retail 0x34 */));
         }
-        if (RpcPacketField<void*>(this, 0x2cu) != nullptr) {   // 06d8fbae..06d8fbb6
-            ::operator delete(RpcPacketField<void*>(this, 0x2cu));
+        if (RpcPacketFieldNative<void*>(this, 0x10u /* TextABuffer, retail 0x2c */) != nullptr) {   // 06d8fbae..06d8fbb6
+            ::operator delete(RpcPacketFieldNative<void*>(this, 0x10u /* TextABuffer, retail 0x2c */));
         }
     }
     unsigned int Encode(unsigned char** BufferHolder, unsigned int Capacity,
@@ -2118,7 +2137,7 @@ public:
                         unsigned int* OutLength) override {   // 06d8ffd0
         return RpcDecodeServerSetMissionObjectives(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x28];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x28)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_SERVER_SETMISSIONOBJECTIVES) == 0x48u, "FLPACKET_SERVER_SETMISSIONOBJECTIVES is operator new(0x48)");
 
@@ -2128,13 +2147,13 @@ static_assert(sizeof(FPacket_FLPACKET_SERVER_SETMISSIONOBJECTIVES) == 0x48u, "FL
 class FPacket_FLPACKET_SERVER_REPLACEMISSIONOBJECTIVE : public FPacketBase {
 public:
     FPacket_FLPACKET_SERVER_REPLACEMISSIONOBJECTIVE() : FPacketBase(0x20034u) {
-        RpcPacketStoreField(this, 0x28u, 4, 0u);   // 06d9d794
-        RpcPacketStoreField(this, 0x2cu, 4, 0u);   // 06d9d797
+        RpcPacketStoreNative(this, 0x8u /* TextSize, retail 0x28 */, 4, 0u);   // 06d9d794
+        RpcPacketFieldNative<void*>(this, 0x10u /* TextBuffer, retail 0x2c */) = nullptr;   // 06d9d797
     }
     // FUN_06d9d7d0
     ~FPacket_FLPACKET_SERVER_REPLACEMISSIONOBJECTIVE() override {
-        if (RpcPacketField<void*>(this, 0x2cu) != nullptr) {   // 06d9d7d3..06d9d7db
-            ::operator delete(RpcPacketField<void*>(this, 0x2cu));
+        if (RpcPacketFieldNative<void*>(this, 0x10u /* TextBuffer, retail 0x2c */) != nullptr) {   // 06d9d7d3..06d9d7db
+            ::operator delete(RpcPacketFieldNative<void*>(this, 0x10u /* TextBuffer, retail 0x2c */));
         }
     }
     unsigned int Encode(unsigned char** BufferHolder, unsigned int Capacity,
@@ -2145,7 +2164,7 @@ public:
                         unsigned int* OutLength) override {   // 06dab630
         return RpcDecodeServerReplaceMissionObjective(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x10];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x10)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_SERVER_REPLACEMISSIONOBJECTIVE) == 0x30u, "FLPACKET_SERVER_REPLACEMISSIONOBJECTIVE is operator new(0x30)");
 
@@ -2164,7 +2183,7 @@ public:
                         unsigned int* OutLength) override {   // 06db03f0
         return RpcDecodeWireDword(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x4];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x4)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_SERVER_SET_STORY_CUE) == 0x24u, "FLPACKET_SERVER_SET_STORY_CUE is operator new(0x24)");
 
@@ -2190,7 +2209,7 @@ public:
                         unsigned int* OutLength) override {   // 06dab960
         return RpcDecodeServerSetCamera(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x24];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x24)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_SERVER_SET_CAMERA) == 0x44u, "FLPACKET_SERVER_SET_CAMERA is operator new(0x44)");
 
@@ -2218,13 +2237,13 @@ static_assert(sizeof(FPacket_FLPACKET_SERVER_REVERT_CAMERA) == 0x20u, "FLPACKET_
 class FPacket_FLPACKET_SERVER_SET_MISSION_MESSAGE : public FPacketBase {
 public:
     FPacket_FLPACKET_SERVER_SET_MISSION_MESSAGE() : FPacketBase(0x20045u) {
-        RpcPacketStoreField(this, 0x20u, 4, 0u);   // 06d9d9a4
-        RpcPacketStoreField(this, 0x24u, 4, 0u);   // 06d9d9a7
+        RpcPacketStoreNative(this, 0x0u /* TextSize, retail 0x20 */, 4, 0u);   // 06d9d9a4
+        RpcPacketFieldNative<void*>(this, 0x8u /* TextBuffer, retail 0x24 */) = nullptr;   // 06d9d9a7
     }
     // FUN_06d9d9e0
     ~FPacket_FLPACKET_SERVER_SET_MISSION_MESSAGE() override {
-        if (RpcPacketField<void*>(this, 0x24u) != nullptr) {   // 06d9d9e3..06d9d9eb
-            ::operator delete(RpcPacketField<void*>(this, 0x24u));
+        if (RpcPacketFieldNative<void*>(this, 0x8u /* TextBuffer, retail 0x24 */) != nullptr) {   // 06d9d9e3..06d9d9eb
+            ::operator delete(RpcPacketFieldNative<void*>(this, 0x8u /* TextBuffer, retail 0x24 */));
         }
     }
     unsigned int Encode(unsigned char** BufferHolder, unsigned int Capacity,
@@ -2235,7 +2254,7 @@ public:
                         unsigned int* OutLength) override {   // 06dabd00
         return RpcDecodeServerSetMissionMessage(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0xc];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0xc)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_SERVER_SET_MISSION_MESSAGE) == 0x2cu, "FLPACKET_SERVER_SET_MISSION_MESSAGE is operator new(0x2c)");
 
@@ -2260,7 +2279,7 @@ public:
     void Dump(std::ostream& Out) const override {   // 06dac2b0
         RpcDumpServerRepairObject(*this, Out);
     }
-    unsigned char Body[0xc];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0xc)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_SERVER_REPAIROBJECT) == 0x2cu, "FLPACKET_SERVER_REPAIROBJECT is operator new(0x2c)");
 
@@ -2279,7 +2298,7 @@ public:
                         unsigned int* OutLength) override {   // 06db03f0
         return RpcDecodeWireDword(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x4];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x4)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_SERVER_SETNUMKILLS) == 0x24u, "FLPACKET_SERVER_SETNUMKILLS is operator new(0x24)");
 
@@ -2298,7 +2317,7 @@ public:
                         unsigned int* OutLength) override {   // 06db03f0
         return RpcDecodeWireDword(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x4];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x4)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_SERVER_SETMISSIONSUCCESSES) == 0x24u, "FLPACKET_SERVER_SETMISSIONSUCCESSES is operator new(0x24)");
 
@@ -2317,7 +2336,7 @@ public:
                         unsigned int* OutLength) override {   // 06db03f0
         return RpcDecodeWireDword(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x4];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x4)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_SERVER_SETMISSIONFAILURES) == 0x24u, "FLPACKET_SERVER_SETMISSIONFAILURES is operator new(0x24)");
 
@@ -2343,7 +2362,7 @@ public:
                         unsigned int* OutLength) override {   // 06dac5c0
         return RpcDecodeServerBurnFuse(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x1c];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x1c)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_SERVER_BURNFUSE) == 0x3cu, "FLPACKET_SERVER_BURNFUSE is operator new(0x3c)");
 
@@ -2395,13 +2414,13 @@ static_assert(sizeof(FPacket_FLPACKET_SERVER_CREATESOLAR) == 0x20u + sizeof(FPay
 class FPacket_FLPACKET_SERVER_SETCOLLISIONGROUPS : public FPacketBase {
 public:
     FPacket_FLPACKET_SERVER_SETCOLLISIONGROUPS() : FPacketBase(0x20048u) {
-        RpcPacketBuildListSentinel(this, 0x20u, 0x10u);   // 06d9e909 operator new(0x10), Head
+        RpcPacketBuildListSentinel(RpcPacketCollisionGroups(this));   // 06d9e909 operator new(0x10), Head
     }
     // FUN_06d9e930
     ~FPacket_FLPACKET_SERVER_SETCOLLISIONGROUPS() override {
         // 06d9e935..06d9e978 (one body, shared with the other collision-group class):
         // the list at +0x20 (Head +0x24, Size +0x28).
-        RpcPacketDestroyEmbeddedList(this, 0x20u);
+        RpcPacketDestroyEmbeddedList(RpcPacketCollisionGroups(this));
     }
     unsigned int Encode(unsigned char** BufferHolder, unsigned int Capacity,
                         unsigned int* OutLength) override {   // 06dacca0
@@ -2411,7 +2430,7 @@ public:
                         unsigned int* OutLength) override {   // 06dacd70
         return RpcDecodeWireCollisionGroups(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0xc];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0xc)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_SERVER_SETCOLLISIONGROUPS) == 0x2cu, "FLPACKET_SERVER_SETCOLLISIONGROUPS is operator new(0x2c)");
 
@@ -2431,7 +2450,7 @@ public:
                         unsigned int* OutLength) override {   // 06db03f0
         return RpcDecodeWireDword(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x4];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x4)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_SERVER_SETHULLSTATUS) == 0x24u, "FLPACKET_SERVER_SETHULLSTATUS is operator new(0x24)");
 
@@ -2453,7 +2472,7 @@ public:
                         unsigned int* OutLength) override {   // 06dacea0
         return RpcDecodeWireDwordDwordWord(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0xc];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0xc)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_SERVER_SETGUIDEDTARGET) == 0x2cu, "FLPACKET_SERVER_SETGUIDEDTARGET is operator new(0x2c)");
 
@@ -2463,20 +2482,20 @@ static_assert(sizeof(FPacket_FLPACKET_SERVER_SETGUIDEDTARGET) == 0x2cu, "FLPACKE
 class FPacket_FLPACKET_SERVER_SENDCOMM : public FPacketBase {
 public:
     FPacket_FLPACKET_SERVER_SENDCOMM() : FPacketBase(0x2004fu) {
-        RpcPacketStoreField(this, 0x2cu, 4, 0u);   // 06d9eac5
-        RpcPacketStoreField(this, 0x30u, 4, 0u);   // 06d9eac8
-        RpcPacketStoreField(this, 0x34u, 4, 0u);   // 06d9eacb
-        RpcPacketStoreField(this, 0x38u, 4, 0u);   // 06d9eace
-        RpcPacketStoreField(this, 0x5cu, 4, 0u);   // 06d9ead1
-        RpcPacketStoreField(this, 0x64u, 4, 0u);   // 06d9eae1
-        RpcPacketStoreField(this, 0x74u, 1, 0x00000001u);   // 06d9eae4
+        RpcPacketStoreNative(this, 0xcu /* Body.Field_0x00, retail 0x2c */, 4, 0u);   // 06d9eac5
+        RpcPacketStoreNative(this, 0x10u /* Body.Field_0x04, retail 0x30 */, 4, 0u);   // 06d9eac8
+        RpcPacketStoreNative(this, 0x14u /* Body.Field_0x08, retail 0x34 */, 4, 0u);   // 06d9eacb
+        RpcPacketStoreNative(this, 0x18u /* Body.Field_0x0c, retail 0x38 */, 4, 0u);   // 06d9eace
+        RpcPacketStoreNative(this, 0x3cu /* Body.Count, retail 0x5c */, 4, 0u);   // 06d9ead1
+        RpcPacketFieldNative<void*>(this, 0x48u /* Buffer, retail 0x64 */) = nullptr;   // 06d9eae1
+        RpcPacketStoreNative(this, 0x5cu /* Field_0x54, retail 0x74 */, 1, 0x00000001u);   // 06d9eae4
     }
     // FUN_06d9eb10
     ~FPacket_FLPACKET_SERVER_SENDCOMM() override {
-        if (RpcPacketField<void*>(this, 0x64u) != nullptr) {   // 06d9eb13..06d9eb21
-            ::operator delete(RpcPacketField<void*>(this, 0x64u));
+        if (RpcPacketFieldNative<void*>(this, 0x48u /* Buffer, retail 0x64 */) != nullptr) {   // 06d9eb13..06d9eb21
+            ::operator delete(RpcPacketFieldNative<void*>(this, 0x48u /* Buffer, retail 0x64 */));
         }
-        RpcPacketField<void*>(this, 0x64u) = nullptr;           // 06d9eb29, unconditional
+        RpcPacketFieldNative<void*>(this, 0x48u /* Buffer, retail 0x64 */) = nullptr;           // 06d9eb29, unconditional
     }
     unsigned int Encode(unsigned char** BufferHolder, unsigned int Capacity,
                         unsigned int* OutLength) override {   // 06dad000
@@ -2486,7 +2505,7 @@ public:
                         unsigned int* OutLength) override {   // 06dad320
         return RpcDecodeServerSendComm(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x58];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x58)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_SERVER_SENDCOMM) == 0x78u, "FLPACKET_SERVER_SENDCOMM is operator new(0x78)");
 
@@ -2508,7 +2527,7 @@ public:
                         unsigned int* OutLength) override {   // 06dad690
         return RpcDecodeWireDwordWordWord(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x8];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x8)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_SERVER_USE_ITEM) == 0x28u, "FLPACKET_SERVER_USE_ITEM is operator new(0x28)");
 
@@ -2527,7 +2546,7 @@ public:
                         unsigned int* OutLength) override {   // 06d95d40
         return RpcDecodeWireDwordPair(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x8];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x8)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_SERVER_SCANNOTIFY) == 0x28u, "FLPACKET_SERVER_SCANNOTIFY is operator new(0x28)");
 
@@ -2537,17 +2556,17 @@ static_assert(sizeof(FPacket_FLPACKET_SERVER_SCANNOTIFY) == 0x28u, "FLPACKET_SER
 class FPacket_FLPACKET_SERVER_PLAYERLIST : public FPacketBase {
 public:
     FPacket_FLPACKET_SERVER_PLAYERLIST() : FPacketBase(0x20052u) {
-        RpcPacketStoreField(this, 0x20u, 4, 0x00000003u);   // 06d9ec81
-        RpcPacketStoreField(this, 0x24u, 4, 0u);   // 06d9ec88
-        RpcPacketStoreField(this, 0x28u, 4, 0u);   // 06d9ec8b
-        RpcPacketStoreField(this, 0x2cu, 1, 0u);   // 06d9ec8e
+        RpcPacketStoreNative(this, 0x0u /* Kind, retail 0x20 */, 4, 0x00000003u);   // 06d9ec81
+        RpcPacketFieldNative<void*>(this, 0x8u /* Name, retail 0x24 */) = nullptr;   // 06d9ec88
+        RpcPacketStoreNative(this, 0x10u /* Field_0x08, retail 0x28 */, 4, 0u);   // 06d9ec8b
+        RpcPacketStoreNative(this, 0x14u /* Field_0x0c, retail 0x2c */, 1, 0u);   // 06d9ec8e
     }
     // FUN_06d99900
     ~FPacket_FLPACKET_SERVER_PLAYERLIST() override {
-        RpcPacketField<unsigned int>(this, 0x28u) = 0;          // 06d9990e, before the test
-        if (RpcPacketField<void*>(this, 0x24u) != nullptr) {   // 06d99903..06d99915
-            ::free(RpcPacketField<void*>(this, 0x24u));          // 06d99918 MSVCRT free, not delete
-            RpcPacketField<void*>(this, 0x24u) = nullptr;        // 06d99921
+        RpcPacketFieldNative<unsigned int>(this, 0x10u /* Field_0x08, retail 0x28 */) = 0;          // 06d9990e, before the test
+        if (RpcPacketFieldNative<void*>(this, 0x8u /* Name, retail 0x24 */) != nullptr) {   // 06d99903..06d99915
+            ::free(RpcPacketFieldNative<void*>(this, 0x8u /* Name, retail 0x24 */));          // 06d99918 MSVCRT free, not delete
+            RpcPacketFieldNative<void*>(this, 0x8u /* Name, retail 0x24 */) = nullptr;        // 06d99921
         }
     }
     unsigned int Encode(unsigned char** BufferHolder, unsigned int Capacity,
@@ -2558,7 +2577,7 @@ public:
                         unsigned int* OutLength) override {   // 06d99b60
         return RpcDecodeServerPlayerList(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x10];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x10)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_SERVER_PLAYERLIST) == 0x30u, "FLPACKET_SERVER_PLAYERLIST is operator new(0x30)");
 
@@ -2568,7 +2587,7 @@ static_assert(sizeof(FPacket_FLPACKET_SERVER_PLAYERLIST) == 0x30u, "FLPACKET_SER
 class FPacket_FLPACKET_SERVER_REMOTEOBJECTCARGOUPDATE : public FRpcEquipListPacket {
 public:
     FPacket_FLPACKET_SERVER_REMOTEOBJECTCARGOUPDATE() : FRpcEquipListPacket(0x2003du) {
-        RpcPacketStoreField(this, 0x20u, 4, 0u);   // 06d9ecf4
+        RpcPacketFieldNative<void*>(this, 0x0u /* the handle, retail 0x20 */) = nullptr;   // 06d9ecf4
         RpcPacketStoreField(this, 0x24u, 1, 0u);   // 06d9ecf7
         RpcPacketStoreField(this, 0x28u, 4, 0u);   // 06d9ecfa
     }
@@ -2584,7 +2603,7 @@ public:
                         unsigned int* OutLength) override {   // 06d8f970
         return RpcDecodeServerRemoteObjectCargoUpdate(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x8];   // +0x24
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x8)];   // +0x24
 };
 static_assert(sizeof(FPacket_FLPACKET_SERVER_REMOTEOBJECTCARGOUPDATE) == 0x2cu, "FLPACKET_SERVER_REMOTEOBJECTCARGOUPDATE is operator new(0x2c)");
 
@@ -2644,7 +2663,7 @@ public:
                         unsigned int* OutLength) override {   // 06dad820
         return RpcDecodeWireDwordBlock12(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x10];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x10)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_SERVER_FORMATION_UPDATE) == 0x30u, "FLPACKET_SERVER_FORMATION_UPDATE is operator new(0x30)");
 
@@ -2673,7 +2692,7 @@ public:
                         unsigned int* OutLength) override {   // 06dadb80
         return RpcDecodeServerObjectCargoUpdate(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x14];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x14)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_SERVER_OBJECTCARGOUPDATE) == 0x34u, "FLPACKET_SERVER_OBJECTCARGOUPDATE is operator new(0x34)");
 
@@ -2693,7 +2712,7 @@ public:
                         unsigned int* OutLength) override {   // 06db03f0
         return RpcDecodeWireDword(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x4];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x4)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_SERVER_SENDNNMESSAGE) == 0x24u, "FLPACKET_SERVER_SENDNNMESSAGE is operator new(0x24)");
 
@@ -2712,7 +2731,7 @@ public:
                         unsigned int* OutLength) override {   // 06dadf30
         return RpcDecodeServerSetMusic(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x18];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x18)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_SERVER_SET_MUSIC) == 0x38u, "FLPACKET_SERVER_SET_MUSIC is operator new(0x38)");
 
@@ -2749,7 +2768,7 @@ public:
                         unsigned int* OutLength) override {   // 06db03f0
         return RpcDecodeWireDword(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x4];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x4)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_SERVER_PLAY_SOUND_EFFECT) == 0x24u, "FLPACKET_SERVER_PLAY_SOUND_EFFECT is operator new(0x24)");
 
@@ -2772,7 +2791,7 @@ public:
                         unsigned int* OutLength) override {   // 06db03f0
         return RpcDecodeWireDword(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x4];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x4)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_CLIENT_REQCHANGECASH) == 0x24u, "FLPACKET_CLIENT_REQCHANGECASH is operator new(0x24)");
 
@@ -2791,7 +2810,7 @@ public:
                         unsigned int* OutLength) override {   // 06db03f0
         return RpcDecodeWireDword(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x4];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x4)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_CLIENT_REQSETCASH) == 0x24u, "FLPACKET_CLIENT_REQSETCASH is operator new(0x24)");
 
@@ -2816,7 +2835,7 @@ public:
                         unsigned int* OutLength) override {   // 06d95d40
         return RpcDecodeWireDwordPair(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x8];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x8)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_CLIENT_REQREMOVEITEM) == 0x28u, "FLPACKET_CLIENT_REQREMOVEITEM is operator new(0x28)");
 
@@ -2826,17 +2845,17 @@ static_assert(sizeof(FPacket_FLPACKET_CLIENT_REQREMOVEITEM) == 0x28u, "FLPACKET_
 class FPacket_FLPACKET_CLIENT_REQMODIFYITEM : public FPacketBase {
 public:
     FPacket_FLPACKET_CLIENT_REQMODIFYITEM() : FPacketBase(0x3001au) {
-        RpcPacketStoreField(this, 0x20u, 4, 0u);   // 06da0674
-        RpcPacketStoreField(this, 0x24u, 4, 0u);   // 06da0677
-        RpcPacketStoreField(this, 0x28u, 4, 0u);   // 06da067a
-        RpcPacketStoreField(this, 0x2cu, 4, 0u);   // 06da067d
-        RpcPacketStoreField(this, 0x30u, 1, 0u);   // 06da0680
-        RpcPacketStoreField(this, 0x34u, 4, 0u);   // 06da0683
+        RpcPacketStoreNative(this, 0x0u /* Count, retail 0x20 */, 4, 0u);   // 06da0674
+        RpcPacketStoreNative(this, 0x4u /* HardpointSize, retail 0x24 */, 4, 0u);   // 06da0677
+        RpcPacketStoreNative(this, 0x8u /* EquipId, retail 0x28 */, 4, 0u);   // 06da067a
+        RpcPacketStoreNative(this, 0xcu /* Health, retail 0x2c */, 4, 0u);   // 06da067d
+        RpcPacketStoreNative(this, 0x10u /* bMounted, retail 0x30 */, 1, 0u);   // 06da0680
+        RpcPacketFieldNative<void*>(this, 0x18u /* Hardpoint, retail 0x34 */) = nullptr;   // 06da0683
     }
     // FUN_06d9a1d0
     ~FPacket_FLPACKET_CLIENT_REQMODIFYITEM() override {
-        if (RpcPacketField<void*>(this, 0x34u) != nullptr) {   // 06d9a1d3..06d9a1e1
-            ::operator delete(RpcPacketField<void*>(this, 0x34u));
+        if (RpcPacketFieldNative<void*>(this, 0x18u /* Hardpoint, retail 0x34 */) != nullptr) {   // 06d9a1d3..06d9a1e1
+            ::operator delete(RpcPacketFieldNative<void*>(this, 0x18u /* Hardpoint, retail 0x34 */));
         }
     }
     unsigned int Encode(unsigned char** BufferHolder, unsigned int Capacity,
@@ -2847,7 +2866,7 @@ public:
                         unsigned int* OutLength) override {   // 06d9a410
         return RpcDecodeClientReqModifyItem(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x18];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x18)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_CLIENT_REQMODIFYITEM) == 0x38u, "FLPACKET_CLIENT_REQMODIFYITEM is operator new(0x38)");
 
@@ -2857,7 +2876,7 @@ static_assert(sizeof(FPacket_FLPACKET_CLIENT_REQMODIFYITEM) == 0x38u, "FLPACKET_
 class FPacket_FLPACKET_CLIENT_REQCARGO : public FRpcEquipListPacket {
 public:
     FPacket_FLPACKET_CLIENT_REQCARGO() : FRpcEquipListPacket(0x30017u) {
-        RpcPacketStoreField(this, 0x20u, 4, 0u);   // 06da06b4
+        RpcPacketFieldNative<void*>(this, 0x0u /* the handle, retail 0x20 */) = nullptr;   // 06da06b4
     }
     // FUN_06d95cf0
     ~FPacket_FLPACKET_CLIENT_REQCARGO() override {
@@ -2880,17 +2899,17 @@ static_assert(sizeof(FPacket_FLPACKET_CLIENT_REQCARGO) == 0x24u, "FLPACKET_CLIEN
 class FPacket_FLPACKET_CLIENT_REQADDITEM : public FPacketBase {
 public:
     FPacket_FLPACKET_CLIENT_REQADDITEM() : FPacketBase(0x30018u) {
-        RpcPacketStoreField(this, 0x20u, 4, 0u);   // 06da0634
-        RpcPacketStoreField(this, 0x24u, 4, 0u);   // 06da0637
-        RpcPacketStoreField(this, 0x28u, 4, 0u);   // 06da063a
-        RpcPacketStoreField(this, 0x2cu, 4, 0u);   // 06da063d
-        RpcPacketStoreField(this, 0x30u, 1, 0u);   // 06da0640
-        RpcPacketStoreField(this, 0x34u, 4, 0u);   // 06da0643
+        RpcPacketStoreNative(this, 0x0u /* ArchId, retail 0x20 */, 4, 0u);   // 06da0634
+        RpcPacketStoreNative(this, 0x4u /* Count, retail 0x24 */, 4, 0u);   // 06da0637
+        RpcPacketStoreNative(this, 0x8u /* HardpointSize, retail 0x28 */, 4, 0u);   // 06da063a
+        RpcPacketStoreNative(this, 0xcu /* Health, retail 0x2c */, 4, 0u);   // 06da063d
+        RpcPacketStoreNative(this, 0x10u /* bMounted, retail 0x30 */, 1, 0u);   // 06da0640
+        RpcPacketFieldNative<void*>(this, 0x18u /* Hardpoint, retail 0x34 */) = nullptr;   // 06da0643
     }
     // FUN_06d99d40
     ~FPacket_FLPACKET_CLIENT_REQADDITEM() override {
-        if (RpcPacketField<void*>(this, 0x34u) != nullptr) {   // 06d99d43..06d99d51
-            ::operator delete(RpcPacketField<void*>(this, 0x34u));
+        if (RpcPacketFieldNative<void*>(this, 0x18u /* Hardpoint, retail 0x34 */) != nullptr) {   // 06d99d43..06d99d51
+            ::operator delete(RpcPacketFieldNative<void*>(this, 0x18u /* Hardpoint, retail 0x34 */));
         }
     }
     unsigned int Encode(unsigned char** BufferHolder, unsigned int Capacity,
@@ -2901,7 +2920,7 @@ public:
                         unsigned int* OutLength) override {   // 06d99f80
         return RpcDecodeClientReqAddItem(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x18];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x18)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_CLIENT_REQADDITEM) == 0x38u, "FLPACKET_CLIENT_REQADDITEM is operator new(0x38)");
 
@@ -2920,7 +2939,7 @@ public:
                         unsigned int* OutLength) override {   // 06db03f0
         return RpcDecodeWireDword(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x4];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x4)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_CLIENT_REQSHIPARCH) == 0x24u, "FLPACKET_CLIENT_REQSHIPARCH is operator new(0x24)");
 
@@ -2930,7 +2949,7 @@ static_assert(sizeof(FPacket_FLPACKET_CLIENT_REQSHIPARCH) == 0x24u, "FLPACKET_CL
 class FPacket_FLPACKET_CLIENT_REQEQUIPMENT : public FRpcEquipListPacket {
 public:
     FPacket_FLPACKET_CLIENT_REQEQUIPMENT() : FRpcEquipListPacket(0x30016u) {
-        RpcPacketStoreField(this, 0x20u, 4, 0u);   // 06da0714
+        RpcPacketFieldNative<void*>(this, 0x0u /* the handle, retail 0x20 */) = nullptr;   // 06da0714
     }
     // FUN_06d95bc0
     ~FPacket_FLPACKET_CLIENT_REQEQUIPMENT() override {
@@ -2969,7 +2988,7 @@ public:
                         unsigned int* OutLength) override {   // 06dae430
         return RpcDecodeClientMunCollision(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x1c];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x1c)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_CLIENT_MUNCOLLISION) == 0x3cu, "FLPACKET_CLIENT_MUNCOLLISION is operator new(0x3c)");
 
@@ -2991,7 +3010,7 @@ public:
                         unsigned int* OutLength) override {   // 06da78d0
         return RpcDecodeWireDwordWordDword(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0xc];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0xc)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_CLIENT_BADLANDSOBJCOLLISION) == 0x2cu, "FLPACKET_CLIENT_BADLANDSOBJCOLLISION is operator new(0x2c)");
 
@@ -3015,7 +3034,7 @@ public:
                         unsigned int* OutLength) override {   // 06dae910
         return RpcDecodeClientObjCollision(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x14];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x14)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_CLIENT_OBJCOLLISION) == 0x34u, "FLPACKET_CLIENT_OBJCOLLISION is operator new(0x34)");
 
@@ -3034,7 +3053,7 @@ public:
                         unsigned int* OutLength) override {   // 06daa3e0
         return RpcDecodeClientRequestEvent(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x14];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x14)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_CLIENT_REQUEST_EVENT) == 0x34u, "FLPACKET_CLIENT_REQUEST_EVENT is operator new(0x34)");
 
@@ -3053,7 +3072,7 @@ public:
                         unsigned int* OutLength) override {   // 06daa6d0
         return RpcDecodeClientRequestCancel(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x10];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x10)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_CLIENT_REQUEST_CANCEL) == 0x30u, "FLPACKET_CLIENT_REQUEST_CANCEL is operator new(0x30)");
 
@@ -3072,7 +3091,7 @@ public:
                         unsigned int* OutLength) override {   // 06d95d40
         return RpcDecodeWireDwordPair(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x8];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x8)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_CLIENT_CARGOSCAN) == 0x28u, "FLPACKET_CLIENT_CARGOSCAN is operator new(0x28)");
 
@@ -3094,7 +3113,7 @@ public:
     void Dump(std::ostream& Out) const override {   // 06daf370
         RpcDumpClientRequestLaunch(*this, Out);
     }
-    unsigned char Body[0x4];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x4)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_CLIENT_REQUESTLAUNCH) == 0x24u, "FLPACKET_CLIENT_REQUESTLAUNCH is operator new(0x24)");
 
@@ -3137,7 +3156,7 @@ public:
     void Dump(std::ostream& Out) const override {   // 06dafab0
         RpcDumpWireCharacterIdDump(*this, Out);
     }
-    unsigned char Body[0x200];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x200)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_CLIENT_SELECTCHARACTER) == 0x220u, "FLPACKET_CLIENT_SELECTCHARACTER is operator new(0x220)");
 
@@ -3156,7 +3175,7 @@ public:
                         unsigned int* OutLength) override {   // 06d9ab00
         return RpcDecodeWireFourDwords(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x10];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x10)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_CLIENT_COMMCOMPLETE) == 0x30u, "FLPACKET_CLIENT_COMMCOMPLETE is operator new(0x30)");
 
@@ -3188,7 +3207,7 @@ public:
     void Dump(std::ostream& Out) const override {   // 06daf760
         RpcDumpClientCreateNewChar(*this, Out);
     }
-    unsigned char Body[0x90];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x90)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_CLIENT_CREATENEWCHAR) == 0xb0u, "FLPACKET_CLIENT_CREATENEWCHAR is operator new(0xb0)");
 
@@ -3211,7 +3230,7 @@ public:
     void Dump(std::ostream& Out) const override {   // 06dafab0
         RpcDumpWireCharacterIdDump(*this, Out);
     }
-    unsigned char Body[0x200];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x200)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_CLIENT_DESTROYCHAR) == 0x220u, "FLPACKET_CLIENT_DESTROYCHAR is operator new(0x220)");
 
@@ -3233,7 +3252,7 @@ public:
     void Dump(std::ostream& Out) const override {   // 06daff50
         RpcDumpClientLogin(*this, Out);
     }
-    unsigned char Body[0x404];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x404)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_CLIENT_LOGIN) == 0x424u, "FLPACKET_CLIENT_LOGIN is operator new(0x424)");
 
@@ -3252,7 +3271,7 @@ public:
                         unsigned int* OutLength) override {   // 06db03f0
         return RpcDecodeWireDword(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x4];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x4)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_CLIENT_ENTERBASE) == 0x24u, "FLPACKET_CLIENT_ENTERBASE is operator new(0x24)");
 
@@ -3271,7 +3290,7 @@ public:
                         unsigned int* OutLength) override {   // 06daf230
         return RpcDecodeWireDwordByte(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x8];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x8)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_CLIENT_REQUESTBASEINFO) == 0x28u, "FLPACKET_CLIENT_REQUESTBASEINFO is operator new(0x28)");
 
@@ -3290,7 +3309,7 @@ public:
                         unsigned int* OutLength) override {   // 06daf230
         return RpcDecodeWireDwordByte(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x8];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x8)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_CLIENT_REQUESTLOCATIONINFO) == 0x28u, "FLPACKET_CLIENT_REQUESTLOCATIONINFO is operator new(0x28)");
 
@@ -3319,7 +3338,7 @@ public:
                         unsigned int* OutLength) override {   // 06db03f0
         return RpcDecodeWireDword(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x4];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x4)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_CLIENT_SYSTEM_SWITCH_OUT_COMPLETE) == 0x24u, "FLPACKET_CLIENT_SYSTEM_SWITCH_OUT_COMPLETE is operator new(0x24)");
 
@@ -3338,7 +3357,7 @@ public:
                         unsigned int* OutLength) override {   // 06db03f0
         return RpcDecodeWireDword(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x4];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x4)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_CLIENT_EXITBASE) == 0x24u, "FLPACKET_CLIENT_EXITBASE is operator new(0x24)");
 
@@ -3357,7 +3376,7 @@ public:
                         unsigned int* OutLength) override {   // 06db03f0
         return RpcDecodeWireDword(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x4];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x4)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_CLIENT_ENTERLOCATION) == 0x24u, "FLPACKET_CLIENT_ENTERLOCATION is operator new(0x24)");
 
@@ -3376,7 +3395,7 @@ public:
                         unsigned int* OutLength) override {   // 06db03f0
         return RpcDecodeWireDword(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x4];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x4)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_CLIENT_EXITLOCATION) == 0x24u, "FLPACKET_CLIENT_EXITLOCATION is operator new(0x24)");
 
@@ -3405,7 +3424,7 @@ public:
                         unsigned int* OutLength) override {   // 06db03f0
         return RpcDecodeWireDword(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x4];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x4)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_CLIENT_INTERFACEITEMUSED) == 0x24u, "FLPACKET_CLIENT_INTERFACEITEMUSED is operator new(0x24)");
 
@@ -3425,7 +3444,7 @@ public:
                         unsigned int* OutLength) override {   // 06db03f0
         return RpcDecodeWireDword(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x4];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x4)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_CLIENT_RTCDONE) == 0x24u, "FLPACKET_CLIENT_RTCDONE is operator new(0x24)");
 
@@ -3444,7 +3463,7 @@ public:
                         unsigned int* OutLength) override {   // 06db03f0
         return RpcDecodeWireDword(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x4];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x4)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_CLIENT_ABORT_MISSION) == 0x24u, "FLPACKET_CLIENT_ABORT_MISSION is operator new(0x24)");
 
@@ -3463,7 +3482,7 @@ public:
                         unsigned int* OutLength) override {   // 06d95d40
         return RpcDecodeWireDwordPair(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x8];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x8)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_CLIENT_LAUNCHCOMPLETE) == 0x28u, "FLPACKET_CLIENT_LAUNCHCOMPLETE is operator new(0x28)");
 
@@ -3484,7 +3503,7 @@ public:
                         unsigned int* OutLength) override {   // 06d95d40
         return RpcDecodeWireDwordPair(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x8];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x8)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_CLIENT_JUMPINCOMPLETE) == 0x28u, "FLPACKET_CLIENT_JUMPINCOMPLETE is operator new(0x28)");
 
@@ -3506,7 +3525,7 @@ public:
                         unsigned int* OutLength) override {   // 06da6e40
         return RpcDecodeWireThreeDwords(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0xc];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0xc)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_CLIENT_HAIL) == 0x2cu, "FLPACKET_CLIENT_HAIL is operator new(0x2c)");
 
@@ -3525,7 +3544,7 @@ public:
                         unsigned int* OutLength) override {   // 06d9ab00
         return RpcDecodeWireFourDwords(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x10];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x10)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_CLIENT_GFGOODBUY) == 0x30u, "FLPACKET_CLIENT_GFGOODBUY is operator new(0x30)");
 
@@ -3544,7 +3563,7 @@ public:
                         unsigned int* OutLength) override {   // 06da6e40
         return RpcDecodeWireThreeDwords(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0xc];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0xc)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_CLIENT_GFGOODSELL) == 0x2cu, "FLPACKET_CLIENT_GFGOODSELL is operator new(0x2c)");
 
@@ -3563,7 +3582,7 @@ public:
                         unsigned int* OutLength) override {   // 06da6e40
         return RpcDecodeWireThreeDwords(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0xc];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0xc)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_CLIENT_GFGOODVAPORIZED) == 0x2cu, "FLPACKET_CLIENT_GFGOODVAPORIZED is operator new(0x2c)");
 
@@ -3582,7 +3601,7 @@ public:
                         unsigned int* OutLength) override {   // 06db03f0
         return RpcDecodeWireDword(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x4];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x4)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_CLIENT_GFSELECTOBJECT) == 0x24u, "FLPACKET_CLIENT_GFSELECTOBJECT is operator new(0x24)");
 
@@ -3592,12 +3611,12 @@ static_assert(sizeof(FPacket_FLPACKET_CLIENT_GFSELECTOBJECT) == 0x24u, "FLPACKET
 class FPacket_FLPACKET_CLIENT_SAVEGAME : public FPacketBase {
 public:
     FPacket_FLPACKET_CLIENT_SAVEGAME() : FPacketBase(0x3001eu) {
-        RpcPacketStoreField(this, 0x20u, 1, 0u);   // 06da0a74
+        RpcPacketStoreNative(this, 0x0u /* CharId, retail 0x20 */, 1, 0u);   // 06da0a74
     }
     // FUN_06d9a7d0
     ~FPacket_FLPACKET_CLIENT_SAVEGAME() override {
-        if (RpcPacketField<void*>(this, 0x220u) != nullptr) {   // 06d9a7d3..06d9a7e4
-            ::operator delete(RpcPacketField<void*>(this, 0x220u));
+        if (RpcPacketFieldNative<void*>(this, 0x200u /* Description, retail 0x220 */) != nullptr) {   // 06d9a7d3..06d9a7e4
+            ::operator delete(RpcPacketFieldNative<void*>(this, 0x200u /* Description, retail 0x220 */));
         }
     }
     unsigned int Encode(unsigned char** BufferHolder, unsigned int Capacity,
@@ -3608,7 +3627,7 @@ public:
                         unsigned int* OutLength) override {   // 06d9a950
         return RpcDecodeClientSaveGame(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x208];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x208)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_CLIENT_SAVEGAME) == 0x228u, "FLPACKET_CLIENT_SAVEGAME is operator new(0x228)");
 
@@ -3630,7 +3649,7 @@ public:
                         unsigned int* OutLength) override {   // 06daeca0
         return RpcDecodeClientMineAsteroid(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x1c];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x1c)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_CLIENT_MINEASTEROID) == 0x3cu, "FLPACKET_CLIENT_MINEASTEROID is operator new(0x3c)");
 
@@ -3649,7 +3668,7 @@ public:
                         unsigned int* OutLength) override {   // 06daf010
         return RpcDecodeClientMissionResponse(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0xc];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0xc)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_CLIENT_MISSIONRESPONSE) == 0x2cu, "FLPACKET_CLIENT_MISSIONRESPONSE is operator new(0x2c)");
 
@@ -3660,12 +3679,12 @@ class FPacket_FLPACKET_CLIENT_TRADERESPONSE : public FPacketBase {
 public:
     FPacket_FLPACKET_CLIENT_TRADERESPONSE() : FPacketBase(0x30027u) {
         RpcPacketStoreField(this, 0x20u, 4, 0u);   // 06da0901
-        RpcPacketStoreField(this, 0x24u, 4, 0u);   // 06da0904
+        RpcPacketFieldNative<void*>(this, offsetof(FPayloadServerBlob, Buffer) /* retail 0x24 */) = nullptr;   // 06da0904
     }
     // FUN_06d9a630
     ~FPacket_FLPACKET_CLIENT_TRADERESPONSE() override {
-        ::operator delete(RpcPacketField<void*>(this, 0x24u));   // 06d9a633..06d9a63d, no test
-        RpcPacketField<void*>(this, 0x24u) = nullptr;            // 06d9a645
+        ::operator delete(RpcPacketFieldNative<void*>(this, offsetof(FPayloadServerBlob, Buffer) /* retail 0x24 */));   // 06d9a633..06d9a63d, no test
+        RpcPacketFieldNative<void*>(this, offsetof(FPayloadServerBlob, Buffer) /* retail 0x24 */) = nullptr;            // 06d9a645
     }
     unsigned int Encode(unsigned char** BufferHolder, unsigned int Capacity,
                         unsigned int* OutLength) override {   // 06da9110
@@ -3675,7 +3694,7 @@ public:
                         unsigned int* OutLength) override {   // 06d9a660
         return RpcDecodeWireTradeResponse(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x8];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x8)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_CLIENT_TRADERESPONSE) == 0x28u, "FLPACKET_CLIENT_TRADERESPONSE is operator new(0x28)");
 
@@ -3685,43 +3704,43 @@ static_assert(sizeof(FPacket_FLPACKET_CLIENT_TRADERESPONSE) == 0x28u, "FLPACKET_
 class FPacket_FLPACKET_CLIENT_DBGCREATESHIP : public FPacketBase {
 public:
     FPacket_FLPACKET_CLIENT_DBGCREATESHIP() : FPacketBase(0x30022u) {
-        RpcPacketStoreField(this, 0x34u, 4, 0u);   // 06da0e34
-        RpcPacketStoreField(this, 0x38u, 4, 0u);   // 06da0e37
-        RpcPacketStoreField(this, 0x3cu, 4, 0u);   // 06da0e3a
-        RpcPacketStoreField(this, 0x40u, 4, 0u);   // 06da0e3d
-        RpcPacketStoreField(this, 0x44u, 4, 0u);   // 06da0e40
-        RpcPacketStoreField(this, 0x48u, 4, 0u);   // 06da0e43
-        RpcPacketStoreField(this, 0x4cu, 4, 0x3f800000u);   // 06da0e46
-        RpcPacketStoreField(this, 0x50u, 4, 0u);   // 06da0e4d
-        RpcPacketStoreField(this, 0x54u, 4, 0u);   // 06da0e50
-        RpcPacketStoreField(this, 0x58u, 4, 0u);   // 06da0e53
-        RpcPacketStoreField(this, 0x5cu, 4, 0u);   // 06da0e56
-        RpcPacketStoreField(this, 0x60u, 4, 0u);   // 06da0e59
-        RpcPacketStoreField(this, 0x64u, 4, 0u);   // 06da0e5c
-        RpcPacketStoreField(this, 0x68u, 4, 0u);   // 06da0e5f
-        RpcPacketStoreField(this, 0x6cu, 4, 0u);   // 06da0e62
-        RpcPacketStoreField(this, 0x84u, 4, 0u);   // 06da0e65
-        RpcPacketStoreField(this, 0x80u, 4, 0u);   // 06da0e6b
-        RpcPacketStoreField(this, 0x7cu, 4, 0u);   // 06da0e71
-        RpcPacketStoreField(this, 0x78u, 4, 0u);   // 06da0e74
-        RpcPacketStoreField(this, 0x74u, 4, 0u);   // 06da0e77
-        RpcPacketStoreField(this, 0x70u, 4, 0u);   // 06da0e7a
-        RpcPacketStoreField(this, 0x88u, 4, 0u);   // 06da0e7d
-        RpcPacketStoreField(this, 0x8cu, 4, 0u);   // 06da0e83
+        RpcPacketStoreNative(this, 0x14u /* Field_0x14.x, retail 0x34 */, 4, 0u);   // 06da0e34
+        RpcPacketStoreNative(this, 0x18u /* Field_0x14.y, retail 0x38 */, 4, 0u);   // 06da0e37
+        RpcPacketStoreNative(this, 0x1cu /* Field_0x14.z, retail 0x3c */, 4, 0u);   // 06da0e3a
+        RpcPacketStoreNative(this, 0x20u /* Field_0x20.x, retail 0x40 */, 4, 0u);   // 06da0e3d
+        RpcPacketStoreNative(this, 0x24u /* Field_0x20.y, retail 0x44 */, 4, 0u);   // 06da0e40
+        RpcPacketStoreNative(this, 0x28u /* Field_0x20.z, retail 0x48 */, 4, 0u);   // 06da0e43
+        RpcPacketStoreNative(this, 0x2cu /* Orientation.w, retail 0x4c */, 4, 0x3f800000u);   // 06da0e46
+        RpcPacketStoreNative(this, 0x30u /* Orientation.x, retail 0x50 */, 4, 0u);   // 06da0e4d
+        RpcPacketStoreNative(this, 0x34u /* Orientation.y, retail 0x54 */, 4, 0u);   // 06da0e50
+        RpcPacketStoreNative(this, 0x38u /* Orientation.z, retail 0x58 */, 4, 0u);   // 06da0e53
+        RpcPacketStoreNative(this, 0x3cu /* Field_0x3c, retail 0x5c */, 4, 0u);   // 06da0e56
+        RpcPacketFieldNative<void*>(this, 0x40u /* NameChars, retail 0x60 */) = nullptr;   // 06da0e59
+        RpcPacketStoreNative(this, 0x48u /* NameCharCount, retail 0x64 */, 4, 0u);   // 06da0e5c
+        RpcPacketStoreNative(this, 0x4cu /* BlockASize, retail 0x68 */, 4, 0u);   // 06da0e5f
+        RpcPacketStoreNative(this, 0x50u /* BlockBSize, retail 0x6c */, 4, 0u);   // 06da0e62
+        RpcPacketFieldNative<void*>(this, 0x68u /* DwordArray, retail 0x84 */) = nullptr;   // 06da0e65
+        RpcPacketStoreNative(this, 0x64u /* DwordArrayCount, retail 0x80 */, 4, 0u);   // 06da0e6b
+        RpcPacketStoreNative(this, 0x60u /* Field_0x5c, retail 0x7c */, 4, 0u);   // 06da0e71
+        RpcPacketStoreNative(this, 0x5cu /* Field_0x58, retail 0x78 */, 4, 0u);   // 06da0e74
+        RpcPacketStoreNative(this, 0x58u /* Field_0x54, retail 0x74 */, 4, 0u);   // 06da0e77
+        RpcPacketStoreNative(this, 0x54u /* Field_0x50, retail 0x70 */, 4, 0u);   // 06da0e7a
+        RpcPacketFieldNative<void*>(this, 0x70u /* BlockA, retail 0x88 */) = nullptr;   // 06da0e7d
+        RpcPacketFieldNative<void*>(this, 0x78u /* BlockB, retail 0x8c */) = nullptr;   // 06da0e83
     }
     // FUN_06db0500
     ~FPacket_FLPACKET_CLIENT_DBGCREATESHIP() override {
-        if (RpcPacketField<void*>(this, 0x60u) != nullptr) {   // 06db0503..06db0511
-            ::operator delete(RpcPacketField<void*>(this, 0x60u));
+        if (RpcPacketFieldNative<void*>(this, 0x40u /* NameChars, retail 0x60 */) != nullptr) {   // 06db0503..06db0511
+            ::operator delete(RpcPacketFieldNative<void*>(this, 0x40u /* NameChars, retail 0x60 */));
         }
-        if (RpcPacketField<void*>(this, 0x88u) != nullptr) {   // 06db0519..06db0524
-            ::operator delete(RpcPacketField<void*>(this, 0x88u));
+        if (RpcPacketFieldNative<void*>(this, 0x70u /* BlockA, retail 0x88 */) != nullptr) {   // 06db0519..06db0524
+            ::operator delete(RpcPacketFieldNative<void*>(this, 0x70u /* BlockA, retail 0x88 */));
         }
-        if (RpcPacketField<void*>(this, 0x8cu) != nullptr) {   // 06db052c..06db0537
-            ::operator delete(RpcPacketField<void*>(this, 0x8cu));
+        if (RpcPacketFieldNative<void*>(this, 0x78u /* BlockB, retail 0x8c */) != nullptr) {   // 06db052c..06db0537
+            ::operator delete(RpcPacketFieldNative<void*>(this, 0x78u /* BlockB, retail 0x8c */));
         }
-        if (RpcPacketField<void*>(this, 0x84u) != nullptr) {   // 06db053f..06db054a
-            ::operator delete(RpcPacketField<void*>(this, 0x84u));
+        if (RpcPacketFieldNative<void*>(this, 0x68u /* DwordArray, retail 0x84 */) != nullptr) {   // 06db053f..06db054a
+            ::operator delete(RpcPacketFieldNative<void*>(this, 0x68u /* DwordArray, retail 0x84 */));
         }
     }
     unsigned int Encode(unsigned char** BufferHolder, unsigned int Capacity,
@@ -3732,7 +3751,7 @@ public:
                         unsigned int* OutLength) override {   // 06db0b30
         return RpcDecodeClientDbgCreateShip(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x70];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x70)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_CLIENT_DBGCREATESHIP) == 0x90u, "FLPACKET_CLIENT_DBGCREATESHIP is operator new(0x90)");
 
@@ -3742,13 +3761,13 @@ static_assert(sizeof(FPacket_FLPACKET_CLIENT_DBGCREATESHIP) == 0x90u, "FLPACKET_
 class FPacket_FLPACKET_CLIENT_DBGLOADSYSTEM : public FPacketBase {
 public:
     FPacket_FLPACKET_CLIENT_DBGLOADSYSTEM() : FPacketBase(0x30023u) {
-        RpcPacketStoreField(this, 0x20u, 4, 0u);   // 06da0ed4
-        RpcPacketStoreField(this, 0x24u, 4, 0u);   // 06da0ed7
+        RpcPacketFieldNative<void*>(this, offsetof(FPayloadServerBlobReversed, Buffer) /* retail 0x20 */) = nullptr;   // 06da0ed4
+        RpcPacketStoreNative(this, offsetof(FPayloadServerBlobReversed, Size) /* retail 0x24 */, 4, 0u);   // 06da0ed7
     }
     // FUN_06db10b0
     ~FPacket_FLPACKET_CLIENT_DBGLOADSYSTEM() override {
-        if (RpcPacketField<void*>(this, 0x20u) != nullptr) {   // 06db10b3..06db10c1
-            ::operator delete(RpcPacketField<void*>(this, 0x20u));
+        if (RpcPacketFieldNative<void*>(this, offsetof(FPayloadServerBlobReversed, Buffer) /* retail 0x20 */) != nullptr) {   // 06db10b3..06db10c1
+            ::operator delete(RpcPacketFieldNative<void*>(this, offsetof(FPayloadServerBlobReversed, Buffer) /* retail 0x20 */));
         }
     }
     unsigned int Encode(unsigned char** BufferHolder, unsigned int Capacity,
@@ -3759,7 +3778,7 @@ public:
                         unsigned int* OutLength) override {   // 06db10e0
         return RpcDecodeWireBlobBufferFirstSkipEmpty(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x8];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x8)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_CLIENT_DBGLOADSYSTEM) == 0x28u, "FLPACKET_CLIENT_DBGLOADSYSTEM is operator new(0x28)");
 
@@ -3800,7 +3819,7 @@ public:
                         unsigned int* OutLength) override {   // 06db03f0
         return RpcDecodeWireDword(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x4];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x4)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_CLIENT_DOCK) == 0x24u, "FLPACKET_CLIENT_DOCK is operator new(0x24)");
 
@@ -3820,7 +3839,7 @@ public:
                         unsigned int* OutLength) override {   // 06db17a0
         return RpcDecodeClientDbgConsole(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x84];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x84)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_CLIENT_DBGCONSOLE) == 0xa4u, "FLPACKET_CLIENT_DBGCONSOLE is operator new(0xa4)");
 
@@ -3839,7 +3858,7 @@ public:
                         unsigned int* OutLength) override {   // 06db13e0
         return RpcDecodeClientDbgDestroyObject(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x8];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x8)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_CLIENT_DBGDESTROYOBJECT) == 0x28u, "FLPACKET_CLIENT_DBGDESTROYOBJECT is operator new(0x28)");
 
@@ -3861,7 +3880,7 @@ public:
                         unsigned int* OutLength) override {   // 06dad820
         return RpcDecodeWireDwordBlock12(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x10];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x10)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_CLIENT_DBGRELOCATE_SHIP) == 0x30u, "FLPACKET_CLIENT_DBGRELOCATE_SHIP is operator new(0x30)");
 
@@ -3883,7 +3902,7 @@ public:
                         unsigned int* OutLength) override {   // 06da6e40
         return RpcDecodeWireThreeDwords(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0xc];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0xc)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_CLIENT_SETMANEUVER) == 0x2cu, "FLPACKET_CLIENT_SETMANEUVER is operator new(0x2c)");
 
@@ -3893,13 +3912,13 @@ static_assert(sizeof(FPacket_FLPACKET_CLIENT_SETMANEUVER) == 0x2cu, "FLPACKET_CL
 class FPacket_FLPACKET_CLIENT_REQCOLLISIONGROUPS : public FPacketBase {
 public:
     FPacket_FLPACKET_CLIENT_REQCOLLISIONGROUPS() : FPacketBase(0x30036u) {
-        RpcPacketBuildListSentinel(this, 0x20u, 0x10u);   // 06da1109 operator new(0x10), Head
+        RpcPacketBuildListSentinel(RpcPacketCollisionGroups(this));   // 06da1109 operator new(0x10), Head
     }
     // FUN_06d9e930
     ~FPacket_FLPACKET_CLIENT_REQCOLLISIONGROUPS() override {
         // 06d9e935..06d9e978 (one body, shared with the other collision-group class):
         // the list at +0x20 (Head +0x24, Size +0x28).
-        RpcPacketDestroyEmbeddedList(this, 0x20u);
+        RpcPacketDestroyEmbeddedList(RpcPacketCollisionGroups(this));
     }
     unsigned int Encode(unsigned char** BufferHolder, unsigned int Capacity,
                         unsigned int* OutLength) override {   // 06dacca0
@@ -3909,7 +3928,7 @@ public:
                         unsigned int* OutLength) override {   // 06dacd70
         return RpcDecodeWireCollisionGroups(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0xc];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0xc)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_CLIENT_REQCOLLISIONGROUPS) == 0x2cu, "FLPACKET_CLIENT_REQCOLLISIONGROUPS is operator new(0x2c)");
 
@@ -3929,7 +3948,7 @@ public:
                         unsigned int* OutLength) override {   // 06db03f0
         return RpcDecodeWireDword(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x4];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x4)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_CLIENT_REQHULLSTATUS) == 0x24u, "FLPACKET_CLIENT_REQHULLSTATUS is operator new(0x24)");
 
@@ -3951,7 +3970,7 @@ public:
                         unsigned int* OutLength) override {   // 06dad690
         return RpcDecodeWireDwordWordWord(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x8];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x8)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_CLIENT_REQUEST_USE_ITEM) == 0x28u, "FLPACKET_CLIENT_REQUEST_USE_ITEM is operator new(0x28)");
 
@@ -3973,7 +3992,7 @@ public:
                         unsigned int* OutLength) override {   // 06da6a50
         return RpcDecodeWireDwordTwoBytes(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x8];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x8)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_CLIENT_REQINVINCIBILITY) == 0x28u, "FLPACKET_CLIENT_REQINVINCIBILITY is operator new(0x28)");
 
@@ -3992,7 +4011,7 @@ public:
                         unsigned int* OutLength) override {   // 06db03f0
         return RpcDecodeWireDword(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x4];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x4)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_CLIENT_MISSIONSAVEB) == 0x24u, "FLPACKET_CLIENT_MISSIONSAVEB is operator new(0x24)");
 
@@ -4012,7 +4031,7 @@ public:
                         unsigned int* OutLength) override {   // 06db03f0
         return RpcDecodeWireDword(*this, Buffer, Size, OutLength);
     }
-    unsigned char Body[0x4];   // +0x20
+    alignas(8) unsigned char Body[FL_RPC_BODY(0x4)];   // +0x20
 };
 static_assert(sizeof(FPacket_FLPACKET_CLIENT_REQDIFFICULTYSCALE) == 0x24u, "FLPACKET_CLIENT_REQDIFFICULTYSCALE is operator new(0x24)");
 

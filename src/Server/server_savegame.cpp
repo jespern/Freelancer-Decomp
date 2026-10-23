@@ -26,6 +26,7 @@
 //    is PlayerData_LoadSelectedCharacter below.
 
 #include "../include/common_pub.h"
+#include "../include/hd_plugins.h"
 #include "../include/common_server.h"          // Players (PlayerDB::operator[])
 #include "../include/common_server_playerdb.h"
 #include "../include/server_savegame.h"
@@ -460,8 +461,14 @@ bool __cdecl PlayerData_LoadSaveRecord(PlayerData& Slot, char const* Path,
                 }
                 // .text:06d47668 -- no null test on GetShip.
                 Archetype::Ship const* Ship = Archetype::GetShip(Record.ShipArchetype);
-                Ship->get_undamaged_collision_group_list(Record.CollisionGroups);
-                Ship->get_undamaged_collision_group_list(Record.BaseCollisionGroups);
+                // HD: FLSharp save_crash_fix — an unknown ship leaves the lists empty instead of
+                // crashing (0x06d4766e).
+                static const bool bSaveCrashFix = HdPlugins::FlSharp("save_crash_fix");
+                if (Ship != nullptr || !bSaveCrashFix)
+                {
+                    Ship->get_undamaged_collision_group_list(Record.CollisionGroups);
+                    Ship->get_undamaged_collision_group_list(Record.BaseCollisionGroups);
+                }
                 continue;
             }
             if (Reader.is_value("system")) {
@@ -753,7 +760,20 @@ bool __cdecl PlayerData_MissionSave(PlayerData& Slot, unsigned int DescripStrId)
 
     // .text:06d4c7e9 -- CopyFileA(last written path, dest, FALSE); its BOOL is
     // what AL carries out.
-    return CopyFileA(GServerLastSavePath, Destination, FALSE) != 0;
+    bool const bCopied = CopyFileA(GServerLastSavePath, Destination, FALSE) != 0;
+
+    // Dev aid: FLWIN_CKPT keeps every mission checkpoint as <dir>\ck<DescripStrId>.fl
+    // (e.g. ck32405.fl for Mission 4's station attack), loadable with FLWIN_LOAD.
+    if (getenv("FLWIN_CKPT") != nullptr)
+    {
+        char KeepName[32];
+        snprintf(KeepName, sizeof(KeepName), "ck%u", DescripStrId);
+        char Keep[0x104];
+        _makepath(Keep, nullptr, AccountDir, KeepName, "fl");
+        CopyFileA(GServerLastSavePath, Keep, FALSE);
+        fprintf(stderr, "[flwin] checkpoint saved: %s.fl\n", KeepName);
+    }
+    return bCopied;
 }
 
 // ===========================================================================

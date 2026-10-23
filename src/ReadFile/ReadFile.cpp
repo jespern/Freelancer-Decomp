@@ -495,7 +495,7 @@ namespace
             std::list<FUtfHandle>::const_iterator It = Handles.begin();
             while (It != Handles.end())
             {
-                if ((unsigned long)(&*It) == Value)
+                if (FL_PTR_TO_U32(&*It) == Value)
                     return true;
                 ++It;
             }
@@ -507,7 +507,7 @@ namespace
         {
             if (Value == 0xFFFFFFFFu)
                 return nullptr;
-            return (FUtfHandle*)(Value);
+            return FL_U32_TO_PTR(FUtfHandle, Value);
         }
 
         FUtfHandle* Open(const char* Path, unsigned long BaseValue, unsigned long Extra)
@@ -549,7 +549,7 @@ namespace
             if (BaseValue == 0)
                 Node = RootHandle->Node;
             else if (BaseValue != 0xFFFFFFFFu)
-                Node = ((const FUtfHandle*)(BaseValue))->Node;
+                Node = FL_U32_TO_PTR(const FUtfHandle, BaseValue)->Node;
 
             const char* LastSeparator = nullptr;
             const char* Scan = Pattern;
@@ -745,7 +745,7 @@ namespace
             }
             if (HandleValue == 0xFFFFFFFFu)
                 return false;
-            const unsigned char* Node = ((const FUtfHandle*)(HandleValue))->Node;
+            const unsigned char* Node = FL_U32_TO_PTR(const FUtfHandle, HandleValue)->Node;
             if (Node == nullptr)
                 return false;
             if (Creation != nullptr)
@@ -779,7 +779,7 @@ namespace
         {
             const unsigned char* Node = nullptr;
             if (BaseValue != 0 && BaseValue != 0xFFFFFFFFu)
-                Node = ((const FUtfHandle*)(BaseValue))->Node;
+                Node = FL_U32_TO_PTR(const FUtfHandle, BaseValue)->Node;
             if (Node == nullptr)
                 Node = RootHandle->Node;
             return Node;
@@ -1068,7 +1068,7 @@ namespace
         }
 
         int DACOM_API Read(unsigned long Handle, void* Buffer, unsigned long Size,
-                           unsigned long* BytesRead, unsigned long Extra) override
+                           unsigned long* BytesRead, const OVERLAPPED* Extra) override
         {
             if (NestedChild != nullptr)
             {
@@ -1259,16 +1259,16 @@ namespace
             FDosMapToken* Token = new FDosMapToken();
             Token->Open = Open;
             MapTokens.push_back(Token);
-            return (int)(Token);
+            return (int)FL_PTR_TO_U32(Token);
         }
 
         // formerly Slot40
-        int DACOM_API MapFileView(unsigned long Token, unsigned long Access, unsigned long A3,
+        intptr_t DACOM_API MapFileView(unsigned long Token, unsigned long Access, unsigned long A3,
                              unsigned long OffLow, unsigned long ByteCount) override
         {
             if (NestedChild != nullptr)
             {
-                const int Result = NestedChild->MapFileView(Token, Access, A3, OffLow, ByteCount);
+                const intptr_t Result = NestedChild->MapFileView(Token, Access, A3, OffLow, ByteCount);
                 if (Result == 0)
                     CopyNestedLastError();
                 return Result;
@@ -1282,7 +1282,7 @@ namespace
             const unsigned long Count = (unsigned long)(MapTokens.size());
             for (unsigned long Index = 0; Index < Count; ++Index)
             {
-                if ((unsigned long)(MapTokens[Index]) == Token)
+                if (FL_PTR_TO_U32(MapTokens[Index]) == Token)
                 {
                     Found = MapTokens[Index];
                     break;
@@ -1309,7 +1309,7 @@ namespace
                 LastError = 5;
                 return 0;
             }
-            return (int)((char*)(Open->View) + OffLow);
+            return (intptr_t)((char*)(Open->View) + OffLow);
         }
 
         // DOS LAB_06b75350: always 1. Does not UnmapViewOfFile.
@@ -1680,7 +1680,7 @@ namespace
             const unsigned long Count = (unsigned long)(MapTokens.size());
             for (unsigned long Index = 0; Index < Count; ++Index)
             {
-                if ((unsigned long)(MapTokens[Index]) == Token)
+                if (FL_PTR_TO_U32(MapTokens[Index]) == Token)
                 {
                     delete MapTokens[Index];
                     MapTokens.erase(MapTokens.begin() + (int)(Index));
@@ -2238,7 +2238,7 @@ namespace
                    0x104);
             const unsigned long Extra = Desc->Size == 0x34 ? Desc->Field30 : 0xFFFFFFFFu;
             FUtfHandle* Found =
-                ActiveW->Open(Dest, (unsigned long)(RootHandle()), Extra);
+                ActiveW->Open(Dest, FL_PTR_TO_U32(RootHandle()), Extra);
             if (Found == nullptr)
                 return GR_GENERIC;
 
@@ -2312,7 +2312,7 @@ namespace
             }
 
             FUtfHandle* Opened =
-                ActiveW->Open(Dest, (unsigned long)(RootHandle()), 0xFFFFFFFFu);
+                ActiveW->Open(Dest, FL_PTR_TO_U32(RootHandle()), 0xFFFFFFFFu);
             if (Opened == nullptr)
             {
                 LastError = 0xA1;
@@ -2391,7 +2391,7 @@ namespace
                 LastError = 6;
                 return 0;
             }
-            ActiveW->GetFileTimes((unsigned long)(UtfHandle),
+            ActiveW->GetFileTimes(FL_PTR_TO_U32(UtfHandle),
                                   CreationOut,
                                   AccessOut,
                                   WriteOut);
@@ -2414,7 +2414,7 @@ namespace
                 return 0;
             }
             const int Attributes =
-                ActiveW->GetAttributes(Dest, (unsigned long)(RootHandle()));
+                ActiveW->GetAttributes(Dest, FL_PTR_TO_U32(RootHandle()));
             if (Attributes == -1)
             {
                 LastError = 0xA1;
@@ -2476,7 +2476,7 @@ namespace
         }
 
         int DACOM_API Read(unsigned long Handle, void* Buffer, unsigned long Size,
-                           unsigned long* BytesRead, unsigned long /*Extra*/) override
+                           unsigned long* BytesRead, const OVERLAPPED* /*Extra*/) override
         {
             if (Buffer == nullptr || Size == 0)
             {
@@ -2550,11 +2550,11 @@ namespace
                 return -1;
             }
             MapTokens.push_back(UtfHandle);
-            return (int)((unsigned long)(&MapTokens.back()));
+            return (int)FL_PTR_TO_U32(&MapTokens.back());
         }
 
         // formerly Slot40
-        int DACOM_API MapFileView(unsigned long Token, unsigned long Access, unsigned long,
+        intptr_t DACOM_API MapFileView(unsigned long Token, unsigned long Access, unsigned long,
                              unsigned long OffLow, unsigned long ByteCount) override
         {
             if (Access != FILE_MAP_READ)
@@ -2592,9 +2592,7 @@ namespace
             }
             const unsigned long DataSection = ReadUtfDword(ActiveW->GetView(), 0x24);
             const unsigned long FileOff = DataSection + UtfHandle->DataOffset();
-            return (int)(
-                (unsigned long)((const char*)(ArchiveOwner->MappedView)) +
-                FileOff + OffLow);
+            return (intptr_t)((const char*)(ArchiveOwner->MappedView) + FileOff + OffLow);
         }
 
         // The +0x240 token whose payload address is Value (06b736a7 / 06b738db scans).
@@ -2603,7 +2601,7 @@ namespace
             std::list<FUtfHandle*>::iterator It = MapTokens.begin();
             while (It != MapTokens.end())
             {
-                if ((unsigned long)(&*It) == Value)
+                if (FL_PTR_TO_U32(&*It) == Value)
                     return It;
                 ++It;
             }
@@ -2632,7 +2630,7 @@ namespace
             if (OpenNodeHandle != nullptr)
             {
                 const unsigned long Extra = Desc->Size == 0x34 ? Desc->Field30 : 0xFFFFFFFFu;
-                Opened = ActiveW->Open(Desc->Path, (unsigned long)(OpenNodeHandle),
+                Opened = ActiveW->Open(Desc->Path, FL_PTR_TO_U32(OpenNodeHandle),
                                        Extra);
             }
             else
@@ -2645,14 +2643,14 @@ namespace
                     return -1;
                 }
                 const unsigned long Extra = Desc->Size == 0x34 ? Desc->Field30 : 0xFFFFFFFFu;
-                Opened = ActiveW->Open(Dest, (unsigned long)(RootHandle()), Extra);
+                Opened = ActiveW->Open(Dest, FL_PTR_TO_U32(RootHandle()), Extra);
             }
             if (Opened == nullptr)
             {
                 LastError = 2;
                 return -1;
             }
-            return (int)((unsigned long)(Opened));
+            return (int)FL_PTR_TO_U32(Opened);
         }
 
         // UTF LAB_06b73cc0: *Out = +0x234 (no Out check), AddRef it when set, return 0.
@@ -2691,7 +2689,7 @@ namespace
             int Result = -1;
             if (OpenNodeHandle != nullptr)
                 Result = ActiveW->FindFirst(Pattern, Out,
-                                            (unsigned long)(OpenNodeHandle));
+                                            FL_PTR_TO_U32(OpenNodeHandle));
             else
             {
                 char Dest[0x105];
@@ -2700,7 +2698,7 @@ namespace
                     LastError = 0xA1;
                     return -1;
                 }
-                Result = ActiveW->FindFirst(Dest, Out, (unsigned long)(OwnRootHandle));
+                Result = ActiveW->FindFirst(Dest, Out, FL_PTR_TO_U32(OwnRootHandle));
             }
             if (Result == -1)
                 LastError = ActiveW->GetLastError();
@@ -3116,7 +3114,7 @@ namespace
             return 0;
         }
         // formerly Slot40
-        int DACOM_API MapFileView(unsigned long, unsigned long, unsigned long, unsigned long,
+        intptr_t DACOM_API MapFileView(unsigned long, unsigned long, unsigned long, unsigned long,
                              unsigned long) override
         {
             return 0;
@@ -3128,12 +3126,12 @@ namespace
         }
 
         int DACOM_API Read(unsigned long Handle, void* Buffer, unsigned long Size,
-                           unsigned long* BytesRead, unsigned long Extra) override
+                           unsigned long* BytesRead, const OVERLAPPED* Extra) override
         {
             if (Handle != 0)
                 return 0;
             if (Extra != 0)
-                MappedPos = *(unsigned long*)(Extra + 8);
+                MappedPos = Extra->Offset; // OVERLAPPED::Offset (+0x08 on 32-bit)
             if (MappedPos > LogicalSize)
                 MappedPos = LogicalSize;
             unsigned long Remain = 0;
@@ -3219,7 +3217,7 @@ namespace
     template <typename FFactory>
     bool OpenSearchPathEntry(FFactory* Factory, char* Path, IFileSystem** Out)
     {
-        unsigned char Raw[0x34];
+        unsigned char Raw[sizeof(FFileSystemDesc)]; // retail 0x34
         std::memset(Raw, 0, sizeof(Raw));
         FFileSystemDesc* Desc = (FFileSystemDesc*)(Raw);
         Desc->Size = 0x34;
@@ -3458,7 +3456,7 @@ namespace
         // calloc(0x118) failure -> *Out = 0, -4; success -> refcount 1, *Out = object, 0.
         GENRESULT DACOM_API CreateInstance(AGGDESC* Desc, void** Instance) override
         {
-            if (Desc->size != 0x8 || std::strcmp(Desc->interface_name, Name) != 0)
+            if (!FL_DESC_SIZE_IS(Desc->size, AGGDESC, 0x8) || std::strcmp(Desc->interface_name, Name) != 0)
             {
                 *Instance = nullptr;
                 return GR_INTERFACE_UNSUPPORTED;

@@ -866,8 +866,10 @@ GENRESULT DACOM_API FMaterialBatcher::Submit(IMaterial* Material, void* Context,
         Record.Context.Indices = IndexSource;
     else
     {
-        const uintptr_t IndexAddress = (uintptr_t)IndexSource + Count * 2;
-        Record.Context.Indices = CloneIndices((const unsigned short*)IndexAddress, Zero);
+        // 0x6ec9993..0x6ec99b0: LEA EDX,[EAX+ECX*2] with EAX = the context's indices and ECX =
+        // arg 6 (the start index), then FUN_06eca3d0(EDX, arg 7 = the index count). The replay
+        // reads the clone from Record.Zero = 0 for Field indices.
+        Record.Context.Indices = CloneIndices(IndexSource + Zero, Field);
         Record.InternalFlags |= 1;
         Record.Zero = 0;
     }

@@ -140,7 +140,9 @@ bool StrafeBehavior::Slot10(void* DirectiveOp)
 {
     if (DirectiveOp != nullptr)
     {
-        unsigned const* const OpTarget = (unsigned const*)(static_cast<char*>(DirectiveOp) + 0xc);
+        // Retail Op+0xc: DirectiveStrafeOp::TargetId, read by member (on LP64 the op's vptr is
+        // 8 bytes and the field is at +0x10).
+        unsigned const* const OpTarget = &static_cast<pub::AI::DirectiveStrafeOp const*>(DirectiveOp)->TargetId;
         if (NavHelper->Timers.FindVerifiedObject(OpTarget) != nullptr)
         {
             Flags28 = static_cast<unsigned char>(Flags28 | 0x2);

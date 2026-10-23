@@ -136,6 +136,13 @@ int GetGameOption(int Index)
     return Values[Index];
 }
 
+void SetGameOption(int Index, int Value)
+{
+    if (Index < 0 || Index >= kGameOptCount)
+        return;
+    reinterpret_cast<int*>(&g_display)[10 + Index] = Value;
+}
+
 char const* GetGameOptionName(int Index)
 {
     for (int Row = 0; Row < GGameOptionDescCount; ++Row)

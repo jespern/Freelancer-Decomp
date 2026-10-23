@@ -33,6 +33,7 @@
 // because the single-slot mode stores a candidate pointer in it directly.
 #include "../ivp_utility/ivp_vhash.h"
 #include "../ivp_utility/ivp_signed_byte.h" // IVP_SignedLowByte
+#include "hd_plugins.h"
 
 
 // Internal IVP helper types
@@ -66,7 +67,7 @@ namespace
 
     IVP_Contact_Point* IVP_Contact_Node_Record(char* Node)
     {
-        return reinterpret_cast<IVP_Contact_Point*>(Node + *reinterpret_cast<int16_t*>(Node + 0xc)); // `MOVSX ESI,word [EAX+0xc]; ADD ESI,EAX`
+        return reinterpret_cast<IVP_Contact_Point*>(Node + reinterpret_cast<IVP_Contact_Point_Node*>(Node)->Delta); // `MOVSX ESI,word [EAX+0xc]; ADD ESI,EAX`
     }
 
     // FUN_06346770 (thiscall): the long-term impact info's constructor body
@@ -1055,7 +1056,14 @@ void IVP_Core::detach_controller(IVP_Controller* Controller)
 // not determined this pass -- no call site was found that dereferences one
 // beyond its +0x8 key field -- so it stays void*/unsigned rather than
 // guessing a struct layout.
-void* IVP_Core::find_object_hash_entry(unsigned Key) const
+// Every entry is an IVP_Friction_Info_For_Core keyed by its FrictionSystem (retail: the dword
+// at entry +0x8); natively the key is that whole pointer.
+static uintptr_t IVP_ObjectHashKeyOf(const void* Candidate)
+{
+    return reinterpret_cast<uintptr_t>(static_cast<const IVP_Friction_Info_For_Core*>(Candidate)->FrictionSystem);
+}
+
+void* IVP_Core::find_object_hash_entry(uintptr_t Key) const
 {
     if ((this->Flags & 0xC) == 4)
     {
@@ -1068,8 +1076,7 @@ void* IVP_Core::find_object_hash_entry(unsigned Key) const
     if (Candidate == nullptr)
         return nullptr;
 
-    unsigned CandidateKey = *reinterpret_cast<unsigned*>(reinterpret_cast<uintptr_t>(Candidate) + 0x8);
-    return (CandidateKey == Key) ? Candidate : nullptr;
+    return (IVP_ObjectHashKeyOf(Candidate) == Key) ? Candidate : nullptr;
 }
 
 // FUN_06347c80 (Common.dll.txt:411669-411731, decomp-tracker item 2871, 50
@@ -1104,7 +1111,7 @@ void IVP_Core::register_object_hash_entry(void* Candidate)
             this->ObjectHashMap = (Map != nullptr) ? new (Map) IVP_VHash_Store(2) : nullptr; // FUN_063525f0
         }
 
-        unsigned CandidateKey = *reinterpret_cast<unsigned*>(reinterpret_cast<uintptr_t>(Candidate) + 0x8);
+        uintptr_t CandidateKey = IVP_ObjectHashKeyOf(Candidate);
         ((IVP_VHash_Store*)this->ObjectHashMap)->AddElem((void*)CandidateKey, Candidate); // FUN_063526d0
     }
     else
@@ -1124,7 +1131,7 @@ void IVP_Core::unregister_object_hash_entry(void* Candidate)
 {
     if ((this->Flags & 0xC) == 4)
     {
-        unsigned CandidateKey = *reinterpret_cast<unsigned*>(reinterpret_cast<uintptr_t>(Candidate) + 0x8);
+        uintptr_t CandidateKey = IVP_ObjectHashKeyOf(Candidate);
         ((IVP_VHash_Store*)this->ObjectHashMap)->RemoveElem((void*)CandidateKey); // FUN_063527e0
     }
     else
@@ -1513,7 +1520,10 @@ void IVP_Core::apply_velocity_damping(float DeltaTime, const Vector* RotDampVec,
 // DeltaTime.
 void IVP_Core::damp_velocities(float DeltaTime)
 {
-    if (!(static_cast<int8_t>(MovementState & 0xFFu) < 2))
+    // HD: planet_spin — no extra damping for a resting core, so spinning planets keep turning
+    // (Common.dll 0x0634698e JL -> JMP).
+    static const bool bHdNoRestDamp = HdPlugins::Feature("planet_spin");
+    if (!bHdNoRestDamp && !(static_cast<int8_t>(MovementState & 0xFFu) < 2))
     {
         Vector FudgedRotDamp;
         FudgedRotDamp.x = RotSpeedDamp.x + 0.1f; // DAT_063a5464

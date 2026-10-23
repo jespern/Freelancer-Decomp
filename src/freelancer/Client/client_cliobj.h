@@ -120,6 +120,15 @@ namespace Archetype
     // resolves its five player-or-ship EffectArch pointers and AddRefs them. Caller: the
     // TradeLane equipment FX constructor FUN_00516c30 (0x00516cb0).
     void CliTradeLaneAddEffectRef(ICliObj* Companion);
+
+    // Port-only: the native address of retail byte offset RetailOffset inside a companion
+    // object (the client reads them by offset outside this file). Tables from
+    // freelancer-mac's tools/gen_cliobj_offsets.py; a null companion gives null + RetailOffset, as retail reads.
+    unsigned char const* CliCompanionAt(void const* Companion, unsigned RetailOffset);
+    inline unsigned char* CliCompanionAt(void* Companion, unsigned RetailOffset)
+    {
+        return const_cast<unsigned char*>(CliCompanionAt(static_cast<void const*>(Companion), RetailOffset));
+    }
     // FUN_0040c7d0 -- the matching release; the last one releases and clears the five.
     // Returns the remaining count. Caller: the TradeLane equipment FX dtor FUN_00516bc0.
     int CliTradeLaneReleaseEffectRef(ICliObj* Companion);

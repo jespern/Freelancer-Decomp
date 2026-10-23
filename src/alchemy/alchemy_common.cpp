@@ -22,6 +22,7 @@
 // The concrete ramp classes the node-lib readers construct with `new`, as retail does
 // (FUN_06229eb0 / FUN_06229f00 children, the FUN_06227c70 IAnimatedSingle children).
 #include "alchemy_ramp.h"
+#include "alchemy_appearances.h" // FParticleAppRecord (particle pool records)
 
 #include <cmath>
 #include <cstdio>
@@ -220,14 +221,21 @@ namespace AlchemyImpl
     const unsigned long kDefaultUseMaterialBatcher = 1;
 
     // FUN_0623ebc0 element sizes (third arg) per appearance pool.
-    const unsigned long kStrideBasic = 0x30;
-    const unsigned long kStrideParticle = 0x74;
-    const unsigned long kStrideRect = 0x30;
-    const unsigned long kStridePerp = 0x3C;
-    const unsigned long kStrideMesh = 0x34;
-    const unsigned long kStrideOriented = 0x30;
-    const unsigned long kStrideDust = 0x3C;
-    const unsigned long kStrideBeam = 0x34;
+    // Retail record strides. The records hold pointers, so on LP64 each pool slot gets twice
+    // the room (no record more than doubles); every access steps by Pool->Stride.
+#if INTPTR_MAX == INT32_MAX
+#define FL_ALCHEMY_STRIDE(n) (n)
+#else
+#define FL_ALCHEMY_STRIDE(n) ((n) * 2)
+#endif
+    const unsigned long kStrideBasic = FL_ALCHEMY_STRIDE(0x30);
+    const unsigned long kStrideParticle = FL_ALCHEMY_STRIDE(0x74);
+    const unsigned long kStrideRect = FL_ALCHEMY_STRIDE(0x30);
+    const unsigned long kStridePerp = FL_ALCHEMY_STRIDE(0x3C);
+    const unsigned long kStrideMesh = FL_ALCHEMY_STRIDE(0x34);
+    const unsigned long kStrideOriented = FL_ALCHEMY_STRIDE(0x30);
+    const unsigned long kStrideDust = FL_ALCHEMY_STRIDE(0x3C);
+    const unsigned long kStrideBeam = FL_ALCHEMY_STRIDE(0x34);
 
     const char kCharsetValue[] = "0123456789truefalsynoxTRUEFALSYNOX+-";
     const char kCharsetDigits[] = "0123456789+-";
@@ -359,7 +367,7 @@ namespace AlchemyImpl
     // pointer already round-trips through this unsigned long bit-for-bit on
     // this project's Win32 target (alchemy.vcxproj) — it was only ever
     // stored as a plain integer because nothing previously dereferenced it.
-    unsigned long G_DrawCookie = 0;            // DAT_06257908
+    uintptr_t G_DrawCookie = 0;                // DAT_06257908 (the draw camera; pointer-wide)
     unsigned long G_DrawCounters[9] = {};      // DAT_062578e4
     unsigned char G_DrawFlagA = 1;             // DAT_06255060
     unsigned char G_DrawFlagB = 1;             // DAT_06255061
@@ -652,7 +660,7 @@ namespace AlchemyImpl
     FPooledParticle* ParticleFromUsedLink(FAppearancePool* Pool, FPoolLink* Link)
     {
         if (Pool == nullptr || Link == nullptr || Pool->Items == nullptr ||
-            Pool->FreeNodes == nullptr || Pool->Stride < 0x30)
+            Pool->FreeNodes == nullptr || Pool->Stride < FL_ALCHEMY_STRIDE(0x30))
             return nullptr;
         const unsigned long Index = static_cast<unsigned long>(Link - Pool->FreeNodes);
         if (Index >= Pool->Capacity)
@@ -704,13 +712,13 @@ namespace AlchemyImpl
         // "fix": kept as one shared branch rather than duplicated per pool.
         if (Pool->Stride == kStridePerp)
         {
-            float* Axis = reinterpret_cast<float*>(Item + 0x30);
+            float* Axis = reinterpret_cast<float*>(Item + kPooledParticleTail);
             Axis[0] = 0.0f;
             Axis[1] = 0.0f;
             Axis[2] = 0.0f;
         }
-        else if (Pool->Stride >= 0x34)
-            AssignComPtr(reinterpret_cast<IDAComponent**>(Item + 0x30), nullptr);
+        else if (Pool->Stride >= FL_ALCHEMY_STRIDE(0x34))
+            AssignComPtr(reinterpret_cast<IDAComponent**>(Item + kPooledParticleTail), nullptr);
         return Particle;
     }
 
@@ -1031,7 +1039,7 @@ namespace AlchemyImpl
         const unsigned long LinkOffset = static_cast<unsigned long>(
             reinterpret_cast<std::uintptr_t>(Node) -
             reinterpret_cast<std::uintptr_t>(Pool->FreeNodes));
-        const unsigned long ItemOffset = (LinkOffset >> 3) * Pool->Stride;
+        const unsigned long ItemOffset = (LinkOffset / sizeof(FPoolLink)) * Pool->Stride; // retail >> 3
         return reinterpret_cast<void*>(reinterpret_cast<std::uintptr_t>(Pool->Items) +
                                        ItemOffset);
     }
@@ -1075,21 +1083,21 @@ namespace AlchemyImpl
         unsigned char* const Bytes = static_cast<unsigned char*>(Item);
         if (Pool == &G_PoolMesh)
         {
-            IFxMesh** const MeshSlot = reinterpret_cast<IFxMesh**>(Bytes + 0x30);
+            IFxMesh** const MeshSlot = reinterpret_cast<IFxMesh**>(Bytes + kPooledParticleTail);
             FPoolComponentSlotOwner<IFxMesh> MeshOwner = {MeshSlot};
             if (*MeshSlot != nullptr)
                 (*MeshSlot)->Slot7();
             MeshOwner.Release();
         }
-        else if (Pool->Stride != kStridePerp && Pool->Stride >= 0x34 &&
+        else if (Pool->Stride != kStridePerp && Pool->Stride >= FL_ALCHEMY_STRIDE(0x34) &&
                  Pool != &G_PoolParticle)
         {
-            ReleaseComPtr(reinterpret_cast<IDAComponent**>(Bytes + 0x30));
+            ReleaseComPtr(reinterpret_cast<IDAComponent**>(Bytes + kPooledParticleTail));
         }
         if (Pool == &G_PoolParticle)
         {
-            IFxEffect** const Life = reinterpret_cast<IFxEffect**>(Bytes + 0x6c);
-            IFxEffect** const Death = reinterpret_cast<IFxEffect**>(Bytes + 0x70);
+            IFxEffect** const Life = &reinterpret_cast<FParticleAppRecord*>(Bytes)->LifeEffect;   // retail +0x6c
+            IFxEffect** const Death = &reinterpret_cast<FParticleAppRecord*>(Bytes)->DeathEffect; // retail +0x70
             FPoolComponentSlotOwner<IFxEffect> LifeOwner = {Life};
             FPoolComponentSlotOwner<IFxEffect> DeathOwner = {Death};
             if (*Life != nullptr)
@@ -1557,7 +1565,7 @@ namespace AlchemyImpl
             G_DrawVbHandle, &Context.VbOffset, &Context.LockedVerts, VertCount);
         const GENRESULT IbLock =
             static_cast<IRPIndexBuffer*>(G_RpIndexBuffer)
-                ->LockIb(reinterpret_cast<void*>(static_cast<unsigned int>(-1)),
+                ->LockIb(reinterpret_cast<void*>(static_cast<intptr_t>(-1)),
                          &Context.IbOffset, &Context.LockedIndices, IndexCount);
         return VbLock >= 0 && IbLock >= 0;
     }
@@ -1576,7 +1584,7 @@ namespace AlchemyImpl
             return 0;
         }
         CallUnlockVb(G_RpVertexBuffer, G_DrawVbHandle);
-        CallUnlockIb(G_RpIndexBuffer, reinterpret_cast<void*>(static_cast<unsigned int>(-1)));
+        CallUnlockIb(G_RpIndexBuffer, reinterpret_cast<void*>(static_cast<intptr_t>(-1)));
         if (static_cast<long>(Context.RequestedVerts) < static_cast<long>(Context.VertCount))
         {
             FdumpDrawContextError(0xA9, kMsgMoreVerts);
@@ -1606,7 +1614,7 @@ namespace AlchemyImpl
         }
         if (CallSelectVb(G_RpVertexBuffer, G_DrawVbHandle) < 0)
             return GR_OK;
-        if (CallSelectIb(G_RpIndexBuffer, reinterpret_cast<void*>(static_cast<unsigned int>(-1)),
+        if (CallSelectIb(G_RpIndexBuffer, reinterpret_cast<void*>(static_cast<intptr_t>(-1)),
                          Context.VbOffset) < 0)
             return GR_OK;
         CallDrawIndexed(G_RpDraw, Context.Prim, 0, Context.VertCount, Context.IbOffset,

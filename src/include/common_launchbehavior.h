@@ -486,7 +486,7 @@ public:
     int ModeSelector0xc;        // +0x0c. Written by Engage() (=1) and SetModeFromFlags() (0/2/3).
     int UpdateResult10;         // +0x10. Update()'s own tri-state result (documented, not ported).
     void* ThreatSourcePtr14;    // +0x14. Set by SetContext() (Param1).
-    IObjDB* Field18;            // +0x18. The manager's object database, stored by Behavior's
+    FlPtr32<IObjDB> Field18;    // +0x18 (dword token on LP64, the shared prefix slot). The manager's object database, stored by Behavior's
                                  // own vtable slot 2 (Behavior::Slot2, 0629afd0 `MOV [ECX+0x18],
                                  // EAX`) from ConnectBehaviorManagerObjectDb (FUN_062d2830).
                                  // Engage()/Update() read Field18->GetZoneDb()->GetId().

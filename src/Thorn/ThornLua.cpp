@@ -1373,7 +1373,11 @@ namespace
                 Common.EventFlags = LuaNumberToRetailInt(EventFlags);
             const lua_Object Curve = GetFieldOrNil(Props, "param_curve");
             if (lua_isnil(Curve) == 0 && lua_istable(Curve) != 0)
-                CreateCurveFromLua(&Common.ParamCurve, Curve);
+            {
+                IParamCurve* Created = Common.ParamCurve;
+                CreateCurveFromLua(&Created, Curve);
+                Common.ParamCurve = Created;
+            }
             const lua_Object Period = GetFieldOrNil(Props, "pcurve_period");
             if (lua_isnil(Period) == 0)
                 Common.Field28 = LuaNumberToRetailInt(Period);

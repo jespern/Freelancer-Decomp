@@ -966,10 +966,10 @@ void IVP_Object_Polygon_Tetra::link_edge(IVP_Hash* Hash, IVP_Poly_Point* A, IVP_
         Key[0] = KeyB;
         Key[1] = KeyA;
     }
-    IVP_Tri_Edge* const Found = reinterpret_cast<IVP_Tri_Edge*>(static_cast<uintptr_t>(Hash->Find(Key)));
+    IVP_Tri_Edge* const Found = reinterpret_cast<IVP_Tri_Edge*>(Hash->Find(Key));
     if (Found == nullptr)
     {
-        Hash->Add(Key, static_cast<unsigned>(reinterpret_cast<uintptr_t>(Edge)));
+        Hash->Add(Key, reinterpret_cast<uintptr_t>(Edge));
         return;
     }
     Edge->opposite = Found;
@@ -991,7 +991,8 @@ const char* IVP_Object_Polygon_Tetra::make_triangles()
 {
     IVP_Template_Polygon* const Templ = template_polygon;
     int32_t EdgeSlots = 0; // local_4c: += 3 per triangle, never read
-    IVP_Hash* const Hash = new IVP_Hash((Templ->n_points - 2) * 6, 8, 0);
+    // Retail key length 8: link_edge's two point pointers (uintptr_t[2], wider on LP64).
+    IVP_Hash* const Hash = new IVP_Hash((Templ->n_points - 2) * 6, 2 * sizeof(uintptr_t), 0);
 
     IVP_Template_Surface* TemplSurface = Templ->surfaces;
     for (int32_t Remaining = Templ->n_surfaces - 1; Remaining >= 0; --Remaining, ++TemplSurface)
@@ -1152,7 +1153,7 @@ void IVP_Object_Polygon_Tetra::add_edge_to_hash(IVP_Tri_Edge* Edge)
     }
     if (edge_hash->Find(Key) == 0)
     {
-        edge_hash->Add(Key, static_cast<unsigned>(reinterpret_cast<uintptr_t>(Edge)));
+        edge_hash->Add(Key, reinterpret_cast<uintptr_t>(Edge));
     }
 }
 

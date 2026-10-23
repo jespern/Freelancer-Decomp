@@ -29,14 +29,16 @@ static const float G_ParamRangeSlack = 1.1920928955078125e-07f;
 // .rdata:06601580 (a double): FUN_066001c0's dead zone.
 static const double G_EyeUvDeadZone = 1.0e-4;
 
+// Typed values keep pointers (vectors, strings, components) in a retail dword; on LP64 that
+// dword is a pointer token (FlPtrToDword), which the shared consumers resolve.
 static void* DwordToPointer(unsigned long Value)
 {
-    return (void*)((uintptr_t)(Value));
+    return (void*)(FlDwordToPtr((uintptr_t)(Value)));
 }
 
 static unsigned long PointerToDword(const void* Pointer)
 {
-    return (unsigned long)((uintptr_t)(Pointer));
+    return (unsigned long)(FlPtrToDword(Pointer));
 }
 
 
@@ -1572,7 +1574,7 @@ GENRESULT DACOM_API FEyeMaterialFactory::CreateInstance(AGGDESC* Desc, void** Ou
 {
     // LAB_065fe070 (RET 0xC), 065fe070..e1a8. The desc is {0x14, name, outer, inner-out}.
     FAGGDESC14* const Aggregate = (FAGGDESC14*)(Desc);
-    if (Aggregate->Size != 0x14 || std::strcmp(Aggregate->NameAt4, Name) != 0)
+    if (!FL_DESC_SIZE_IS(Aggregate->Size, decltype(*Aggregate), 0x14) || std::strcmp(Aggregate->NameAt4, Name) != 0)
     {
         *Out = nullptr;
         return GR_INTERFACE_UNSUPPORTED;

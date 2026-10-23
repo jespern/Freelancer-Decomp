@@ -753,7 +753,7 @@ struct FVMeshAggDesc
 GENRESULT DACOM_API VMeshLibraryFactoryCreate(FDacomFactory* This, AGGDESC* Desc, void** Out)
 {
     FVMeshAggDesc* Extended = (FVMeshAggDesc*)Desc;
-    if (Extended->Size != 0x14 || std::strcmp(Extended->Name, This->Name) != 0)
+    if (!FL_DESC_SIZE_IS(Extended->Size, decltype(*Extended), 0x14) || std::strcmp(Extended->Name, This->Name) != 0)
     {
         *Out = nullptr;
         return GR_INTERFACE_UNSUPPORTED;

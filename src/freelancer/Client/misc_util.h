@@ -26,6 +26,11 @@ FmtStr::Val const* FmtStrFindVal(FmtStr const* Fmt, unsigned char Index, unsigne
 // FUN_0041c970 -- __thiscall on the FmtStr, RET 8: writes at most DestChars wide characters
 // (terminator included) into Dest and returns the number written, terminator excluded.
 int FmtStrSprintf(FmtStr const* Fmt, wchar_t* Dest, int DestChars);
+// HD: Zone.dll's %Z changes (0x0041d02f, 0x0041d058), on only while it formats its own messages:
+// a zone named outside the OfferBribe noun range, or without a noun, shows its ids_name; the
+// last %Z sets G_HdZoneFmtBlank for the trade-lane description (ids 60245) or a " " name.
+extern bool G_HdZoneFmtFallback;
+extern bool G_HdZoneFmtBlank;
 
 // FUN_0041d440 -- the %R expansion: the reputation instance's display name, rebuilt from its
 // second name FmtStr (and cached back through Reputation::Vibe::SetName) when it is empty.

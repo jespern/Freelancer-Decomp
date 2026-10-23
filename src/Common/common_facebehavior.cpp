@@ -735,9 +735,11 @@ bool FaceBehavior::Slot10(void* Message)
         return false;
     }
 
-    char* M = static_cast<char*>(Message);
-    Flag1c4 = static_cast<unsigned char>(M[0x44]);                  // 062c8b40
-    int const Kind = *reinterpret_cast<int const*>(M + 0xc);
+    // The pub::AI::DirectiveFaceOp; retail reads +0x44, +0xc, +0x10, +0x14 and +0x20. Read by
+    // member: on LP64 the op's vptr is 8 bytes and every field sits further on.
+    pub::AI::DirectiveFaceOp const* const M = static_cast<pub::AI::DirectiveFaceOp const*>(Message);
+    Flag1c4 = M->Field_44;                                          // 062c8b40
+    int const Kind = M->Mode;
     TargetKind2c = Kind;                                            // 062c8b4c
 
     switch (Kind)
@@ -746,8 +748,8 @@ bool FaceBehavior::Slot10(void* Message)
     {
         // 062c8b60-062c8b84: FUN_062e74a0(Sys+0x34, Message+0x10), Watcher30 = T ? T+8 : 0
         // (CMP/JZ dedup); then the watch must be live (`Ptr && Ptr - 8`).
-        void* const T = NavHelperPtr24->Timers.FindVerifiedObject((unsigned const*)(M + 0x10));
-        Watcher30.set(T != nullptr ? reinterpret_cast<Watchable const*>(static_cast<char*>(T) + 8)
+        void* const T = NavHelperPtr24->Timers.FindVerifiedObject(&M->TargetId);
+        Watcher30.set(T != nullptr ? reinterpret_cast<Watchable const*>(static_cast<char*>(T) + FlWatchableOffset())
                                    : nullptr);
         if (GetWatchedRawBlock() == nullptr)
         {
@@ -759,14 +761,13 @@ bool FaceBehavior::Slot10(void* Message)
     }
     case 2:
     {
-        Vector const& Src = *reinterpret_cast<Vector const*>(M + 0x14);
-        TargetPosition5c = Src;
+        TargetPosition5c = M->FacePoint;
         Flags28 = static_cast<unsigned char>(Flags28 | 0x2);
         return true;
     }
     case 3:
     {
-        OrientMatrix38 = *reinterpret_cast<Matrix const*>(M + 0x20);
+        OrientMatrix38 = M->Orientation;
         Flags28 = static_cast<unsigned char>(Flags28 | 0x2);
         return true;
     }

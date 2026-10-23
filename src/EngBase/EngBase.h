@@ -603,9 +603,17 @@ static_assert(sizeof(void*) != 4 || sizeof(FPosQuatTypedChannel) == 0x94, "type-
 static_assert(offsetof(FTypedChannel, Field14) - offsetof(FTypedChannel, Kind) == 0xC,
               "bind descriptor is four consecutive dwords");
 static_assert(sizeof(FAnimBindOut) == 0x10, "bind descriptor is 16 bytes");
-inline FAnimBindOut* TypedBindDesc(FTypedChannel* This)
+// Retail views the channel's {Kind, +0x0c, +0x10, +0x14} dwords as the bind-out in place; on
+// LP64 the pointers are tokens in those dwords, so the bind-out is rebuilt by value.
+inline FAnimBindOut TypedBindDesc(const FTypedChannel* This)
 {
-    return (FAnimBindOut*)(&This->Kind);
+    FAnimBindOut Out;
+    Out.Kind = This->Kind;
+    Out.Extra = FL_U32_TO_PTR(void, This->Field0C);
+    Out.Typed = FL_U32_TO_PTR(void, This->Field10);
+    Out.Instance = This->Field14 == 0xFFFFFFFFu ? (FEngineInstance*)(intptr_t)-1
+                                                : FL_U32_TO_PTR(FEngineInstance, This->Field14);
+    return Out;
 }
 
 // Live typed channels keyed by pointer, also shared by playback records.
@@ -923,9 +931,11 @@ void TypedApplyFromArchetype(FTypedChannel* This);                 // FUN_0661b0
 unsigned long TypedTick(FTypedChannel* This, float Dt);            // FUN_0661b420
 
 // The mixer-map key of a typed channel: typed+0x18 read as a signed int (FUN_06614f70).
+// The bind is an engine instance (a playback root) or a caller's cookie; MixerWalk callers
+// pass the instance's 32-bit handle, so the key is the handle, not the pointer's low bits.
 inline long TypedMixerKey(FTypedChannel* This)
 {
-    return (long)(ptrdiff_t)(This->Bind);
+    return (long)FL_PTR_TO_U32(This->Bind);
 }
 
 // Mixer list primitives (EngBaseMixer.cpp).

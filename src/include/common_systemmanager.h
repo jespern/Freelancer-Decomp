@@ -566,7 +566,7 @@ struct SystemManagerTimerTable
     // .text:062e6ea1. It holds the current best missile-reaction candidate.
     // Stored as raw bytes so ConstructSystemManagerTimerTable's whole-struct memset
     // stays valid. Same reinterpret_cast pattern as ClearGunConvergenceStateWatcherIfTarget.
-    unsigned char BestCandidateWatcherBytes[0x08]; // +0xE8..+0xF0
+    alignas(void*) unsigned char BestCandidateWatcherBytes[2 * sizeof(void*)]; // +0xE8..+0xF0 (a BaseWatcher)
     int Gap0xF0;                   // +0xF0 genuine gap, never written by the ctor
     float BestValueSoFar;          // +0xF4 = FLT_MAX sentinel
 
@@ -774,7 +774,7 @@ struct SystemManagerGunGroupManager
     SystemManager* Owner;               // +0x04 InitSystemManager (FUN_062e6490) writes it
     // +0x08: a BaseWatcher on the current target. Raw bytes because the ctor memsets the whole
     // block; TargetWatcher() is the typed view.
-    unsigned char TargetWatcherBytes[8];
+    alignas(void*) unsigned char TargetWatcherBytes[2 * sizeof(void*)]; // a BaseWatcher
     unsigned Field_0x10;                // +0x10 bits 0x30000000 hold all fire; no writer in Common.dll. TODO: meaning
     Vector AimOffset;                   // +0x14 the aim point in the target's own frame
     float AimRefreshTimer;              // +0x20 aim point recomputed once this is <= 0 (UpdateGunFireState)

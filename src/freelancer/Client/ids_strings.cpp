@@ -11,6 +11,7 @@
 #include "dacom.h"
 #include "globals.h"
 #include "misc_util.h" // FormatGroupedNumber (FUN_004779a0)
+#include "hd_plugins.h"
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -377,8 +378,13 @@ int FormatFmtStrMadLib(FmtStr const* Fmt, wchar_t* Dest, int DestChars, bool bIn
                     {
                         AppendIdsStringOrWarn(&Cursor, End, Override * 0xc8 + 0x50fa0);
                         AppendIdsStringOrWarn(&Cursor, End, 1);
-                        AppendIdsStringOrWarn(&Cursor, End, (Zone & 7) + 0x514);
-                        AppendIdsStringOrWarn(&Cursor, End, ((Zone >> 3) & 7) + 0x506);
+                        // HD: jflp puts the sector letter first (0x004baee8 / 0x004baf52: the
+                        // two IDS fetched in swapped order).
+                        static const bool bJflpLetterFirst = HdPlugins::Enabled("jflp.dll");
+                        unsigned const Number = (Zone & 7) + 0x514;
+                        unsigned const Letter = ((Zone >> 3) & 7) + 0x506;
+                        AppendIdsStringOrWarn(&Cursor, End, bJflpLetterFirst ? Letter : Number);
+                        AppendIdsStringOrWarn(&Cursor, End, bJflpLetterFirst ? Number : Letter);
                     }
                 }
             }

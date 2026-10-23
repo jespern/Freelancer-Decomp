@@ -9,6 +9,7 @@
 // prompt, the known-bases list). See nn_navmap.h. Retail Client\Interface\NeuroNet\NavMap.cpp.
 
 #include "nn_navmap.h"
+#include "hd_plugins.h"
 #include "best_path.h"               // G_BestPaths (DAT_00672950), BestPathGetFirst / HasText
 #include "character_select_equip.h"  // GetPlayerStarSystemIdRetail, GetPlayerVisitFlagsRetail
 #include "commodity_by_base.h"       // IsCommodityByBaseListedName (FUN_004a2310)
@@ -237,7 +238,12 @@ intptr_t NeuroNetNavMap::SetProperty(int Msg, uintptr_t A, uintptr_t B)
         // waypoint at the clicked item (not a waypoint marker) or point.
         if (BestPathHasText()) // FUN_004c58e0
             return 1;
-        FNavMapItem* const Item = ItemAt(ClickMapPos, 0);
+        FNavMapItem* Item = ItemAt(ClickMapPos, 0);
+        // HD: FLSharp waypoint_fixes — the player's own marker (kind 2) is not a target
+        // (0x00493a00 / 0x00493b21).
+        static const bool bSkipPlayer = HdPlugins::FlSharp("waypoint_fixes");
+        if (bSkipPlayer && Item != nullptr && Item->Kind == 2)
+            Item = nullptr;
         if (Item != nullptr && Item->Kind != 3 && Item->Kind != 4)
         {
             ClickMapPos[0] = Item->Position[0];
@@ -264,7 +270,11 @@ intptr_t NeuroNetNavMap::SetProperty(int Msg, uintptr_t A, uintptr_t B)
     {
         // 0x00493b16..0x00493c21: ask the server for a route from the player (in its own
         // system's scale) to the clicked item (its id as the tag) or point.
-        FNavMapItem* const Item = ItemAt(ClickMapPos, 0);
+        FNavMapItem* Item = ItemAt(ClickMapPos, 0);
+        // HD: FLSharp waypoint_fixes — as for Set Waypoint.
+        static const bool bSkipPlayer = HdPlugins::FlSharp("waypoint_fixes");
+        if (bSkipPlayer && Item != nullptr && Item->Kind == 2)
+            Item = nullptr;
         unsigned TargetId = 0;
         if (Item != nullptr && Item->Kind != 3 && Item->Kind != 4)
         {

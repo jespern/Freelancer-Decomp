@@ -670,8 +670,8 @@ namespace
 
             // Byte arrays preserve the wrapped DWORD extents; only handles are zeroed.
             Uvs_ = (float*)new unsigned char[TileCount_ * 32];
-            Handles_ = (void**)new unsigned char[TileCount_ * 4];
-            std::memset(Handles_, 0, TileCount_ * 4);
+            Handles_ = (void**)new unsigned char[TileCount_ * sizeof(void*)]; // retail * 4
+            std::memset(Handles_, 0, TileCount_ * sizeof(void*));
 
             const unsigned char* Base = (const unsigned char*)(Pixels);
             long Index = 0;

@@ -105,7 +105,9 @@ bool FollowBehavior::Slot10(void* Param)
 {
     if (Param != nullptr)
     {
-        unsigned char* P = static_cast<unsigned char*>(Param);
+        // The pub::AI::DirectiveFollowOp; retail reads +0xc, +0x10, +0x14..+0x1c and +0x20. Read
+        // by member: on LP64 the op's vptr is 8 bytes and every field sits 4 bytes further on.
+        pub::AI::DirectiveFollowOp const* const P = static_cast<pub::AI::DirectiveFollowOp const*>(Param);
 
         // 062cd3e1-062cd405: `FUN_062e74a0(NavHelper+0x34, Param+0xc)` -- the object whose id
         // Param+0xc holds, looked up through the IObjDB SystemManager::Timers keeps at +0x00, and
@@ -114,22 +116,21 @@ bool FollowBehavior::Slot10(void* Param)
         // Until 2026-09-24 the lookup was a hardcoded null ("item 1798 is unprocessed" -- it
         // has been ported since 2026-09-1x, now SystemManagerTimerTable::FindVerifiedObject in common_sysmgr_timertable.cpp), and the null was passed to
         // set() without the +8.
-        IObjRW* const Candidate = NavHelper->Timers.FindVerifiedObject((unsigned const*)(P + 0xc));
+        IObjRW* const Candidate = NavHelper->Timers.FindVerifiedObject(&P->TargetId);
         LeadWatcher.set(static_cast<Watchable*>(Candidate));
 
         if (ObjRwFromWatchable(const_cast<Watchable*>(LeadWatcher.target())) != nullptr)
         {
-            float const* SrcVec = reinterpret_cast<float const*>(P + 0x14);
-            Offset290.x = SrcVec[0];
-            Offset290.y = SrcVec[1];
-            Offset290.z = SrcVec[2];
+            Offset290.x = P->Field_14;
+            Offset290.y = P->Field_18;
+            Offset290.z = P->Field_1C;
             // 062cd43b-062cd45c: (x*x + y*y) + z*z and FSQRT on the x87 stack, rounded to
             // float once by the FSTP.
             Distance2a8 = static_cast<float>(std::sqrt(
                 (static_cast<double>(Offset290.x) * Offset290.x
                  + static_cast<double>(Offset290.y) * Offset290.y)
                 + static_cast<double>(Offset290.z) * Offset290.z));
-            SpeedParam2a0 = *reinterpret_cast<float const*>(P + 0x10);
+            SpeedParam2a0 = P->FollowDistance;
 
             // 062cd441-062cd473: IObjAffect slot 10 (+0x28) on Owner+4, set_follow_offset, no
             // null test.
@@ -144,7 +145,7 @@ bool FollowBehavior::Slot10(void* Param)
             return true;
         }
 
-        Field2b4 = *reinterpret_cast<float const*>(P + 0x20);
+        Field2b4 = P->Field_20;
     }
 
     Flags28 = static_cast<unsigned char>(Flags28 & 0xfd);

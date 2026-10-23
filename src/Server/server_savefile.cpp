@@ -10,6 +10,7 @@
 // and layout evidence; this file carries the evidence for the behaviour.
 
 #include "../include/server_savefile.h"
+#include "../include/hd_plugins.h"
 
 #include <windows.h>
 #include <cstring>
@@ -208,6 +209,14 @@ void SaveGame_Writer::ReadBackAndEncode() {
 }
 
 void SaveGame_Writer::RewriteEncoded() {
+    // HD: plain_saves — the re-open's mode "wb" becomes "rt" (Server.dll 0x06d4e10d /
+    // 0x06d5399d, .rdata 06d6b4e4 -> 06d6b314), so the encrypted rewrite fails and the plain
+    // text written before stays: save games and Restart.fl are readable text.
+    static const bool bHdPlainSaves = HdPlugins::Feature("plain_saves");
+    if (bHdPlainSaves) {
+        File = nullptr;
+        return;
+    }
     // PlayerDB::create_restart_file .text:06d5398f .. .text:06d539e5 (and its
     // copy at .text:06d53a37 .. .text:06d53a8d).
     File = fopen(Path.c_str(), "wb");                   // .text:06d539a2, .rdata:06d6b4e4

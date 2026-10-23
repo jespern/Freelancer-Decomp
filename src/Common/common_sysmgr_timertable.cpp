@@ -216,7 +216,7 @@ namespace
     {
         SystemManagerTimerListNode* Next;  // +0x00
         SystemManagerTimerListNode* Prev;  // +0x04
-        unsigned char Watcher[8];          // +0x08, BaseWatcher-sized payload
+        alignas(void*) unsigned char Watcher[2 * sizeof(void*)]; // +0x08, BaseWatcher-sized payload
     };
 }
 
@@ -248,7 +248,7 @@ void AppendSystemManagerTimerListEntry(SystemManagerTimerTable* Self, void* Sour
     if (Candidate != nullptr)
     {
         Watchable* const Target =
-            reinterpret_cast<Watchable*>(reinterpret_cast<unsigned char*>(Candidate) + 8);
+            reinterpret_cast<Watchable*>(reinterpret_cast<unsigned char*>(Candidate) + FlWatchableOffset());
         if (Target != nullptr)
             Scratch.set(Target);
     }

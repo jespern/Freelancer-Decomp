@@ -1463,6 +1463,7 @@ public:
     float ExtrapolateBase;             // +0x16c. Ctor default 50.0f.
     float PersistedT;                   // +0x170. NOT ctor-initialized;
                                          // SetContext()/Commit() both zero it.
+    int TraceUpdates = 0; // port dev aid: FLWIN_SPLINE_TRACE update budget after SetSpline
 };
 static_assert(offsetof(SplineMoveIdea, Move) == 0x14, "SplineMoveIdea::Move offset");
 static_assert(offsetof(SplineMoveIdea, Face) == 0x8c, "SplineMoveIdea::Face offset");

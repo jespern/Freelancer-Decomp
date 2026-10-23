@@ -12,6 +12,8 @@
 #include "common_ini.h"   // INI_Reader
 #include "common_misc.h"  // GetFileSysPath
 
+#include <map>
+
 std::vector<FMissionCreatedSolar> G_MissionCreatedSolars;
 unsigned char G_bMissionCreatedSolarsLoaded = 0;
 
@@ -99,4 +101,47 @@ bool FindMissionCreatedSolar(unsigned BaseId, float* OutPos, int* OutIdsInfo)
         return true;
     }
     return false;
+}
+
+bool HdFindMissionSolarInfocard(bool bByBase, unsigned Key, unsigned& OutIdsInfo)
+{
+    // HD: FLSharp dynamic_solar_infocards — its own read of the file: [MissionCreatedSolar]
+    // base -> ids_info and [MissionCreatedNonDockableSolar] nickname -> ids_info, first wins.
+    static std::map<unsigned, unsigned> ByBase;
+    static std::map<unsigned, unsigned> ByNickname;
+    static bool bLoaded = false;
+    if (!bLoaded)
+    {
+        bLoaded = true;
+        char Path[0x104];
+        GetFileSysPath(Path, "Universe\\MissionCreatedSolars.ini", nullptr);
+        INI_Reader Reader;
+        if (Reader.open(Path, false))
+        {
+            while (Reader.read_header())
+            {
+                bool const bBase = Reader.is_header("MissionCreatedSolar");
+                if (!bBase && !Reader.is_header("MissionCreatedNonDockableSolar"))
+                    continue;
+                char const* const KeyName = bBase ? "base" : "nickname";
+                unsigned Id = 0;
+                unsigned IdsInfo = 0;
+                while (Reader.read_value())
+                {
+                    if (Reader.is_value(KeyName))
+                        Id = CreateID(Reader.get_value_string());
+                    else if (Reader.is_value("ids_info"))
+                        IdsInfo = static_cast<unsigned>(Reader.get_value_int(0));
+                }
+                if (Id != 0)
+                    (bBase ? ByBase : ByNickname).emplace(Id, IdsInfo);
+            }
+        }
+    }
+    std::map<unsigned, unsigned> const& Map = bByBase ? ByBase : ByNickname;
+    auto const Found = Map.find(Key);
+    if (Found == Map.end())
+        return false;
+    OutIdsInfo = Found->second;
+    return true;
 }

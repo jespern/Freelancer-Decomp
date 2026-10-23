@@ -153,7 +153,7 @@ bool FSwappedMaterial::CaptureOriginal()
             Material->GetParameterValue(Parameter, &Value); // slot 18 (+0x48)
             if (Value.Type == 7)
             {
-                malloc_strcpy(&OriginalTexture, reinterpret_cast<char const*>(Value.Payload0));
+                malloc_strcpy(&OriginalTexture, reinterpret_cast<char const*>(Value.PayloadPtr()));
                 FindTextureRecord(OriginalTexture, &OriginalTexRecord);
                 bFound = true;
             }
@@ -197,7 +197,7 @@ void FSwappedMaterial::SetDtName(char const* TextureName)
             {
                 if (Value.Payload0 != 0)
                 {
-                    HeapFree(GetProcessHeap(), 0, reinterpret_cast<void*>(Value.Payload0));
+                    HeapFree(GetProcessHeap(), 0, reinterpret_cast<void*>(Value.PayloadPtr()));
                     Value.Payload0 = 0;
                 }
                 if (TextureName != nullptr)
@@ -206,7 +206,7 @@ void FSwappedMaterial::SetDtName(char const* TextureName)
                     size_t const Size = strlen(TextureName) + 1;
                     char* const Copy = static_cast<char*>(HeapAlloc(GetProcessHeap(), 0, Size));
                     memcpy(Copy, TextureName, Size);
-                    Value.Payload0 = reinterpret_cast<unsigned long>(Copy);
+                    Value.SetPayloadPtr(Copy);
                 }
                 Material->SetParameterValue(Parameter, &Value); // slot 19 (+0x4c)
                 bFound = true;

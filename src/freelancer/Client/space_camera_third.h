@@ -169,6 +169,12 @@ void ThirdPersonCameraAttach(FThirdPersonCamera* Cam, void* Object);
 // then HUDCamera's update, and +0x214 cleared.
 void ThirdPersonCameraUpdate(FThirdPersonCamera* Cam, float DeltaSeconds);
 
+// HD: FLSharp camera_switch_fix -- whether it is on (cached), and the per-frame target tracking
+// the space state runs before the active camera's Update (0x0054b09c): the last two positions
+// of the camera's target, which the attach solve's trade-lane velocity is taken from.
+bool ThirdPersonCameraSwitchFix();
+void ThirdPersonCameraTrackTarget(FSpaceCamera* Cam);
+
 // FUN_0051a140 (cdecl): Out9 = A9 * B9 through DAT_00675220's I3DMathEngine::MulMatrix into a
 // local, copied out; returns Out9. Callers: 0x00519b34 (the solver below) and 0x0055c5c9.
 float* CockpitMulMatrix(float* Out9, const float* A9, const float* B9);

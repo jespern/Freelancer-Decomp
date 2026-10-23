@@ -12,7 +12,11 @@
 // the class's own behavioural slots: activate 0x64 (FUN_00518ad0), attach 0x58 (0x00518af0) and
 // update 0x6c (0x00518e40), with the chase solver both of the last two call, FUN_00518f20.
 
+#include "client_cliobj.h" // CliCompanionAt
 #include "space_camera_third.h"
+#include "hd_plugins.h"
+#include "globals.h"                  // GetClientFrameTimeCapped (FUN_0042d680), camera_switch_fix
+#include "space_letterbox.h"         // IsLetterboxVisible (FUN_0041a3e0), camera_switch_fix
 #include "space_scene_obj_draw.h"
 
 #include "client_gameobj.h"          // FClientShipGameobj::Field_0x158
@@ -45,7 +49,7 @@ namespace
     const char kCockpitCpp[] = "E:\\FL\\Scratch\\Source\\Client\\space\\Cockpit.cpp";
 
     // A BaseWatcher holds the Watchable eight bytes into the client object.
-    const int kWatchableOffset = 8;
+    const int kWatchableOffset = FlWatchableOffset(); // retail 8
 
     // FUN_00518f20's constants, every one read out of the exe.
     const float  kMinDeltaTime = 9.999999747378752e-06f;   // .rdata 0x005d7e84
@@ -207,12 +211,35 @@ namespace
         const unsigned char* const Plus0c = Held - kWatchableOffset + 0xc;
         if (Plus0c == nullptr)
             return nullptr;
-        CEqObj* const EqObj = *reinterpret_cast<CEqObj* const*>(Plus0c + 4);
+        CEqObj* const EqObj = static_cast<CEqObj*>(ClientGameobjObject(Plus0c - 0xc));
         if (EqObj == nullptr ||
             (static_cast<unsigned>(EqObj->ObjectClass) & 0x503u) != 0x503u)
             return nullptr;
         return EqObj;
     }
+
+    // HD: FLSharp camera_switch_fix — the active camera's target position this frame and the
+    // last, and the one-shot look-ahead correction the attach solve adds (0x00519300).
+    Vector G_PrevTargetPos = {0.0f, 0.0f, 0.0f};
+    Vector G_CurTargetPos = {0.0f, 0.0f, 0.0f};
+    float G_OffsetCorrection[3] = {0.0f, 0.0f, 0.0f};
+    bool G_bCorrectOffset = false;
+}
+
+bool ThirdPersonCameraSwitchFix()
+{
+    static const bool bFix = HdPlugins::FlSharp("camera_switch_fix");
+    return bFix;
+}
+
+void ThirdPersonCameraTrackTarget(FSpaceCamera* Cam)
+{
+    // HD: FLSharp camera_switch_fix — 0x0054b09c, before the active camera's Update.
+    IObjRW* const Target = static_cast<IObjRW*>(GameCameraGetTarget((FGameCamera*)Cam));
+    if (Target == nullptr)
+        return;
+    G_PrevTargetPos = G_CurTargetPos;
+    G_CurTargetPos = Target->get_position();
 }
 
 float* CockpitMulMatrix(float* Out9, const float* A9, const float* B9)
@@ -377,7 +404,7 @@ void ThirdPersonCameraAttach(FThirdPersonCamera* Cam, void* Object)
             if (Companion != nullptr)
             {
                 const FShipCameraParams* const Params =
-                    reinterpret_cast<const FShipCameraParams*>(Companion + 0x68);
+                    reinterpret_cast<const FShipCameraParams*>(Archetype::CliCompanionAt(Companion, 0x68));
                 Cam->AngularSlerpMultiplier = Params->AngularSlerpMultiplier;      // +0x74
                 Cam->AngularAcceleration = Params->AngularAcceleration;            // +0x70
                 Cam->HorizontalTurnAngle = Params->HorizontalTurnAngle;            // +0x78
@@ -455,7 +482,57 @@ void ThirdPersonCameraAttach(FThirdPersonCamera* Cam, void* Object)
     // the view to the world transform, its translation to +0x130, view dirty, initialised.
     float View[12];
     MakeIdentityView(View);
+    // HD: FLSharp camera_switch_fix — the reset solve (0x00518dbe) leads the look-ahead by one
+    // frame of the target's ship-space velocity, so switching to third person does not jump.
+    if (ThirdPersonCameraSwitchFix())
+    {
+        float RelVelocity[3] = {0.0f, 0.0f, 0.0f};
+        if (IObjRW* const Target = WatchedObject(Cam))
+        {
+            Vector Velocity = Target->get_velocity();
+            if (CEqObj* const Ship = WatchedShip(Cam))
+            {
+                CShip* const AsShip = static_cast<CShip*>(Ship);
+                if (AsShip->is_using_tradelane())
+                {
+                    // In a lane the velocity is not the lane speed: the direction of the last
+                    // frame's movement (or the velocity's) times the lane speed.
+                    float const LaneSpeed = AsShip->get_tradelane_speed();
+                    Vector const Pos = Target->get_position();
+                    Vector Dir = {Pos.x - G_PrevTargetPos.x, Pos.y - G_PrevTargetPos.y,
+                                  Pos.z - G_PrevTargetPos.z};
+                    float Length = sqrtf(Dir.x * Dir.x + Dir.y * Dir.y + Dir.z * Dir.z);
+                    if (!(Length > 0.0001f))
+                    {
+                        Dir = Velocity;
+                        Length = sqrtf(Dir.x * Dir.x + Dir.y * Dir.y + Dir.z * Dir.z);
+                    }
+                    float const Scale = Length > 0.0f ? LaneSpeed / Length : 0.0f;
+                    Velocity.x = Dir.x * Scale;
+                    Velocity.y = Dir.y * Scale;
+                    Velocity.z = Dir.z * Scale;
+                }
+            }
+            // transpose(orientation) * velocity: the velocity along the ship's own axes.
+            const float* const R = &Target->get_transform().Rotation.E[0][0];
+            for (int Axis = 0; Axis < 3; ++Axis)
+                RelVelocity[Axis] = R[0 * 3 + Axis] * Velocity.x + R[1 * 3 + Axis] * Velocity.y +
+                                    R[2 * 3 + Axis] * Velocity.z;
+        }
+        // Not out of a cutscene (the undock has no stutter), and not below 8 fps.
+        if (!IsLetterboxVisible())
+        {
+            float const Dt = static_cast<float>(GetClientFrameTimeCapped());
+            if (Dt <= 0.125f)
+            {
+                for (int Axis = 0; Axis < 3; ++Axis)
+                    G_OffsetCorrection[Axis] = RelVelocity[Axis] * Dt;
+                G_bCorrectOffset = true;
+            }
+        }
+    }
     ThirdPersonCameraSolve(Cam, View, 0.0f, true);
+    G_bCorrectOffset = false;
     FSpaceCamera* const Space = SpaceCameraOf((FHudCamera*)Cam);
     memcpy(Space->World, View, 9 * sizeof(float));
     Space->WorldPos[0] = View[9];
@@ -477,7 +554,24 @@ void ThirdPersonCameraUpdate(FThirdPersonCamera* Cam, float DeltaSeconds)
     // 0x00518eb3: skipped for the frame right after an attach.
     if (Cam->bInitialised == 0)
     {
-        if (ThirdPersonCameraSolve(Cam, View, DeltaSeconds, false))
+        // HD: FLSharp camera_motion_fix — the per-call angular acceleration and slerp scale with
+        // 60 * dt for this solve (0x00518ebd), so the sway no longer follows the frame rate.
+        static const bool bMotionFix = HdPlugins::FlSharp("camera_motion_fix");
+        float const SavedAcceleration = Cam->AngularAcceleration;
+        float const SavedSlerp = Cam->AngularSlerpMultiplier;
+        if (bMotionFix)
+        {
+            float const Scale = 60.0f * DeltaSeconds;
+            Cam->AngularAcceleration *= Scale;
+            Cam->AngularSlerpMultiplier *= Scale;
+        }
+        bool const bSolved = ThirdPersonCameraSolve(Cam, View, DeltaSeconds, false);
+        if (bMotionFix)
+        {
+            Cam->AngularAcceleration = SavedAcceleration;
+            Cam->AngularSlerpMultiplier = SavedSlerp;
+        }
+        if (bSolved)
         {
             // 0x00518ec6..0x00518ed7: twelve dwords to +0x04, then view dirty.
             FSpaceCamera* const Space = SpaceCameraOf((FHudCamera*)Cam);
@@ -627,6 +721,13 @@ bool ThirdPersonCameraSolve(FThirdPersonCamera* Cam, float* Out12, float DeltaSe
     float Vdc[3];
     Vec3AddStored(Vdc, &Cam->Field140, &Cam->Field14C);
     float Va8[3];
+    // HD: FLSharp camera_switch_fix — the attach solve's one-frame correction (0x00519300).
+    if (G_bCorrectOffset)
+    {
+        V24[0] += G_OffsetCorrection[0];
+        V24[1] += G_OffsetCorrection[1];
+        V24[2] += G_OffsetCorrection[2];
+    }
     Vec3AddStored(Va8, Vdc, V24);
     V78[0] = static_cast<float>(static_cast<double>(Va8[0]) + V78[0]);
     V78[1] = static_cast<float>(static_cast<double>(V78[1]) + Va8[1]);

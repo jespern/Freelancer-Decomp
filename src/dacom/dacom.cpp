@@ -16,6 +16,7 @@
 #include <list>
 #include <map>
 #include <new>
+#include <string>
 
 #pragma comment(lib, "version.lib")
 #pragma comment(lib, "user32.lib")
@@ -29,6 +30,41 @@ extern "C" void(__cdecl* FDUMP)(int flags, const char* fmt, ...) = nullptr;
 
 namespace
 {
+    // HD: Freelancer: HD Edition's plugin DLLs (its EXE/dacom.ini [Libraries]) are features of the
+    // port, not DLLs (freelancer-mac's docs/mods.md). A [Libraries] line naming one records the rest of the
+    // line (the plugin's options) instead of loading anything; DACOM_HdPlugin answers whether a
+    // game folder enabled it. Vanilla folders name none, so the retail behaviour is unchanged.
+    const char* const GHdPluginNames[] = {
+        "jflp.dll", "console.dll", "DelayDisplay.dll", "HudShift.dll", "MP3codec.dll", "MPRep.dll",
+        "MPRep_no_level_reqs.dll", "numeric.dll", "ranks.dll", "storyfactions.dll", "Territory.dll",
+        "TurretZoom.dll", "MultiIntro.dll", "flplusplus.dll", "WheelScroll.dll", "Zone.dll",
+        "FLSharp.dll", "cyrillic_chat.dll", "HudFacility.dll", "HudWeaponGroups.dll", "HudTarget.dll",
+        "HudStatus.dll", "HUDless.dll", "Hail.dll", "TargetScreen.dll", "LightingBugFix.dll",
+        "VersionText.dll",
+        // Not an HD DLL: the profile's line for HD changes that came as exe patches (mods/hd.ini
+        // "feature" keys, freelancer-mac's docs/mods.md).
+        "HDEdition.dll",
+        // Likewise for Discovery's patched binaries (mods/discovery.ini).
+        "Discovery.dll",
+    };
+    std::map<std::string, std::string> GHdPlugins; // lower-case name -> options
+
+    std::string LowerAscii(const char* Text)
+    {
+        std::string Out(Text);
+        for (char& Ch : Out)
+            Ch = (char)std::tolower((unsigned char)Ch);
+        return Out;
+    }
+
+    bool IsHdPluginName(const char* Name)
+    {
+        for (const char* Known : GHdPluginNames)
+            if (_stricmp(Known, Name) == 0)
+                return true;
+        return false;
+    }
+
     // Retail dacom.dll DAT_065b8530 (not IEEE 0xEDB88320). VMeshRef+4 / material CRCs
     // are exporter hashes of this table; IEEE GetCRC32 misses every on-disk key.
     static const unsigned int G_Crc32Table[256] = {
@@ -1018,7 +1054,7 @@ namespace
         GENRESULT DACOM_API CreateInstance(AGGDESC* Desc, void** Instance) override
         {
             FAGGDESC14* Aggregate = (FAGGDESC14*)Desc;
-            if (Aggregate->Size != 0x14 || std::strcmp(Aggregate->NameAt4, Name) != 0)
+            if (!FL_DESC_SIZE_IS(Aggregate->Size, decltype(*Aggregate), 0x14) || std::strcmp(Aggregate->NameAt4, Name) != 0)
             {
                 *Instance = nullptr;
                 return GR_INTERFACE_UNSUPPORTED;
@@ -1634,6 +1670,35 @@ namespace
                     while (Ch != '\0' && Ch != ' ' && Ch != '\t' && Ch != ';' && Ch != '\n' && Ch != '\r')
                         Ch = *++Cursor;
                     *Cursor = '\0';
+                    // HD: a built-in plugin keeps the rest of its line (up to a comment) as options.
+                    if (IsHdPluginName(Start))
+                    {
+                        std::string Options;
+                        if (Ch == ' ' || Ch == '\t')
+                        {
+                            Options = Cursor + 1;
+                            Options = Options.substr(0, Options.find(';'));
+                            const size_t First = Options.find_first_not_of(" \t\r\n");
+                            const size_t Last = Options.find_last_not_of(" \t\r\n");
+                            Options = First == std::string::npos ? "" : Options.substr(First, Last - First + 1);
+                            // The parser hands "max=1000" back as "max = 1000"; keep one word each.
+                            for (size_t Eq = Options.find('='); Eq != std::string::npos; Eq = Options.find('=', Eq + 1))
+                            {
+                                while (Eq > 0 && (Options[Eq - 1] == ' ' || Options[Eq - 1] == '\t'))
+                                    Options.erase(--Eq, 1);
+                                while (Eq + 1 < Options.size() && (Options[Eq + 1] == ' ' || Options[Eq + 1] == '\t'))
+                                    Options.erase(Eq + 1, 1);
+                            }
+                        }
+                        // A name on several lines (the profile splits a long feature list to fit
+                        // the 0x104-byte line) gathers the options of all of them.
+                        std::string& Known = GHdPlugins[LowerAscii(Start)];
+                        Known = Known.empty() ? Options : (Options.empty() ? Known : Known + " " + Options);
+                        char Message[0x200];
+                        FDUMP(DumpNotice, GNoticeFormat, GDacomSourceFile, 0x370,
+                              FormatDumpText(Message, "DACOM: HD plugin %s built in [%s]\n", Start, Options.c_str()));
+                        continue;
+                    }
                 }
                 if (AddLibrary(Start) >= 0)
                     bLoaded = true;
@@ -2634,7 +2699,7 @@ namespace
         // Retail LAB_065b5cc0: plain 8-byte AGGDESC whose name matches (strcmp).
         GENRESULT DACOM_API CreateInstance(AGGDESC* Desc, void** Instance) override
         {
-            if (Desc->size != 8 || std::strcmp(Desc->interface_name, Name) != 0)
+            if (!FL_DESC_SIZE_IS(Desc->size, AGGDESC, 8) || std::strcmp(Desc->interface_name, Name) != 0)
             {
                 *Instance = nullptr;
                 return GR_INTERFACE_UNSUPPORTED;
@@ -2828,6 +2893,14 @@ extern "C" GENRESULT __cdecl DACOM_GetDllVersion(const char* Module, unsigned in
     *Minor = LOWORD(Fixed.dwProductVersionMS);
     *Build = LOWORD(Fixed.dwProductVersionLS);
     return GR_OK;
+}
+
+// HD: the options of a built-in HD Edition plugin named in [Libraries], or null when the game
+// folder does not enable it (see GHdPluginNames).
+extern "C" const char* __cdecl DACOM_HdPlugin(const char* Name)
+{
+    std::map<std::string, std::string>::const_iterator It = GHdPlugins.find(LowerAscii(Name));
+    return It == GHdPlugins.end() ? nullptr : It->second.c_str();
 }
 
 // Retail 065b3460.

@@ -607,11 +607,11 @@ void RpcCollisionGroupListAssign(FRpcCollisionGroupList* List,
 
 // retail FUN_06d931b0 -- `LEA EAX,[this + 0x28]; RET`, i.e. payload+0x08.
 FRpcLootWireList* RpcPacketLootList(FPacketBase* Packet) {
-    return reinterpret_cast<FRpcLootWireList*>(Packet->Payload() + 8);
+    return &reinterpret_cast<FPayloadServerCreateLoot*>(Packet->Payload())->Items;
 }
 
 __declspec(dllexport) const FRpcLootWireList* RpcPacketLootList(const FPacketBase* Packet) {
-    return reinterpret_cast<const FRpcLootWireList*>(Packet->Payload() + 8);
+    return &reinterpret_cast<const FPayloadServerCreateLoot*>(Packet->Payload())->Items;
 }
 
 // Stand-in for the CREATELOOT packet constructor's list constructor; bare operator new.

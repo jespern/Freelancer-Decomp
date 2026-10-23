@@ -384,7 +384,7 @@ int DACOM_API FVMeshWire::QueryInstance(void* Instance, const char* Iid, void** 
 GENRESULT DACOM_API VMeshWireFactoryCreate(FDacomFactory* This, AGGDESC* Desc, void** Out)
 {
     FWireAggDesc* Extended = (FWireAggDesc*)Desc;
-    if (Extended->Size != 0x18 || std::strcmp(Extended->Name, This->Name) != 0)
+    if (!FL_DESC_SIZE_IS(Extended->Size, decltype(*Extended), 0x18) || std::strcmp(Extended->Name, This->Name) != 0)
     {
         *Out = nullptr;
         return GR_INTERFACE_UNSUPPORTED;

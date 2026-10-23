@@ -179,11 +179,11 @@ namespace
         const char* DataPath;
         unsigned long Field10;
         unsigned long Field14;
-        unsigned long Field18;
+        void* Field18; // pointer slot (FFileSystemDesc)
         unsigned long Field1C;
         unsigned long Field20;
-        unsigned long Field24;
-        unsigned long Field28;
+        void* Field24; // pointer slot (FFileSystemDesc)
+        IDAComponent* Field28; // pointer slot (FFileSystemDesc)
         unsigned long Field2C;
         unsigned long Field30;
     };
@@ -199,7 +199,7 @@ namespace
         Desc.DataPath = Path;
         Desc.Field10 = 0x80000000;
         Desc.Field14 = 1;
-        Desc.Field18 = 0;
+        Desc.Field18 = nullptr;
         Desc.Field1C = 3;
         Desc.Field20 = 0x8000080;
         Desc.Field30 = 0xFFFFFFFF;
@@ -329,7 +329,7 @@ namespace
         Stream->MapHandle = Map;
         if (Map == 0xFFFFFFFFu)
             return 0;
-        const unsigned long View = static_cast<unsigned long>(Fs->MapFileView(Map, 4, 0, 0, 0));
+        const intptr_t View = Fs->MapFileView(Map, 4, 0, 0, 0); // an address
         Stream->MappedView = reinterpret_cast<unsigned char*>(View);
         Stream->MappedSize = Fs->GetSize(Stream->FileHandle, 0);
         Stream->ReadCursor = 0;
@@ -1140,7 +1140,7 @@ bool FSoundStreamer::OpenOwnDirectSound()
 
 int DACOM_API FSoundStreamer::InitializeDevice(FStreamerInitDesc* Desc)
 {
-    if (Desc == nullptr || Desc->Size != 0x18)
+    if (Desc == nullptr || !FL_DESC_SIZE_IS(Desc->Size, decltype(*Desc), 0x18))
     {
         FdumpStreamer(kFdumpError, 0x1A5, "SoundStreamer - Invalid parameters."); // 06efe254
         return 0;

@@ -21,12 +21,16 @@
 #include "ids_strings.h"
 #include "render/shading.h" // ITextureLibrary2 (FUN_0041c7e0 / FUN_0041c830)
 #include "x86math.h"
+#include "hd_plugins.h"
 
 #include <stdint.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 #include <wchar.h>
+
+bool G_HdZoneFmtFallback = false;
+bool G_HdZoneFmtBlank = false;
 
 namespace
 {
@@ -398,6 +402,24 @@ int FmtStrSprintf(FmtStr const* Fmt, wchar_t* Dest, int DestChars)
             {
                 // 0041d017.
                 unsigned const Offset = static_cast<unsigned>(Zone->GetName()) - 0x3fc58;
+                if (G_HdZoneFmtFallback)
+                {
+                    // HD: Zone.dll's Test_Hook / Name_Hook.
+                    unsigned const Ids = Offset >= 0xc7
+                                             ? static_cast<unsigned>(Zone->GetName())
+                                             : static_cast<unsigned>(Variant * 200) + Offset + 0x50fa1;
+                    wchar_t* const Before = Cursor;
+                    MiscUtilAppendIds(&Cursor, End, Ids);
+                    if (Ids == 60245)
+                    {
+                        G_HdZoneFmtBlank = true;
+                        break;
+                    }
+                    if (Cursor == Before)
+                        MiscUtilAppendIds(&Cursor, End, static_cast<unsigned>(Zone->GetName()));
+                    G_HdZoneFmtBlank = Cursor - Before == 1 && *Before == L' ';
+                    break;
+                }
                 if (Offset >= 0xc7)
                     break;
                 MiscUtilAppendIds(&Cursor, End, static_cast<unsigned>(Variant * 200) + Offset + 0x50fa1);
@@ -409,8 +431,15 @@ int FmtStrSprintf(FmtStr const* Fmt, wchar_t* Dest, int DestChars)
                 break;
             MiscUtilAppendIds(&Cursor, End, static_cast<unsigned>(Variant * 200) + 0x50fa0);
             MiscUtilAppendIds(&Cursor, End, 1);
-            MiscUtilAppendIds(&Cursor, End, (ZoneId & 7) + 0x514);
-            MiscUtilAppendIds(&Cursor, End, ((ZoneId >> 3) & 7) + 0x506); // FUN_0041d5b0 call
+            {
+                // HD: jflp puts the sector letter first (0x0041d1e6 / 0x0041d250: the two IDS
+                // fetched in swapped order). The no-variant %Z path above keeps "4C", as jflp.
+                static const bool bJflpLetterFirst = HdPlugins::Enabled("jflp.dll");
+                unsigned const Number = (ZoneId & 7) + 0x514;
+                unsigned const Letter = ((ZoneId >> 3) & 7) + 0x506;
+                MiscUtilAppendIds(&Cursor, End, bJflpLetterFirst ? Letter : Number);
+                MiscUtilAppendIds(&Cursor, End, bJflpLetterFirst ? Number : Letter); // FUN_0041d5b0 call
+            }
             break;
         }
 

@@ -30,7 +30,7 @@ namespace
 
     // Same `- 8` as everywhere else: the watcher holds the Watchable, which is eight bytes into
     // the IObjRW.
-    const int kWatchableOffset = 8;
+    const int kWatchableOffset = FlWatchableOffset(); // retail 8
 
     // FUN_0054baf0: the player's ship as an IObjRW, or null. Retail reads the Watched pointer out
     // of the BaseWatcher at .data 0x00679744 and subtracts eight; the port's watcher accessor

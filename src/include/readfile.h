@@ -45,7 +45,7 @@ struct IFileSystem : IComponentFactory
 {
     virtual int DACOM_API CloseFile(unsigned long Handle) = 0;                          // +0x10
     virtual int DACOM_API Read(unsigned long Handle, void* Buffer, unsigned long Size,
-                               unsigned long* BytesRead, unsigned long Extra) = 0;      // +0x14
+                               unsigned long* BytesRead, const OVERLAPPED* Extra) = 0;  // +0x14
     virtual int DACOM_API Write(unsigned long Handle, const void* Buffer, unsigned long Size,
                                  unsigned long* BytesWritten, const void* PositionOverride) = 0; // formerly Slot18
     virtual int DACOM_API RejectOperation1C(unsigned long A1, unsigned long A2, unsigned long A3,
@@ -64,7 +64,8 @@ struct IFileSystem : IComponentFactory
                                  unsigned long A4) = 0; // formerly Slot38; TODO: original operation contract.
     virtual int DACOM_API CreateMapping(unsigned long A1, unsigned long A2, unsigned long A3,
                                  unsigned long A4, unsigned long A5, unsigned long A6) = 0; // formerly Slot3C
-    virtual int DACOM_API MapFileView(unsigned long A1, unsigned long A2, unsigned long A3,
+    // Returns the address of the mapped bytes (pointer-sized: it is a pointer).
+    virtual intptr_t DACOM_API MapFileView(unsigned long A1, unsigned long A2, unsigned long A3,
                                  unsigned long A4, unsigned long A5) = 0; // formerly Slot40
     virtual int DACOM_API UnmapFileView(unsigned long A1) = 0; // formerly Slot44
     virtual int DACOM_API FindFirst(const char* Pattern, WIN32_FIND_DATAA* FindData) = 0; // formerly Slot48

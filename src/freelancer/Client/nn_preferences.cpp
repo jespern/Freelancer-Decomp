@@ -12,6 +12,7 @@
 // registered only by the WINFACTORY global below.
 
 #include "nn_preferences.h"
+#include "hd_plugins.h"
 #include "msvcrt_compat.h" // MsvcrtAtoi: retail MSVCRT.DLL wraps mod 2^32, the UCRT saturates
 
 #include "gameflow.h"              // ResetGameflowRoomLetterbox (FUN_00558d60)
@@ -43,12 +44,14 @@
 
 #include "common_csys.h"           // RotateMatrix
 #include "common_ini.h"            // INI_Reader
+#include "common_id.h"             // CreateID (HD: more_test_sounds)
 #include "common_server.h"         // IServer::ReqDifficultyScale (slot 87)
 #include "common_misc.h"           // SinglePlayer
 #include "dacom.h"                 // FDUMP
 #include "DALib.h"
 #include "engine/engbase.h"
 #include "soundmanager.h"          // ISoundSource
+#include "hd_plugins.h"
 
 #include <algorithm>
 #include <math.h>
@@ -64,6 +67,99 @@ WINFACTORY<NnPreferences> G_NnPreferencesFactory("NN_Preferences");
 
 namespace
 {
+    // HD: FLSharp better_resolutions (resolutions.cpp) -- up to 63 resolutions with every height,
+    // modes told apart by height as well as width, and the monitor's size as the default. Under
+    // the port's widescreen define only (the retail table holds five).
+    bool BetterResolutions()
+    {
+#ifdef FREELANCER_WIDESCREEN_SUPPORT
+        static const bool bOn = HdPlugins::FlSharp("better_resolutions");
+        return bOn;
+#else
+        return false;
+#endif
+    }
+
+    // Two heights differ only when the fix compares them (retail keys modes by width alone).
+    bool HeightsDiffer(int A, int B)
+    {
+        return BetterResolutions() && A != B;
+    }
+
+    // The monitor's size, when known (FLSharp's DefaultResSet); the arguments stay otherwise.
+    void DesktopDefaultSize(int* Width, int* Height)
+    {
+#ifdef FREELANCER_WIDESCREEN_SUPPORT
+        int DesktopWidth = 0;
+        int DesktopHeight = 0;
+        if (WidescreenGetDesktopSize(&DesktopWidth, &DesktopHeight) && DesktopWidth > 0 &&
+            DesktopHeight > 0)
+        {
+            *Width = DesktopWidth;
+            *Height = DesktopHeight;
+        }
+#else
+        (void)Width;
+        (void)Height;
+#endif
+    }
+
+    // HD: FLSharp more_test_sounds (test_sounds.cpp), cached.
+    bool MoreTestSounds()
+    {
+        static const bool bOn = HdPlugins::FlSharp("more_test_sounds");
+        return bOn;
+    }
+
+    // HD: the HD exe patch independent_audio_volumes (mods/hd.ini advanced_audio).
+    bool IndependentAudioVolumes()
+    {
+        static const bool bOn = HdPlugins::Feature("independent_audio_volumes");
+        return bOn;
+    }
+
+    // FLSharp's shouldResumeBGM / shouldResumeBGA: what a test sound paused.
+    bool G_bTestResumeMusic = false;
+    bool G_bTestResumeAmbience = false;
+
+    // ui_ambiance_test (bAmbience) / ui_interface_test is defined (FUN_0042ae40, once each);
+    // PlayUiSoundSlotFlag1 would crash on a missing one.
+    bool TestSoundExists(bool bAmbience)
+    {
+        static const bool bInterface = [] {
+            ID_String Id;
+            Id.Id = CreateID("ui_interface_test");
+            return LookupClientSoundArch(&Id) != nullptr;
+        }();
+        static const bool bAmbiance = [] {
+            ID_String Id;
+            Id.Id = CreateID("ui_ambiance_test");
+            return LookupClientSoundArch(&Id) != nullptr;
+        }();
+        return bAmbience ? bAmbiance : bInterface;
+    }
+
+    // What the test sounds paused, resumed.
+    void TestSoundsResumeBackground()
+    {
+        if (G_bTestResumeMusic)
+            ClientBackgroundResume(true);
+        if (G_bTestResumeAmbience)
+            ClientBackgroundResume(false);
+        G_bTestResumeMusic = false;
+        G_bTestResumeAmbience = false;
+    }
+
+    // The interface and ambience previews stop with the others.
+    void TestSoundsStopExtra()
+    {
+        if (!MoreTestSounds())
+            return;
+        StopUiSoundSlot(0x21);
+        StopUiSoundSlot(0x22);
+        TestSoundsResumeBackground();
+    }
+
     // Retail DAT_006721c0 -- the empty key-row vector category 3 answers with (static init
     // FUN_004addb0, atexit LAB_004adde0).
     std::vector<FKeyRow> const G_NnPreferencesEmptyRows;
@@ -107,7 +203,7 @@ NnPreferences::NnPreferences()
 {
     // FUN_004b2950: FUN_0059f860, the vptrs, the nine vectors emptied. Every other member is
     // written by Create before it is read; the port zeroes the block here.
-    bClosed = 0; bInGame = 0; bSeedMode = 0; Pad32f = 0; SelWidth = 0; bSel32 = 0;
+    bClosed = 0; bInGame = 0; bSeedMode = 0; Pad32f = 0; SelWidth = 0; SelHeight = 0; bSel32 = 0;
     BigBox = nullptr; Pad33c[0] = nullptr; Pad33c[1] = nullptr; Title = nullptr; CloseButton = nullptr;
     for (int Index = 0; Index < 6; ++Index) { PageButtons[Index] = nullptr; PageTexts[Index] = nullptr; }
     for (int Index = 0; Index < 13; ++Index)
@@ -135,7 +231,7 @@ NnPreferences::NnPreferences()
     CaptureRow = FKeyRow();
     bCaptureAlt = 0; bConflictAlt = 0; bConflict = 0; ConflictRow = 0; ConflictCategory = 0; ConflictCommand = 0;
     FlipAngle = 0.0; FlipSpeed = 0.0; bFlipping = 0; bFlipHalf = 0; bClosingAnim = 0;
-    CreditsScroll = 0.0; CreditsSpeed = 0.0; CurWidth = 0; bCur32 = 0; ConfirmCountdown = 0.0; bApplyingPreset = 0;
+    CreditsScroll = 0.0; CreditsSpeed = 0.0; CurWidth = 0; CurHeight = 0; bCur32 = 0; ConfirmCountdown = 0.0; bApplyingPreset = 0;
     for (int Index = 0; Index < kPrefVideoModeCount; ++Index)
     {
         Modes[Index].Width = 0; Modes[Index].Height = 0; Modes[Index].Bpp = 0;
@@ -150,7 +246,7 @@ NnPreferences::~NnPreferences()
     // dtor -- the std::vector members do it here.
 }
 
-bool NnPreferences::Slot23(unsigned, unsigned, unsigned)
+bool NnPreferences::Slot23(unsigned, uintptr_t, uintptr_t)
 {
     // FUN_004ada30
     OutputDebugStringA("OnMessage\n");
@@ -537,6 +633,7 @@ intptr_t NnPreferences::SetProperty(int Msg, uintptr_t A, uintptr_t B)
                     bCur32 = bSel32;
                     bVideoConfirm = 0;
                     CurWidth = SelWidth;
+                    CurHeight = SelHeight;
                     RefreshRows(0x536);
                 }
                 TakeSnapshot();
@@ -570,14 +667,16 @@ intptr_t NnPreferences::SetProperty(int Msg, uintptr_t A, uintptr_t B)
             bVideoConfirm = 0;
             HideVideoConfirmDialog(this);
             CurWidth = SelWidth;
+            CurHeight = SelHeight;
             bCur32 = bSel32;
         }
         else if (Source == DialogCancelButton)
         {
-            TryApplyVideoMode(CurWidth, bCur32);
+            TryApplyVideoMode(CurWidth, CurHeight, bCur32);
             bVideoConfirm = 0;
             HideVideoConfirmDialog(this);
             SelWidth = CurWidth;
+            SelHeight = CurHeight;
             bSel32 = bCur32;
         }
         else
@@ -680,7 +779,14 @@ intptr_t NnPreferences::SetProperty(int Msg, uintptr_t A, uintptr_t B)
                 StopUiSoundSlot(0x1f);
             if (OptionsB[Index].Id == 0x539)
                 StopUiSoundSlot(0x20);
+            // HD: FLSharp more_test_sounds — the interface / ambience previews too (0x004acbab).
+            if (MoreTestSounds() && OptionsB[Index].Id == 0x583)
+                StopUiSoundSlot(0x21);
+            if (MoreTestSounds() && OptionsB[Index].Id == 0x584)
+                StopUiSoundSlot(0x22);
         }
+        if (MoreTestSounds())
+            TestSoundsResumeBackground();
         return 0;
     }
 
@@ -766,6 +872,7 @@ intptr_t NnPreferences::SetProperty(int Msg, uintptr_t A, uintptr_t B)
                 VideoMemory >>= 20;
                 RefreshRows(-1);
                 int Width = 0x320;
+                int Height = 0;
                 int Bpp = 0x10;
                 if (Ability4 != 0)
                 {
@@ -776,11 +883,16 @@ intptr_t NnPreferences::SetProperty(int Msg, uintptr_t A, uintptr_t B)
                 {
                     Bpp = 0x20;
                 }
+                // HD: FLSharp better_resolutions — the monitor's own size (0x004aceab / 0x004acebb).
+                if (BetterResolutions())
+                    DesktopDefaultSize(&Width, &Height);
                 SelWidth = Width;
+                SelHeight = Height;
                 int CycleValue = 0;
                 for (int Mode = 0; Mode < kPrefVideoModeCount; ++Mode)
                 {
-                    if (bModeAvail[Mode] != 0 && Modes[Mode].Width == Width && Modes[Mode].Bpp == Bpp)
+                    if (bModeAvail[Mode] != 0 && Modes[Mode].Width == Width && Modes[Mode].Bpp == Bpp &&
+                        (Height == 0 || Modes[Mode].Height == Height))
                     {
                         CycleValue = CycleIndex[Mode] == -1 ? 0 : CycleIndex[Mode];
                         break;
@@ -1010,6 +1122,7 @@ bool NnPreferences::KeyEvent(unsigned Key, unsigned char* Modifiers)
     StopUiSoundSlot(0x1e);
     StopUiSoundSlot(0x1f);
     StopUiSoundSlot(0x20);
+    TestSoundsStopExtra(); // HD: FLSharp more_test_sounds (0x004add81 / 0x004b0689 / 0x004b0903)
     return true;
 }
 
@@ -1492,6 +1605,14 @@ namespace
             {
                 if (Picked[Slot].Width != Mode.Width)
                     continue;
+                // HD: FLSharp better_resolutions — every height is its own entry.
+                if (BetterResolutions())
+                {
+                    if (Picked[Slot].Height != Mode.Height)
+                        continue;
+                    bSameWidth = true;
+                    break;
+                }
                 bSameWidth = true;
                 double const Held =
                     static_cast<double>(Picked[Slot].Width) / static_cast<double>(Picked[Slot].Height);
@@ -1509,16 +1630,19 @@ namespace
             }
         }
 
-        std::sort(Picked.begin(), Picked.end(),
-                  [](FPrefVideoMode const& A, FPrefVideoMode const& B) { return A.Width < B.Width; });
+        std::sort(Picked.begin(), Picked.end(), [](FPrefVideoMode const& A, FPrefVideoMode const& B) {
+            return A.Width < B.Width || (A.Width == B.Width && A.Height < B.Height);
+        });
+        // HD: FLSharp better_resolutions keeps up to 63 (FLSharp: 127 modes); 24 otherwise.
+        size_t const Cap = BetterResolutions() ? static_cast<size_t>(kPrefVideoResolutionCount) : 24u;
         size_t First = 0;
-        if (Picked.size() > static_cast<size_t>(kPrefVideoResolutionCount))
-            First = Picked.size() - static_cast<size_t>(kPrefVideoResolutionCount);
+        if (Picked.size() > Cap)
+            First = Picked.size() - Cap;
 
         for (int Index = 0; Index < kPrefVideoResolutionCount; ++Index)
         {
             size_t const Source = First + static_cast<size_t>(Index);
-            if (Source < Picked.size())
+            if (static_cast<size_t>(Index) < Cap && Source < Picked.size())
             {
                 Modes[Index].Width = Picked[Source].Width;
                 Modes[Index].Height = Picked[Source].Height;
@@ -1954,6 +2078,7 @@ void NnPreferences::TakeSnapshot()
     StopUiSoundSlot(0x1e);
     StopUiSoundSlot(0x1f);
     StopUiSoundSlot(0x20);
+    TestSoundsStopExtra(); // HD: FLSharp more_test_sounds (0x004add81 / 0x004b0689 / 0x004b0903)
 }
 
 void NnPreferences::ShowConfirmDialog(bool bShow)
@@ -1975,9 +2100,9 @@ void NnPreferences::ShowConfirmDialog(bool bShow)
         SetRowsHidden(false);
         return;
     }
-    if (CurWidth != SelWidth || bCur32 != bSel32)
+    if (CurWidth != SelWidth || bCur32 != bSel32 || HeightsDiffer(CurHeight, SelHeight))
     {
-        if (TryApplyVideoMode(SelWidth, bSel32))
+        if (TryApplyVideoMode(SelWidth, SelHeight, bSel32))
         {
             bVideoConfirm = 1;
             wchar_t Text[0x40];
@@ -2014,10 +2139,11 @@ void NnPreferences::CancelChanges()
     {
         if (bVideoConfirm != 0)
         {
-            TryApplyVideoMode(CurWidth, bCur32);
+            TryApplyVideoMode(CurWidth, CurHeight, bCur32);
             bSel32 = bCur32;
             bVideoConfirm = 0;
             SelWidth = CurWidth;
+            SelHeight = CurHeight;
             RefreshRows(0x536);
         }
         Revert(true);
@@ -2158,11 +2284,13 @@ void NnPreferences::SetSliderOption(int Id, int Value, int Row)
         SetPerfOptionValue(Option, Scaled);
         // 0x004b1501: the paired options follow (no null tests): sfx -> 0x583, music -> 0x584,
         // asteroids -> 0x57d and 0x5ca.
-        if (Id == 0x538)
+        // HD: independent_audio_volumes (HD's 0x004b1503 / 0x004b1554 patch, advanced_audio)
+        // compares 0x583 / 0x584 there instead, so sfx and music no longer drive them.
+        if (Id == 0x538 && !IndependentAudioVolumes())
         {
             SetPerfOptionValue(FindPerfOptionByIds(0x583), Scaled);
         }
-        else if (Id == 0x539)
+        else if (Id == 0x539 && !IndependentAudioVolumes())
         {
             SetPerfOptionValue(FindPerfOptionByIds(0x584), Scaled);
         }
@@ -2238,14 +2366,28 @@ void NnPreferences::SetSliderOption(int Id, int Value, int Row)
         else if (Id == 0x583)
         {
             // 0x004b1956
-            if (Row >= 0)
+            // HD: FLSharp more_test_sounds — only when ui_interface_test exists (0x004b1967).
+            if (Row >= 0 && (!MoreTestSounds() || TestSoundExists(false)))
                 PlayUiSoundSlotFlag1(0x21);
         }
         else if (Id == 0x584)
         {
             // 0x004b1938
             if (Row >= 0)
-                PlayUiSoundSlotFlag1(0x22);
+            {
+                if (!MoreTestSounds())
+                {
+                    PlayUiSoundSlotFlag1(0x22);
+                }
+                // HD: FLSharp more_test_sounds — not over a playing ambience, only when
+                // ui_ambiance_test exists, and the music paused meanwhile (0x004b1949).
+                else if (!ClientBackgroundIsPlaying(false) && TestSoundExists(true))
+                {
+                    PlayUiSoundSlotFlag1(0x22);
+                    if (ClientBackgroundPause(true))
+                        G_bTestResumeMusic = true;
+                }
+            }
         }
     }
     else
@@ -2274,6 +2416,7 @@ void NnPreferences::SetSliderOption(int Id, int Value, int Row)
             }
             FPrefVideoMode const Found = Modes[Match];
             SelWidth = Found.Width;
+            SelHeight = Found.Height; // HD: better_resolutions (0x004b180f)
             swprintf(Text, 0x40, L"%d x %d", Found.Width, Found.Height); // 0x005d5190
             if (bBigVram != 0)
             {
@@ -2301,7 +2444,17 @@ void NnPreferences::SetSliderOption(int Id, int Value, int Row)
             if (Row >= 0)
             {
                 void* Source = nullptr;
-                if (!BindClientBackgroundMusic(&Source)) // FUN_00428ba0
+                bool bMusicBound = BindClientBackgroundMusic(&Source) != 0; // FUN_00428ba0
+                // HD: FLSharp more_test_sounds — finished or paused music counts as none, and
+                // the ambience pauses for the preview (0x004b17a1).
+                if (bMusicBound && MoreTestSounds() && !ClientBackgroundIsPlaying(true))
+                {
+                    static_cast<ISoundSource*>(Source)->Release();
+                    bMusicBound = false;
+                }
+                if (!bMusicBound && MoreTestSounds() && ClientBackgroundPause(false))
+                    G_bTestResumeAmbience = true;
+                if (!bMusicBound)
                     PlayUiSoundSlotFlag1(0x20);
                 else
                     static_cast<ISoundSource*>(Source)->Release(); // vt+8
@@ -2340,12 +2493,14 @@ void NnPreferences::SetSliderOption(int Id, int Value, int Row)
     UpdateDirty(-1, -1.0f);
 }
 
-bool NnPreferences::TryApplyVideoMode(int Width, unsigned char b32)
+bool NnPreferences::TryApplyVideoMode(int Width, int Height, unsigned char b32)
 {
-    // FUN_004b1c00 (RET 8): the first 0x28 bytes of DAT_00679bc0 on the stack.
+    // FUN_004b1c00 (RET 8): the first 0x28 bytes of DAT_00679bc0 on the stack. Height is the
+    // FLSharp better_resolutions argument: with the fix, a non-zero one must match too.
     DisplaySettings Mode;
     memcpy(&Mode, &g_display, 0x28);
     CurWidth = Mode.width;
+    CurHeight = Mode.height;
     bCur32 = static_cast<unsigned char>(Mode.color_bpp == 0x20);
     int const Bpp = b32 != 0 ? 0x20 : 0x10;
     Mode.width = 0;
@@ -2356,6 +2511,8 @@ bool NnPreferences::TryApplyVideoMode(int Width, unsigned char b32)
         if (bModeAvail[Index] == 0)
             continue;
         if (Modes[Index].Width != Width || Modes[Index].Bpp != Bpp)
+            continue;
+        if (BetterResolutions() && Height != 0 && Modes[Index].Height != Height)
             continue;
         FindVideoMode(&Mode, Modes[Index].Width, Modes[Index].Height, -1);
         if (bInGame == 0)
@@ -2396,7 +2553,7 @@ void NnPreferences::SetToggleOption(int Id, int Value, int Row)
     if (Id == 0x57e)
     {
         // 0x004b1e53: "apply video mode" -- ask to keep it, or redraw the rows.
-        if (TryApplyVideoMode(SelWidth, bSel32))
+        if (TryApplyVideoMode(SelWidth, SelHeight, bSel32))
         {
             bVideoConfirm = 1;
             wchar_t Text[0x40];
@@ -2424,7 +2581,7 @@ void NnPreferences::UpdateDirty(int Id, float Value)
     // snapshot, makes the page dirty.
     if (bSeedMode != 0)
         return;
-    bool bFound = CurWidth != SelWidth || bCur32 != bSel32;
+    bool bFound = CurWidth != SelWidth || bCur32 != bSel32 || HeightsDiffer(CurHeight, SelHeight);
     // The row copy: Id -1 and the three bytes 0 before the loop, overwritten only on pages 1..3.
     FPrefOption Row = BlankOption();
     for (int Index = 0; Index < 14 && !bFound; ++Index)
@@ -2575,11 +2732,13 @@ void NnPreferences::Revert(bool bApply)
             if (Row.Id == 0x536)
             {
                 // 0x004b0740: back to the current video mode, every matching entry.
-                if (CurWidth == SelWidth && bCur32 == bSel32)
+                if (CurWidth == SelWidth && bCur32 == bSel32 && !HeightsDiffer(CurHeight, SelHeight))
                     continue;
                 for (int Mode = 0; Mode < kPrefVideoModeCount; ++Mode)
                 {
                     if (bModeAvail[Mode] == 0 || Modes[Mode].Width != CurWidth)
+                        continue;
+                    if (HeightsDiffer(Modes[Mode].Height, CurHeight))
                         continue;
                     if (static_cast<int>(bCur32) != (Modes[Mode].Bpp == 0x20 ? 1 : 0))
                         continue;
@@ -2624,6 +2783,7 @@ void NnPreferences::Revert(bool bApply)
     StopUiSoundSlot(0x1e);
     StopUiSoundSlot(0x1f);
     StopUiSoundSlot(0x20);
+    TestSoundsStopExtra(); // HD: FLSharp more_test_sounds (0x004add81 / 0x004b0689 / 0x004b0903)
 }
 
 namespace
@@ -2811,8 +2971,12 @@ void NnPreferences::RefreshRows(int Id)
                     continue;
                 if (g_display.width != Modes[Mode].Width || g_display.color_bpp != Modes[Mode].Bpp)
                     continue;
+                if (HeightsDiffer(g_display.height, Modes[Mode].Height))
+                    continue;
                 CurWidth = Modes[Mode].Width;
                 SelWidth = Modes[Mode].Width;
+                CurHeight = Modes[Mode].Height;
+                SelHeight = Modes[Mode].Height;
                 bSel32 = static_cast<unsigned char>(Modes[Mode].Bpp == 0x20);
                 swprintf(ModeText, 0x40, L"%d x %d", Modes[Mode].Width, Modes[Mode].Height); // 0x005d5190
                 VideoModeCycle->SetProperty(0x38, static_cast<uintptr_t>(CycleIndex[Mode]), 0);
@@ -2823,6 +2987,8 @@ void NnPreferences::RefreshRows(int Id)
                 // 0x004b10a3: none -- the display's own size, cycle at 0.
                 CurWidth = g_display.width;
                 SelWidth = g_display.width;
+                CurHeight = g_display.height;
+                SelHeight = g_display.height;
                 bSel32 = static_cast<unsigned char>(g_display.color_bpp == 0x20);
                 swprintf(ModeText, 0x40, L"%d x %d", g_display.width, g_display.height);
                 VideoModeCycle->SetProperty(0x38, 0, 0);
@@ -2848,7 +3014,7 @@ void NnPreferences::RefreshRows(int Id)
             ShowControl(SmallButtonText[Index]);
             GetIdsStringWWithRawFallback(0x60b, Text, 0x40);
             SmallButtonText[Index]->SetProperty(0x1d, reinterpret_cast<uintptr_t>(Text), 0);
-            if (SelWidth == CurWidth && bSel32 == bCur32)
+            if (SelWidth == CurWidth && bSel32 == bCur32 && !HeightsDiffer(SelHeight, CurHeight))
             {
                 SmallButtonText[Index]->TextColour = G_NnPaletteArgb_679b94;
                 SmallButton[Index]->bUseColour = 1;
@@ -2886,7 +3052,11 @@ void NnPreferences::RefreshRows(int Id)
             // 0x004b1367: max_submitted_sounds, 8..32.
             if (Option == nullptr)
                 break;
-            OptScroll[Index]->SetProperty(0x37, 8, 0x20);
+            // HD: sound_elements_120 — 32..120 (0x004b1375 max 0x20 -> 120, 0x004b1377 min 8 -> 32).
+            if (HdPlugins::Feature("sound_elements_120"))
+                OptScroll[Index]->SetProperty(0x37, 32, 120);
+            else
+                OptScroll[Index]->SetProperty(0x37, 8, 0x20);
             float const Count = static_cast<float>(GetMaxSubmittedSounds()); // FUN_005b3860
             OptScroll[Index]->SetProperty(0x38, static_cast<uintptr_t>(static_cast<int>(Count)), 0);
             ShowControl(OptScroll[Index]);
@@ -3010,6 +3180,8 @@ bool NnPreferences::Create(Win3D* NewParent, void* Data)
     // without the big-VRAM flag counts as 16.
     SelWidth = 0;
     CurWidth = 0;
+    SelHeight = 0;
+    CurHeight = 0;
     bCur32 = static_cast<unsigned char>(g_display.color_bpp == 0x20 ? 1 : 0);
     bSel32 = bCur32;
     if (bBigVram == 0 && bCur32 == 1)
@@ -3486,8 +3658,11 @@ bool NnPreferences::Create(Win3D* NewParent, void* Data)
             ParagraphNode Para;
             CreditsText->AppendNode(Para);
         }
+        // HD: hd_credits — the first paragraph is HD's credits (0x004ab150 IDS 0x6003f ->
+        // 0x703e8, 459752, hderesources.dll).
+        static const bool bHdCredits = HdPlugins::Feature("hd_credits");
         for (unsigned Ids = 0x6003f; Ids <= 0x60048; ++Ids)
-            LoadIdsIntoRdl(Ids, Credits);
+            LoadIdsIntoRdl(Ids == 0x6003f && bHdCredits ? 0x703e8u : Ids, Credits);
         CreditsText->AppendContent(Credits);
     }
 

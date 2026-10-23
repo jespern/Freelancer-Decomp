@@ -73,7 +73,13 @@ enum StrafeDir
     StrafeLeft = 1,
     StrafeRight = 2,
     StrafeUp = 3,
-    StrafeDown = 4
+    StrafeDown = 4,
+    // HD: jflp.dll's 8-way strafing (CStrafeEngine::SetStrafe) combines a horizontal and a
+    // vertical key into these; retail never stores them.
+    StrafeLeftUp = 5,
+    StrafeLeftDown = 6,
+    StrafeRightUp = 7,
+    StrafeRightDown = 8
 };
 
 // Retail's name for CShip+0x2ac (?get_bay_state@CShip@@QBE?AW4BayState@@XZ). The enumerator

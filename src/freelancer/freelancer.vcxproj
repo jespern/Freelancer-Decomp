@@ -262,6 +262,9 @@
     <ClInclude Include="Client\hud_maneuvers.h" />
     <ClInclude Include="Client\hud_waypoint.h" />
     <ClInclude Include="Client\hud_widescreen.h" />
+    <ClInclude Include="Client\hd_client.h" />
+    <ClInclude Include="Client\hd_console.h" />
+    <ClInclude Include="Client\hd_hudless.h" />
     <ClInclude Include="Client\jump_effect.h" />
     <ClInclude Include="Client\best_path.h" />
     <ClInclude Include="Client\client_cliobj.h" />
@@ -463,6 +466,8 @@
     <ClCompile Include="Client\hud_maneuvers.cpp" />
     <ClCompile Include="Client\hud_waypoint.cpp" />
     <ClCompile Include="Client\hud_widescreen.cpp" />
+    <ClCompile Include="Client\hd_client.cpp" />
+    <ClCompile Include="Client\hd_console.cpp" />
     <ClCompile Include="Client\jump_effect.cpp" />
     <ClCompile Include="Client\best_path.cpp" />
     <ClCompile Include="Client\client_cliobj.cpp" />

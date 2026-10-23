@@ -52,7 +52,7 @@
 struct IVP_Hash_Elem // formerly FixedKeyHashNode_06356a40
 {
     IVP_Hash_Elem* Next; // +0x00
-    unsigned Value;      // +0x04
+    uintptr_t Value;     // +0x04 (pointer-wide in the port)
     // +0x08: KeyLength raw key bytes follow inline (see the
     // malloc(KeyLength+0xc) call in IVP_Hash::Add below).
     unsigned char* KeyBytes()
@@ -87,7 +87,7 @@ namespace
 // IVP_VHash_Store's own ctor); swapping which literal argument is "count" vs
 // "size" doesn't change the allocated byte total (4*BucketCount either way),
 // so this is a faithful port regardless of that ambiguity.
-IVP_Hash::IVP_Hash(int32_t Size, int32_t KeySize, unsigned NotFoundValue) // formerly extern "C" FUN_06356a40
+IVP_Hash::IVP_Hash(int32_t Size, int32_t KeySize, uintptr_t NotFoundValue) // formerly extern "C" FUN_06356a40
 {
     BucketCount = Size;                                 // 06356a52
     KeyLength = KeySize;                                // 06356a55
@@ -123,7 +123,7 @@ IVP_Hash::~IVP_Hash() // formerly extern "C" FUN_06356a70
 // hash the first KeyLength bytes of `param_1`, walk the matching bucket's
 // chain comparing KeyLength bytes exactly (retail's `CMPSB.REPE`), return
 // the matching node's Value or DefaultValue on a miss/empty chain.
-unsigned IVP_Hash::Find(const void* Key) // formerly extern "C" FUN_06356ac0
+uintptr_t IVP_Hash::Find(const void* Key) // formerly extern "C" FUN_06356ac0
 {
     const unsigned char* KeyBytes = (const unsigned char*)Key;
     const unsigned Hash = HashKeyBytes(KeyBytes, KeyLength);
@@ -145,13 +145,15 @@ unsigned IVP_Hash::Find(const void* Key) // formerly extern "C" FUN_06356ac0
 // node, which becomes unreachable and leaks, same as retail). Allocates
 // KeyLength+0xc bytes (see the node-layout comment above for the 4
 // unexplained-but-harmless extra bytes) and memcpy's the key in.
-void IVP_Hash::Add(const void* Key, unsigned Value) // formerly extern "C" FUN_06356b40
+void IVP_Hash::Add(const void* Key, uintptr_t Value) // formerly extern "C" FUN_06356b40
 {
     const unsigned char* KeyBytes = (const unsigned char*)Key;
     const unsigned Hash = HashKeyBytes(KeyBytes, KeyLength);
     const unsigned BucketIndex = Hash % (unsigned)BucketCount;          // 06356b75-06356b7e
 
-    IVP_Hash_Elem* Node = (IVP_Hash_Elem*)malloc((size_t)KeyLength + 0xc); // 06356b80 FUN_06343f70
+    // 06356b80 FUN_06343f70: KeyLength + 0xc, the 8-byte header and 4 spare bytes. The header
+    // is wider on LP64, so its real size is used: the key is copied in after it.
+    IVP_Hash_Elem* Node = (IVP_Hash_Elem*)malloc(sizeof(IVP_Hash_Elem) + (size_t)KeyLength + 4);
     memcpy(Node->KeyBytes(), KeyBytes, (size_t)KeyLength);                // 06356b85-06356b9a
 
     Node->Next = Buckets[BucketIndex]; // 06356ba5

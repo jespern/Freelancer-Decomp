@@ -11,6 +11,7 @@
 // implementation it shares with the other cockpit cameras, listed in the header.
 
 #include "space_camera_rear.h"
+#include "client_gameobj.h"
 #include "space_scene_obj_draw.h"
 
 #include "space_camera_first.h"  // G_FirstPersonMathEngine (DAT_00675220, shared Cockpit.cpp cache)
@@ -71,13 +72,13 @@ void RearViewCameraUpdate(FRearViewCamera* Cam, float DeltaSeconds)
             reinterpret_cast<const unsigned char*>(Hud->Watched.target()));
         if (Held != nullptr)
         {
-            unsigned char* const Object = Held - 8;
+            unsigned char* const Object = Held - FlWatchableOffset();
             if (Object != nullptr)
             {
                 unsigned char* const Plus0c = Object + 0xc;
                 if (Plus0c != nullptr)
                 {
-                    CEqObj* const EqObj = *reinterpret_cast<CEqObj**>(Plus0c + 4);
+                    CEqObj* const EqObj = static_cast<CEqObj*>(ClientGameobjObject(Plus0c - 0xc));
                     if (EqObj != nullptr &&
                         (static_cast<unsigned>(EqObj->ObjectClass) & 0x503u) == 0x503u)
                         bShip = true;

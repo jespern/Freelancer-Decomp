@@ -29,6 +29,7 @@
 #include "space_solar_world.h"
 #include "star_sphere.h"
 #include "star_sys.h"
+#include "hd_plugins.h"
 
 #include <math.h>
 #include <stdarg.h>
@@ -215,7 +216,11 @@ namespace
 
         // FLD float / FCOMP double / TEST AH,0x41 / JNZ: each flag is "v > constant".
         double const V = static_cast<double>(Value);
-        int const bHighDetail = (V > 0.6 && bLowVidMem == 0) ? 1 : 0; // DAT_005d5068
+        // HD: ignore_vram_check — the low-memory flag no longer vetoes high detail (0x005b48b8
+        // `jne +7` -> `jne +0`).
+        static const bool bHdIgnoreVram = HdPlugins::Feature("ignore_vram_check");
+        int const bHighDetail =
+            (V > 0.6 && (bLowVidMem == 0 || bHdIgnoreVram)) ? 1 : 0; // DAT_005d5068
         int const bPipelineState4 = (V > 0.5) ? 1 : 0;                // DAT_005c75e8
         unsigned long Record0 = (V > 0.4) ? 1 : 0;                    // DAT_005e7028
         unsigned long Record2 = (V > 0.3) ? 1 : 0;                    // DAT_005c9858

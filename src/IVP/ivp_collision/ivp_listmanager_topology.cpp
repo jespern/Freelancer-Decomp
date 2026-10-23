@@ -101,7 +101,7 @@ void IVP_UnlinkPairRecordFromObjects(IVP_Contact_Point* Record)
     // Side 1 (Common.dll.txt:063552b9-063552dd): unlink node #1
     // (Next1/Prev1, +0x08/+0x0c) from Object1->mindist_list.
     if (Record->Next1 != nullptr)
-        *reinterpret_cast<void**>(static_cast<char*>(Record->Next1) + 0x4) = Record->Prev1;
+        static_cast<IVP_Contact_Point_Node*>(Record->Next1)->Prev = Record->Prev1;
 
     if (Record->Prev1 != nullptr)
         *reinterpret_cast<void**>(Record->Prev1) = Record->Next1;
@@ -111,7 +111,7 @@ void IVP_UnlinkPairRecordFromObjects(IVP_Contact_Point* Record)
     // Side 2 (Common.dll.txt:063552dd-0635530e): exact mirror, node #2
     // (Next2/Prev2, +0x1c/+0x20) / Object2->mindist_list.
     if (Record->Next2 != nullptr)
-        *reinterpret_cast<void**>(static_cast<char*>(Record->Next2) + 0x4) = Record->Prev2;
+        static_cast<IVP_Contact_Point_Node*>(Record->Next2)->Prev = Record->Prev2;
 
     if (Record->Prev2 != nullptr)
         *reinterpret_cast<void**>(Record->Prev2) = Record->Next2;
@@ -193,7 +193,7 @@ namespace
     IVP_Friction_Info_For_Core* IVP_FindFrictionInfo(IVP_Core* Core, IVP_ListManager* FrictionSystem)
     {
         return static_cast<IVP_Friction_Info_For_Core*>(
-            Core->find_object_hash_entry(static_cast<unsigned>(reinterpret_cast<uintptr_t>(FrictionSystem))));
+            Core->find_object_hash_entry(reinterpret_cast<uintptr_t>(FrictionSystem)));
     }
 }
 

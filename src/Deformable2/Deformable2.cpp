@@ -1239,8 +1239,7 @@ static void OpenMappedFileNode(FMappedFileNode* Node, const char* NodeName)
     Node->Mapping = Node->Fs->CreateMapping((unsigned long)Node->Handle, 0, 2, 0, 0, 0);
     if (Node->Mapping == -1)
         return;
-    Node->View = (void*)((uintptr_t)((unsigned int)(
-        Node->Fs->MapFileView((unsigned long)Node->Mapping, 4, 0, 0, 0))));
+    Node->View = (void*)Node->Fs->MapFileView((unsigned long)Node->Mapping, 4, 0, 0, 0);
 }
 
 // FUN_065f8360 (thiscall RET 4: Fs): +0x10 = Fs, AddRef when non-null; Handle = -1, Size = 0,
@@ -1266,8 +1265,7 @@ static int MapFileNode(FMappedFileNode* Node, const char* NodeName, unsigned lon
     Node->Mapping = Node->Fs->CreateMapping((unsigned long)Node->Handle, 0, 2, 0, 0, 0);
     if (Node->Mapping == -1)
         return -6;
-    Node->View = (void*)((uintptr_t)((unsigned int)(
-        Node->Fs->MapFileView((unsigned long)Node->Mapping, 4, 0, 0, 0))));
+    Node->View = (void*)Node->Fs->MapFileView((unsigned long)Node->Mapping, 4, 0, 0, 0);
     if (Node->View != nullptr)
         return 0;
     return -1;
@@ -4340,8 +4338,8 @@ static FIkListNode* AllocAimEvent(FDeformInstance* Instance, const unsigned char
 
     std::vector<int> Chain;
     unsigned char bSphereAxis = 0;
-    int Cursor = *(const int*)(Desc + 8);
-    if (Cursor != *(const int*)(Desc + 4))
+    int Cursor = (int)(reinterpret_cast<const FDeformAimDesc*>(Desc)->EndPart);
+    if (Cursor != (int)(reinterpret_cast<const FDeformAimDesc*>(Desc)->RootPart))
     {
         int Parent = 0;
         do
@@ -4352,7 +4350,7 @@ static FIkListNode* AllocAimEvent(FDeformInstance* Instance, const unsigned char
                 G_Animation->HasHandle((unsigned long)Cursor, &bBlocked);
                 if (bBlocked != 0)
                 {
-                    int WalkBack = *(const int*)(Desc + 8);
+                    int WalkBack = (int)(reinterpret_cast<const FDeformAimDesc*>(Desc)->EndPart);
                     while (WalkBack != Cursor)
                     {
                         G_Animation->HasAnyHandle((unsigned long)WalkBack);
@@ -4381,7 +4379,7 @@ static FIkListNode* AllocAimEvent(FDeformInstance* Instance, const unsigned char
                     bSphereAxis = 0;
             }
             Cursor = Parent;
-        } while (Parent != *(const int*)(Desc + 4));
+        } while (Parent != (int)(reinterpret_cast<const FDeformAimDesc*>(Desc)->RootPart));
     }
     const int Count = (int)(Chain.size());
     std::vector<int> JointIds(Chain.size());
@@ -4398,9 +4396,9 @@ static FIkListNode* AllocAimEvent(FDeformInstance* Instance, const unsigned char
     // 065f55c6..0601: operator new 0x44 (not cleared), then the inlined constructor -- +0x24,
     // +0x34 &= ~1, +0x20, the table 06601340 (installed by `new FIkEvent`), +0x3C = 0.
     FIkEvent* Event = new FIkEvent;
-    Event->TargetB = *(void* const*)(Desc + 0x14);
+    Event->TargetB = (void*)(reinterpret_cast<const FDeformAimDesc*>(Desc)->TargetOrient);
     Event->Flags34 = (unsigned char)(Event->Flags34 & 0xFE);
-    Event->TargetA = *(void* const*)(Desc + 0x10);
+    Event->TargetA = (void*)(reinterpret_cast<const FDeformAimDesc*>(Desc)->TargetPos);
     Event->Tick3C = 0;
     Node->Event = Event;
     Event->Owner = Node;
@@ -4409,16 +4407,16 @@ static FIkListNode* AllocAimEvent(FDeformInstance* Instance, const unsigned char
     Event->JointIds = (int*)new unsigned char[Count4];
     if (Count > 0)
         std::memcpy(Event->JointIds, &JointIds[0], Count4);
-    Event->Channels = (void**)new unsigned char[Count4];
+    Event->Channels = (void**)new unsigned char[(size_t)Count * sizeof(void*)]; // retail Count * 4
     Event->Quats = (float*)new unsigned char[(size_t)Count * 0x10];
-    Event->Flags28 = *(const unsigned long*)(Desc + 0x0C);
-    Event->StartJoint = *(const int*)(Desc + 4);
-    Event->EndJoint = *(const int*)(Desc + 8);
+    Event->Flags28 = reinterpret_cast<const FDeformAimDesc*>(Desc)->Flags;
+    Event->StartJoint = (int)(reinterpret_cast<const FDeformAimDesc*>(Desc)->RootPart);
+    Event->EndJoint = (int)(reinterpret_cast<const FDeformAimDesc*>(Desc)->EndPart);
     Event->BindMats = (float*)new unsigned char[(size_t)Count * 0x24];
     Event->LockBytes = new unsigned char[(size_t)Count];
     std::memset(Event->LockBytes, 0, (size_t)Count);
-    Event->Damp38 = *(const float*)(Desc + 0x18);
-    Event->Extra30 = *(const int*)(Desc + 0x1C);
+    Event->Damp38 = reinterpret_cast<const FDeformAimDesc*>(Desc)->Damping;
+    Event->Extra30 = reinterpret_cast<const FDeformAimDesc*>(Desc)->Field1C;
 
     if (!SetIkJointCount(Event, (unsigned int)Count))
     {
@@ -4428,7 +4426,7 @@ static FIkListNode* AllocAimEvent(FDeformInstance* Instance, const unsigned char
 
     unsigned long PlayBlob[7];
     PlayBlob[0] = 0;
-    PlayBlob[1] = (*(const unsigned long*)(Desc + 0x0C) >> 1) & 0x80u;
+    PlayBlob[1] = (reinterpret_cast<const FDeformAimDesc*>(Desc)->Flags >> 1) & 0x80u;
     const float One = 1.0f;
     std::memcpy(&PlayBlob[2], &One, sizeof(One));
     PlayBlob[3] = (unsigned long)((ptrdiff_t)PlayExtra);
@@ -4471,8 +4469,8 @@ static FIkListNode* AllocAimEvent(FDeformInstance* Instance, const unsigned char
         IkMathQuatToMatrix(LiveMat, JointQuat);
         std::memcpy(Event->BindMats + Index * 9, LiveMat, sizeof(LiveMat));
 
-        const int LockCount = *(const int*)(Desc + 0x1C);
-        const int* LockIds = (const int*)(Desc + 0x20);
+        const int LockCount = reinterpret_cast<const FDeformAimDesc*>(Desc)->Field1C;
+        const int* LockIds = (const int*)(Desc + sizeof(FDeformAimDesc)) /* retail +0x20 */;
         for (int Lock = 0; Lock < LockCount; ++Lock)
         {
             if (LockIds[Lock] == JointId)
@@ -4991,7 +4989,7 @@ static bool ConnectInstanceParts(FDeformInstance* Instance, int* Parts, void* Ar
     }
     Instance->PartArray = Array;
 
-    FDeformPartDesc* Descs = *(FDeformPartDesc**)(Parts + 1);
+    FDeformPartDesc* Descs = reinterpret_cast<FDeformPartTable*>(Parts)->Parts; // Parts[1]
     int PartIndex = 0;
     while (PartIndex < Instance->PartCount)
     {
@@ -5248,10 +5246,10 @@ struct FInnerIidEntry
 
 static const FInnerIidEntry G_InnerIidTable[] = {
     {G_IidDeformableShort, 0},
-    {G_IidEngineComponentShort, 4},
+    {G_IidEngineComponentShort, FlFacetOffset<FDeformableObject, IEngineComponent>()}, // 0x4
     {Iids::Deformable, 0},
-    {Iids::EngineComponent, 4},
-    {Iids::AggregateComponent, 4},
+    {Iids::EngineComponent, FlFacetOffset<FDeformableObject, IEngineComponent>()},
+    {Iids::AggregateComponent, FlFacetOffset<FDeformableObject, IEngineComponent>()},
     {nullptr, 0},
 };
 
@@ -6217,7 +6215,7 @@ static GENRESULT DACOM_API FactoryCreateInstance(FDeformableFactory* This, AGGDE
     // -> *Out = 0, 0xFFFFFFFD. operator new(0x18) (VC6 MSVCRT: null on failure, tested at
     // 065f2352) null -> *Out = 0, 0xFFFFFFFC. No test of This, Desc, Out or either name.
     FAggDesc18* Extended = (FAggDesc18*)Desc;
-    if (Extended->Size != 0x18 || std::strcmp(Extended->NameAt4, This->Name) != 0)
+    if (!FL_DESC_SIZE_IS(Extended->Size, decltype(*Extended), 0x18) || std::strcmp(Extended->NameAt4, This->Name) != 0)
     {
         *Out = nullptr;
         return GR_INTERFACE_UNSUPPORTED;

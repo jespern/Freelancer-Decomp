@@ -23,6 +23,15 @@
 // slots.
 namespace AlchemyImpl
 {
+    // Texture_.Frame[0] holds the frame's texture handle as raw dword bits (a token on LP64).
+    void* AlFrameTextureHandle(const float* Frame)
+    {
+        unsigned int Bits;
+        std::memcpy(&Bits, &Frame[0], sizeof(Bits));
+        return FL_U32_TO_PTR(void, Bits);
+    }
+
+
     namespace
     {
         I3DMathEngine* G_Perp3DMath = nullptr; // DAT_06257b38, shared by Perp's draw/fade calls.
@@ -1304,7 +1313,7 @@ namespace AlchemyImpl
 
         // node+0xbc: the first dword of the frame block FUN_06244f30 fills (Texture_.Frame[0]).
         void* FrameTexture = nullptr;
-        std::memcpy(&FrameTexture, &Texture_.Frame[0], sizeof(FrameTexture));
+        FrameTexture = AlFrameTextureHandle(Texture_.Frame);
         G_RenderPipeline->SetTextureStageTexture(0, FrameTexture);
 
         const float IdentityXform12[12] = {
@@ -2406,7 +2415,7 @@ namespace AlchemyImpl
             static_cast<double>(Six[4]) * Six[4] <= Epsilon &&
             static_cast<double>(Six[5]) * Six[5] <= Epsilon;
         FVector* const Axis = reinterpret_cast<FVector*>(
-            reinterpret_cast<unsigned char*>(InstanceListTail_) + 0x30);
+            reinterpret_cast<unsigned char*>(InstanceListTail_) + kPooledParticleTail);
         if (bParallel)
         {
             Axis->X = 0.0f;
@@ -2486,7 +2495,7 @@ namespace AlchemyImpl
         G_RenderPipeline->SetRenderState(D3DRS_DESTBLEND, static_cast<int>(Descriptor_->BlendInfo[1]));
 
         void* FrameTexture = nullptr;
-        std::memcpy(&FrameTexture, &Texture_.Frame[0], sizeof(FrameTexture));
+        FrameTexture = AlFrameTextureHandle(Texture_.Frame);
         G_RenderPipeline->SetTextureStageTexture(0, FrameTexture);
 
         ICamera* const Camera = reinterpret_cast<ICamera*>(static_cast<std::uintptr_t>(G_DrawCookie));
@@ -2564,7 +2573,7 @@ namespace AlchemyImpl
             if (UnroundedHalfSize <= TinyLength || Alpha <= TinyLength)
                 continue;
 
-            float* const Axis = reinterpret_cast<float*>(reinterpret_cast<unsigned char*>(Particle) + 0x30);
+            float* const Axis = reinterpret_cast<float*>(reinterpret_cast<unsigned char*>(Particle) + kPooledParticleTail);
             FVector Velocity;
             std::memcpy(&Velocity, &Particle->VelX, sizeof(Velocity));
             FVector PreviousAxis;
@@ -3258,7 +3267,7 @@ namespace AlchemyImpl
         G_RenderPipeline->SetRenderState(D3DRS_SRCBLEND, static_cast<int>(Descriptor_->BlendInfo[0]));
         G_RenderPipeline->SetRenderState(D3DRS_DESTBLEND, static_cast<int>(Descriptor_->BlendInfo[1]));
         void* FrameTexture;
-        std::memcpy(&FrameTexture, Texture_.Frame, sizeof(FrameTexture));
+        FrameTexture = AlFrameTextureHandle(Texture_.Frame);
         G_RenderPipeline->SetTextureStageTexture(0, FrameTexture);
         ICamera* const Camera = reinterpret_cast<ICamera*>(static_cast<std::uintptr_t>(G_DrawCookie));
         float ViewWorld[12];
@@ -3409,7 +3418,7 @@ namespace AlchemyImpl
         AppendParticleNode(&InstanceListHead_, &InstanceListTail_, Particle);
 
         float* LastViewPos =
-            reinterpret_cast<float*>(reinterpret_cast<unsigned char*>(InstanceListTail_) + 0x30);
+            reinterpret_cast<float*>(reinterpret_cast<unsigned char*>(InstanceListTail_) + kPooledParticleTail);
         CameraSpacePoint(ViewXform_, Six, LastViewPos);
         return GR_OK;
     }
@@ -3566,7 +3575,7 @@ namespace AlchemyImpl
             for (; Particle != nullptr; Particle = Particle->Next)
             {
                 float* LastView =
-                    reinterpret_cast<float*>(reinterpret_cast<unsigned char*>(Particle) + 0x30);
+                    reinterpret_cast<float*>(reinterpret_cast<unsigned char*>(Particle) + kPooledParticleTail);
                 float C[3];
                 if (G_Dust3DMath == nullptr)
                     G_Dust3DMath = Create3DMath();
@@ -3821,7 +3830,7 @@ namespace AlchemyImpl
             Particle->Age = Age;
             Particle->Duration = Duration;
             Particle->InvDuration = 1.0f / Duration;
-            *reinterpret_cast<unsigned long*>(reinterpret_cast<unsigned char*>(Particle) + 0x30) = 0;
+            *reinterpret_cast<void**>(reinterpret_cast<unsigned char*>(Particle) + kPooledParticleTail) = nullptr; // the tail COM slot
             ++LiveInstanceCount_;
         }
         PrependParticleNode(&InstanceListHead_, &InstanceListTail_, Particle);
@@ -4979,7 +4988,7 @@ namespace AlchemyImpl
             Particle->Duration = Duration;
             Particle->Age = Age;
             AssignComPtr(reinterpret_cast<IDAComponent**>(
-                             reinterpret_cast<unsigned char*>(Particle) + 0x30),
+                             reinterpret_cast<unsigned char*>(Particle) + kPooledParticleTail),
                          LocalMesh);
             Particle->InvDuration = 1.0f / Particle->Duration;
         }
@@ -5057,7 +5066,7 @@ namespace AlchemyImpl
                 Particle->PosY += Step[1];
                 Particle->PosZ += Step[2];
                 IFxMesh* const ParticleMesh = *reinterpret_cast<IFxMesh**>(
-                    reinterpret_cast<unsigned char*>(Particle) + 0x30);
+                    reinterpret_cast<unsigned char*>(Particle) + kPooledParticleTail);
                 ParticleMesh->Slot5(reinterpret_cast<void*>(static_cast<std::uintptr_t>(DtBits)));
                 Particle = Particle->Next;
             }
@@ -5107,7 +5116,7 @@ namespace AlchemyImpl
         while (Item != nullptr)
         {
             IFxMesh* const Mesh = *reinterpret_cast<IFxMesh**>(
-                reinterpret_cast<unsigned char*>(Item) + 0x30);
+                reinterpret_cast<unsigned char*>(Item) + kPooledParticleTail);
             if (Mesh != nullptr)
             {
                 I3DMathEngine* const Math = Acquire3DMath();
@@ -5166,7 +5175,7 @@ namespace AlchemyImpl
         while (Item != nullptr)
         {
             IFxMesh* const Mesh = *reinterpret_cast<IFxMesh**>(
-                reinterpret_cast<unsigned char*>(Item) + 0x30);
+                reinterpret_cast<unsigned char*>(Item) + kPooledParticleTail);
             Mesh->Slot6(reinterpret_cast<void*>(static_cast<std::uintptr_t>(G_DrawCookie)));
             Item = Item->Next;
         }

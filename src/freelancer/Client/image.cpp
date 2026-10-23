@@ -109,7 +109,7 @@ namespace
         int Open(char const* Path, unsigned long Field30)
         {
             FFileSystemDesc Desc;
-            memset(&Desc, 0, 0x34);
+            memset(&Desc, 0, sizeof(Desc)); // retail 0x34
             Desc.Size = 0x34;
             Desc.ComponentName = "FileSystem";
             Desc.Path = Path;
@@ -125,7 +125,7 @@ namespace
             Mapping = static_cast<unsigned long>(Fs->CreateMapping(Handle, 0, 2, 0, 0, 0));
             if (Mapping == 0xffffffffu)
                 return -6;
-            View = static_cast<unsigned long>(Fs->MapFileView(Mapping, 4, 0, 0, 0));
+            View = Fs->MapFileView(Mapping, 4, 0, 0, 0);
             if (View != 0)
                 return 0;
             return -1;
@@ -140,7 +140,7 @@ namespace
                 {
                     if (View != 0)
                     {
-                        Fs->UnmapFileView(View); // +0x44
+                        Fs->UnmapFileView((unsigned long)View); // +0x44
                         View = 0;
                     }
                     Fs->CloseFile(Mapping); // +0x10
@@ -158,7 +158,7 @@ namespace
         unsigned long Handle;  // +0x00
         unsigned long Size;    // +0x04
         unsigned long Mapping; // +0x08
-        unsigned long View;    // +0x0c
+        intptr_t View;         // +0x0c (a pointer)
         IFileSystem* Fs;       // +0x10
 
     private:
@@ -347,7 +347,7 @@ bool Image::LoadTga(char const* Path)
     // 0x005654bf..0x00565536: a "FileSystem" (desc size 0x34) rooted at TgaPath under
     // DALib::Data.
     FFileSystemDesc Desc;
-    memset(&Desc, 0, 0x34);
+    memset(&Desc, 0, sizeof(Desc)); // retail 0x34
     Desc.Size = 0x34;
     Desc.ComponentName = "FileSystem";
     Desc.Path = GetIntroConfigState()->TgaPath.Text;
@@ -375,7 +375,7 @@ bool Image::LoadTga(char const* Path)
         if (Mapped.Open(Path, 0xffffffffu) >= 0)
         {
             unsigned char const* const Header =
-                reinterpret_cast<unsigned char const*>(static_cast<uintptr_t>(Mapped.View));
+                reinterpret_cast<unsigned char const*>(Mapped.View);
 
             // 0x0056558b..0x005655ef: the header's format, seeded with FUN_005b7010(0).
             unsigned long ImageFormat = static_cast<unsigned long>(PixelFormatFromD3D(0));

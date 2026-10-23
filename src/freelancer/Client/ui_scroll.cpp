@@ -508,7 +508,7 @@ void UiScroll::NotifyParent()
     // (0x3e, this, ftol(value)).
     if (Parent == nullptr)
         return;
-    Parent->Slot23(0xf005u, static_cast<unsigned>(reinterpret_cast<uintptr_t>(this)), 0u);
+    Parent->Slot23(0xf005u, reinterpret_cast<uintptr_t>(this), 0u);
     WinControl* const Owner = Parent->AsWinControl();
     if (Owner == nullptr)
         return;
@@ -1095,6 +1095,25 @@ void UiCycle::Draw()
     Relayout();
     NotifyParent();
     RepeatTimer_ = kCycleRepeatInterval;
+}
+
+void UiScroll::WheelStep(int Wheel)
+{
+    // WheelScroll sets +0x3b8 = (wheel < 0), +0x3bc = -1 and calls LAB_00597560 twice.
+    for (int Step = 0; Step < 2; ++Step)
+    {
+        if (Wheel < 0)
+            Value_ = static_cast<float>(static_cast<double>(Step_) + Value_);
+        else
+            Value_ = static_cast<float>(static_cast<double>(Value_) - Step_);
+        if (bStepMode_)
+            RangeMax_ = static_cast<float>(static_cast<double>(RangeMax_) - 1.0);
+        ClampValues();
+        if (bStepMode_)
+            RangeMax_ = static_cast<float>(static_cast<double>(RangeMax_) + 1.0);
+        Relayout();
+        NotifyParent();
+    }
 }
 
 bool UiCycle::MouseEvent(FWin3DMouseEvent const* Event)

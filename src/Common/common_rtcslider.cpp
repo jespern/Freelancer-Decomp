@@ -5,6 +5,7 @@
 // Author: Giperion.
 
 #include "common_newchar.h"
+#include "hd_plugins.h"
 
 #include "common_ini.h"
 
@@ -19,6 +20,14 @@ namespace
 {
     const char kRtcSliderSource[] = "E:\\FL\\Scratch\\Source\\Common\\RtcSlider.cpp";
     const float kDefaultFpsHigh = 200.0f;
+
+    // HD: flplusplus max_fps replaces the 200 of get_fps_cap / get_default_fps_cap (Common
+    // 0x0627a74c, 0x0627a892).
+    float DefaultFpsHigh()
+    {
+        static const float Fps = HdPlugins::FlppFloat("max_fps", kDefaultFpsHigh);
+        return Fps > 0.0f ? Fps : kDefaultFpsHigh;
+    }
     const float kFpsCap30 = 30.0f;
     const float kFpsCap20 = 20.0f;
 
@@ -192,12 +201,12 @@ float __cdecl RtcSlider::get_fps_cap()
     }
     if (SettingIsEnabled(*Fps30))
         return kFpsCap30;
-    return kDefaultFpsHigh;
+    return DefaultFpsHigh();
 }
 
 float __cdecl RtcSlider::get_default_fps_cap()
 {
-    return kDefaultFpsHigh;
+    return DefaultFpsHigh();
 }
 
 bool __cdecl RtcSlider::validate_setting(char const* Name, char const* FileName)

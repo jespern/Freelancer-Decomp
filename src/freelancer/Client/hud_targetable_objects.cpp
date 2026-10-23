@@ -5,6 +5,8 @@
 // Author: Giperion.
 
 #include "hud_targetable_objects.h"
+#include "hd_client.h"
+#include "hd_plugins.h"
 
 #include "best_path.h"        // BestPathGetWaypointCount / BestPathGetWaypoint / resolvers
 #include "cargo_bar_control.h" // ToolTipHoverInit
@@ -66,6 +68,13 @@
 #include <string>
 #include <tuple>
 #include <utility>
+
+namespace
+{
+    // HD: FLSharp more_cursor_colors -- the object the aim point last settled on (the ray
+    // object's client object or the nearest lead marker's), cleared before each update.
+    IObjRW const* G_LastAimObject = nullptr;
+}
 
 namespace
 {
@@ -198,16 +207,21 @@ HudTargetableObjects::HudTargetableObjects(INI_Reader& /*Reader*/)
     ReticleRangeText->SetProperty(0x33, reinterpret_cast<uintptr_t>(White), 1);
 
     // 0x004e98d4..0x004e9bca: the four alert icons.
-    float const MissilePos[3] = {0.126f, 0.213f, -0.6f};     // 0x3e010625 0x3e5a1cac 0xbf19999a
+    // HD: HudShift.ini bases of the alert positions.
+    float const MissilePos[3] = {HdHudShiftBase(0x004e9908, 0.126f), HdHudShiftBase(0x004e993b, 0.213f),
+                                 -0.6f};     // 0x3e010625 0x3e5a1cac 0xbf19999a
     MissileAlert = CreateAlert(this, "MissileAlert", "Interface\\hud\\HUD_missilealert.3db",
                                MissilePos, 0x4d0);
-    float const TrailPos[3] = {-0.126f, 0.213f, -0.6f};
+    float const TrailPos[3] = {HdHudShiftBase(0x004e9a02, -0.126f), HdHudShiftBase(0x004e9a0a, 0.213f),
+                               -0.6f};
     TrailAlert = CreateAlert(this, "TrailAlert", "Interface\\hud\\HUD_trailalert.3db", TrailPos,
                              0x616);
-    float const RadiationPos[3] = {0.126f, 0.177f, -0.6f};   // 0x3e353f7d
+    float const RadiationPos[3] = {HdHudShiftBase(0x004e9ace, 0.126f), HdHudShiftBase(0x004e9ad6, 0.177f),
+                                   -0.6f};   // 0x3e353f7d
     RadiationAlert = CreateAlert(this, "RadiationAlert", "Interface\\hud\\HUD_radiationalert.3db",
                                  RadiationPos, 0x617);
-    float const LagPos[3] = {-0.126f, 0.177f, -0.6f};
+    float const LagPos[3] = {HdHudShiftBase(0x004e9b70, -0.126f), HdHudShiftBase(0x004e9b78, 0.177f),
+                             -0.6f};
     LagAlert = CreateAlert(this, "LagAlert", "Interface\\multiplayer\\MULTI_lag.3db", LagPos, 0);
 
     // 0x004e9bd0..0x004e9ca0: FUN_0059ec80(path, 0, 1), in this order.
@@ -1149,9 +1163,13 @@ bool HudTargetableObjects::PickUnderCursor(bool bQuiet)
         if (Dz * Dz + Dy * Dy + Dx * Dx < static_cast<double>(HostileLimit))
         {
             PickId = Hostile->get_id();
-            FDUMP(0x100002, "%s(%d) : *** WARNING: %s",
-                  "E:\\FL\\Scratch\\Source\\Client\\Space\\HUD_Targetable_Objects.cpp", 0x9ae,
-                  "Used Hostile Pick Assistance!");
+            // HD: jflp drops this warning (0x004ede00 `jmp +0x26`). Its jump also skips the
+            // PickId store above, which turns the assist off; the port keeps the assist.
+            static const bool bJflpQuiet = HdPlugins::Enabled("jflp.dll");
+            if (!bJflpQuiet)
+                FDUMP(0x100002, "%s(%d) : *** WARNING: %s",
+                      "E:\\FL\\Scratch\\Source\\Client\\Space\\HUD_Targetable_Objects.cpp", 0x9ae,
+                      "Used Hostile Pick Assistance!");
         }
     }
     return PickId != 0;
@@ -1505,6 +1523,7 @@ void HudTargetableObjects::Render(FSpaceCamera* /*Camera*/, float DeltaSeconds)
     }
 
     // 0x004ec5ec..0x004ec5fc.
+    G_LastAimObject = nullptr; // HD: FLSharp more_cursor_colors (0x004ec5ee)
     UpdateAimPoint();        // FUN_004f2220
     UpdateMissileAlert();    // FUN_004f18d0
     UpdateTrailAlert();      // FUN_004f1800
@@ -1545,6 +1564,7 @@ void HudTargetableObjects::Render(FSpaceCamera* /*Camera*/, float DeltaSeconds)
     Win3D* const Hover = Win3DGetHover();   // FUN_0059daa0, [ESP+0x14]
     int Attitude = 0;                       // EDI
     bool bUseAttitude = false;
+    IObjRW* Highlighted = Player;           // ESI: the player, or the bracketed contact
     if (Player == nullptr || Hover != nullptr)
     {
         if (Hover != nullptr)
@@ -1616,6 +1636,7 @@ void HudTargetableObjects::Render(FSpaceCamera* /*Camera*/, float DeltaSeconds)
             IObjRW* const PlayerOrNull =
                 (static_cast<FClientGameobj*>(Player)->ManagerKind == 1) ? Player : nullptr;
             Attitude = GetAttitudeClass(PlayerOrNull, Contact);   // FUN_0045a490
+            Highlighted = Contact;
             CObject const* const Target = Contact->cobject();
             bool const bBlocked =
                 Target != nullptr && (static_cast<unsigned>(Target->ObjectClass) & 0x103u) == 0x103u &&
@@ -1655,6 +1676,22 @@ void HudTargetableObjects::Render(FSpaceCamera* /*Camera*/, float DeltaSeconds)
                 MouseSetCursor("fire_neutral", false);
             else if (FireAttitude == 1)
                 MouseSetCursor("fire_friendly", false);
+        }
+        // HD: FLSharp more_cursor_colors — over a player who asked to trade, or one of the
+        // player's group, the cursor takes the trade / group colour (0x004ec914, 0x004ec953).
+        static const bool bCursorColours = HdPlugins::FlSharp("more_cursor_colors");
+        if (bCursorColours && static_cast<FClientGameobj*>(Player)->ManagerKind == 1)
+        {
+            IObjRW const* const Aimed =
+                (Highlighted != Player && bFireAttitude == 0) ? Highlighted : G_LastAimObject;
+            if (Aimed != nullptr && Aimed->is_player())
+            {
+                if ((static_cast<FClientShipGameobj const*>(static_cast<IObjInspectImpl const*>(Aimed))
+                         ->Field_0x18c & 4u) != 0)
+                    MouseApplyTargetCursorTint(2);
+                else if (HdSameGroup(Aimed, Player))
+                    MouseApplyTargetCursorTint(1);
+            }
         }
     }
     else if (Player == nullptr && Hover == nullptr)
@@ -2829,6 +2866,7 @@ void HudTargetableObjects::DrawOnScreenTarget(IObjRW* Object, FHudContactRecord 
         Simple = nullptr;
     float Health = 0.0f;           // [ESP+0x4c]
     float ShieldFraction = 0.0f;   // [ESP+0x2c]
+    float ShieldCurrent = 0.0f;    // [ESP+0x70], kept for HD's numeric.dll
     if (Simple != nullptr)
     {
         Health = Simple->get_relative_health();
@@ -2841,6 +2879,7 @@ void HudTargetableObjects::DrawOnScreenTarget(IObjRW* Object, FHudContactRecord 
             if (ShieldMax > 0.0f)
                 ShieldFraction = static_cast<float>(static_cast<double>(ShieldCur) /
                                                     static_cast<double>(ShieldMax));
+            ShieldCurrent = ShieldCur;
         }
     }
 
@@ -2937,6 +2976,48 @@ void HudTargetableObjects::DrawOnScreenTarget(IObjRW* Object, FHudContactRecord 
     }
     DrawRangeLabel(&G_HudZeroVector, Radius, Record, static_cast<int>(Record->Distance),
                    &RangePoint);
+
+    // HD: numeric.dll prints the hit points under the bars with the same text control: the
+    // hull (times the armor's hit_pts_scale) 0.05 left of the range and 0.1 down, the shield
+    // 0.1 right of that (0x004ef771 copies them, 0x004efd8e draws).
+    if (HdPlugins::Enabled("numeric.dll"))
+    {
+        int Hull = 0;
+        int Shield = 0;
+        if (Simple != nullptr)
+        {
+            if (bHealthBar && (static_cast<unsigned>(Simple->ObjectClass) & 0x103u) == 0x103u)
+            {
+                float HitPts = Simple->HitPts;
+                CEquip* const Armor = const_cast<CEqObj*>(static_cast<CEqObj const*>(Simple))
+                                          ->EquipManager.FindFirst(0x1000000u);
+                if (Armor != nullptr)
+                    HitPts *= static_cast<Archetype::Armor const*>(Armor->Arch)->HitPtsScale;
+                Hull = static_cast<int>(HitPts);
+            }
+            if (ShieldFraction != 0.0f)
+                Shield = static_cast<int>(ShieldCurrent);
+        }
+        Vector NumberPoint = RangePoint;
+        NumberPoint.y = static_cast<float>(static_cast<double>(NumberPoint.y) - 0.1);
+        NumberPoint.x = NumberPoint.x - 0.05f;
+        char Number[16];
+        if (Hull != 0)
+        {
+            sprintf(Number, "%d", Hull);
+            static_cast<NnTextControl*>(ReticleRangeText)->SetNumberText(Number);
+            ReticleRangeText->SetProperty(5, reinterpret_cast<uintptr_t>(&NumberPoint), 0);
+            ReticleRangeText->Draw();
+        }
+        NumberPoint.x = static_cast<float>(static_cast<double>(NumberPoint.x) + 0.1);
+        if (Shield != 0)
+        {
+            sprintf(Number, "%d", Shield);
+            static_cast<NnTextControl*>(ReticleRangeText)->SetNumberText(Number);
+            ReticleRangeText->SetProperty(5, reinterpret_cast<uintptr_t>(&NumberPoint), 0);
+            ReticleRangeText->Draw();
+        }
+    }
 
     // 0x004efd93..0x004efddf: the ship behind the object (class & 0x503) and whether a player
     // owns it (CSimple +0xb4).
@@ -3825,7 +3906,10 @@ void HudTargetableObjects::UpdateAimPoint()
             bRayUsed = true;
             FClientGameobj* const Gameobj = ClientObjDb_FindObject(Simple->Id, 0);   // FUN_005416c0
             if (Gameobj != nullptr)
+            {
+                G_LastAimObject = Gameobj; // HD: FLSharp more_cursor_colors (0x004f22d6)
                 FireAttitude = GetAttitudeClass(Player, Gameobj);   // FUN_0045a490
+            }
         }
     }
 
@@ -3882,6 +3966,7 @@ void HudTargetableObjects::UpdateAimPoint()
         BestScreenDistSq = static_cast<float>(ScreenDistSq);
         BestDepthSq = static_cast<float>(DepthSq);
         Best = &Marker;
+        G_LastAimObject = Object; // HD: FLSharp more_cursor_colors (0x004f245f)
         BestAttitude = GetAttitudeClass(Player, Object);   // FUN_0045a490
     }
 

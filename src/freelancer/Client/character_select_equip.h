@@ -12,6 +12,7 @@
 // (FUN_0054b520) reads the same globals when building CShip::CreateParms.
 
 #include "common_archetype.h"
+#include "common_cobject.h"
 #include "common_goods.h"
 #include "server_characterset.h"
 
@@ -80,9 +81,9 @@ void SetPlayerLastPositionRetail(float const* Position);      // FUN_004c4a30
 float const* GetPlayerLastOrientationRetail();                // FUN_004c4a50
 void SetPlayerLastOrientationRetail(float const* Orientation); // FUN_004c4a60
 
-// Zero-init a CSimple::CreateParms-sized scratch (FUN_0052e0a0). Prefer CShip::CreateParms
-// default members for new code; kept for listing parity with FUN_0054b520.
-void InitCreateParmsScratchRetail(void* ParmsBytes);
+// FUN_0052e0a0: the exe's CSimple::CreateParms default constructor, run over the CSimple
+// part of a derived CreateParms. Kept for listing parity with its callers.
+void InitCreateParmsScratchRetail(CSimple::CreateParms* Parms);
 
 // Apply CharacterSelect response fields (FUN_005ab250 extract tail) from one record
 // of the character list (src/include/server_characterset.h). Returns false if

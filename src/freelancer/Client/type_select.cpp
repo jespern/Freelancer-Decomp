@@ -14,6 +14,7 @@
 
 #include "common_errorhandler.h" // ErrorHandler::log_last_error, SeverityWarning
 #include "common_text.h"  // RenderDisplayList
+#include "hd_plugins.h"
 
 #include <mmsystem.h>
 #include <string.h>
@@ -409,7 +410,7 @@ void TypeSelect::Draw()
     Win3DDrawChildren(this);
 }
 
-bool TypeSelect::Slot23(unsigned Msg, unsigned A, unsigned /*B*/)
+bool TypeSelect::Slot23(unsigned Msg, uintptr_t A, uintptr_t /*B*/)
 {
     // FUN_00566bd0.
     if (Msg != 0x3004)
@@ -436,7 +437,8 @@ bool TypeSelect::Slot23(unsigned Msg, unsigned A, unsigned /*B*/)
         // 0x00566c25: Multiplayer. Until it has been accepted once (DAT_0067c210), the online-
         // play notice (misctextinfo2 0x601eb, style 0xc9b7, no server step, no tool tips);
         // declined -> 0x00566ee5: return true, nothing started, the latch left clear.
-        if (G_bMultiplayerNoticeAccepted == 0)
+        // HD: skip_esrb_notice — never shown (0x00566c2b JNE -> JMP).
+        if (G_bMultiplayerNoticeAccepted == 0 && !HdPlugins::Feature("skip_esrb_notice"))
         {
             if (!NnPromptRunYesNo(0x601eb, 0xc9b7, false, 0, 0)) // FUN_004740f0
                 return true;

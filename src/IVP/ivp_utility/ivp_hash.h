@@ -29,7 +29,7 @@ class IVP_Hash
 {
 public:
     // 06356a40 (formerly extern "C" FUN_06356a40).
-    IVP_Hash(int32_t Size, int32_t KeySize, unsigned NotFoundValue);
+    IVP_Hash(int32_t Size, int32_t KeySize, uintptr_t NotFoundValue);
 
     // 06356a70 (formerly extern "C" FUN_06356a70).
     ~IVP_Hash();
@@ -38,17 +38,18 @@ public:
     IVP_Hash& operator=(const IVP_Hash&) = delete;
 
     // 06356ac0 (formerly extern "C" FUN_06356ac0): the value stored under
-    // Key, or the not-found value.
-    unsigned Find(const void* Key);
+    // Key, or the not-found value. Values are pointer-wide in the port (retail dwords): the
+    // tetra builder stores edge pointers.
+    uintptr_t Find(const void* Key);
 
     // 06356b40 (formerly extern "C" FUN_06356b40): inserts Key -> Value (no
     // duplicate check).
-    void Add(const void* Key, unsigned Value);
+    void Add(const void* Key, uintptr_t Value);
 
 private:
     int32_t KeyLength;      // +0x00 bytes hashed/compared per key (signed loop tests)
     int32_t BucketCount;    // +0x04 divisor for `hash % BucketCount` (unsigned DIV)
-    unsigned DefaultValue;  // +0x08 returned by Find on a miss
+    uintptr_t DefaultValue; // +0x08 returned by Find on a miss
     IVP_Hash_Elem** Buckets; // +0x0c chain heads
 };
 static_assert(sizeof(IVP_Hash) == 0x10, "IVP_Hash is 0x10 bytes");

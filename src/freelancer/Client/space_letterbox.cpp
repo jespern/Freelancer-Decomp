@@ -15,6 +15,7 @@
 #include "room_camera.h"
 #include "space_camera.h"
 #include "widescreen.h"   // port-only Hor+ (FREELANCER_WIDESCREEN_SUPPORT)
+#include "hd_plugins.h"
 
 #include "common_text.h"
 
@@ -141,8 +142,14 @@ int GetLetterboxBarHeight(float Amount)
     // x87 stack -- FILD, FDIV, FSUB 1.85f, FMUL Amount, FADD, FDIVP, FSUBR, FMUL/FADD 0.5
     // (double 0x005c75e8) -- so nothing is rounded to float on the way; doubles here.
     const double SurfaceAspect = static_cast<double>(Width) / static_cast<double>(Height);
+    // HD: jflp's Resolution() rewrites .rdata 0x005c9020 to (width / height) * 1.39 (1.85 over
+    // 4:3), so the bars keep retail's vertical framing on a wider surface.
+    static const bool bJflpCinemaRatio = HdPlugins::Enabled("jflp.dll");
+    float CinemaAspect = kCinemaAspect;
+    if (bJflpCinemaRatio && Height > 0)
+        CinemaAspect = (static_cast<float>(Width) / static_cast<float>(Height)) * 1.39f;
     const double Divisor =
-        (static_cast<double>(kCinemaAspect) - SurfaceAspect) * Amount + SurfaceAspect;
+        (static_cast<double>(CinemaAspect) - SurfaceAspect) * Amount + SurfaceAspect;
     const double Bars =
         (static_cast<double>(Height) - static_cast<double>(Width) / Divisor) * 0.5 + 0.5;
 

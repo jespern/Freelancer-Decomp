@@ -190,6 +190,7 @@ namespace
 // disconnect check, the Win3D roots, the local server and the state machine.
 void TickClientFrame(double DeltaSeconds)
 {
+    FlScriptRunDeferred(); // port: input-script kill: steps, outside every update / draw walk
     // Port-only QPC diagnostics requested by Giperion; CLIENT-BETA-LABEL.
     FClientTickProfileFrame ProfileFrame;
     // 0x005b289a..0x005b28b3: Timing::UpdateGlobalTime(dt) unless FUN_0042d740.

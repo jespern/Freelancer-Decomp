@@ -1295,7 +1295,8 @@ namespace
         FNebulaCloudsListNode* const Sentinel = Nebula->Clouds.Sentinel;
         if (Sentinel == nullptr || Sentinel->Next == Sentinel || Sentinel->Next->Clouds == nullptr)
             return;
-        unsigned char const* const C = Sentinel->Next->Clouds->Raw;
+        // FRaw's operator+ takes retail offsets (cli_nebula.h); these are all float fields.
+        FNebulaClouds::FRaw& C = Sentinel->Next->Clouds->Raw;
         float Value = 0.0f;
         memcpy(&Value, C + 0xa8, sizeof(float));
         if (Value > 1.0f)
@@ -2548,7 +2549,8 @@ namespace
     void ReadLightningSource(FNebulaEffect const* Nebula, FNebulaVolumeSettings const& S,
                              FLightningSource* Out)
     {
-        unsigned char const* const B = reinterpret_cast<unsigned char const*>(Nebula);
+        // Retail offsets through FNebulaBytes (cli_nebula.h): the object's own layout differs on LP64.
+        FNebulaBytes const B{const_cast<FNebulaEffect*>(Nebula)};
         Out->Gap = 0.0;
         Out->Duration = 0.0;
         Out->Intensity = 1.0f;
@@ -2556,7 +2558,7 @@ namespace
         FNebulaCloudsListNode* const Sentinel = Nebula->Clouds.Sentinel;
         if (Sentinel != nullptr && Sentinel->Next != Sentinel && Sentinel->Next->Clouds != nullptr)
         {
-            unsigned char const* const C = Sentinel->Next->Clouds->Raw;
+            FNebulaClouds::FRaw& C = Sentinel->Next->Clouds->Raw;
             float Gap = 0.0f;
             float Duration = 0.0f;
             float Intensity = 0.0f;
@@ -2948,7 +2950,8 @@ namespace
     {
         if (Nebula == nullptr)
             return nullptr;
-        unsigned char const* const B = reinterpret_cast<unsigned char const*>(Nebula);
+        // Retail offsets through FNebulaBytes (cli_nebula.h): the object's own layout differs on LP64.
+        FNebulaBytes const B{const_cast<FNebulaEffect*>(Nebula)};
         FGameLight* Light = nullptr;
         float Duration = 0.0f;
         memcpy(&Light, B + 0x270, sizeof(Light));

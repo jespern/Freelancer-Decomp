@@ -136,7 +136,7 @@ void FaceIdea::SetWatchObject(void const* Object2)
     // adjustment, identical to MoveIdea::SetWatchObject's.
     TargetKind = 1;
     Watcher.set(reinterpret_cast<Watchable const*>(
-        static_cast<unsigned char const*>(Object2) + 8));
+        static_cast<unsigned char const*>(Object2) + FlWatchableOffset()));
 }
 
 // FUN_062d7560 (item 1607), Common.dll.txt 219311-219320, 10 instructions.
@@ -309,7 +309,6 @@ int FaceIdea::Update(float /*DeltaTime*/)
     // FaceIdea member (it was the raw-offset free function SteeringTaskSmall_Update).
     // Frame: S = ESP after SUB 0x22c / PUSH EBX,EBP,ESI,EDI; SteerVector [S+0x10] is
     // zeroed at entry, WorkingFrame is [S+0x50].
-    unsigned char* const B = reinterpret_cast<unsigned char*>(this);
 
     // 062d68ba-062d68d2: no Object -> 3.
     if (Object == nullptr)
@@ -395,7 +394,7 @@ int FaceIdea::Update(float /*DeltaTime*/)
         // subtraction is the FSUB against ESI+0xc/+0x10/+0x14 with
         // ESI == Sys+0x14fc, i.e. Sys+0x1508 == CachedIfacePosition.
         Vector TargetPos{};
-        GetIfacePositionOrZero(&TargetPos, ObjRwFromWatchable(*reinterpret_cast<void* const*>(B + 0x14)));
+        GetIfacePositionOrZero(&TargetPos, ObjRwFromWatchable(const_cast<Watchable*>(this->Watcher.target())));
         Vector const RelDir = Sub(TargetPos, CachedIfacePosition(Sys));
 
         Matrix* const Reference = IfaceOrientation(Sys);
@@ -418,7 +417,7 @@ int FaceIdea::Update(float /*DeltaTime*/)
 
     case 1:
     {
-        void* const Watcher = *reinterpret_cast<void* const*>(B + 0x14);
+        void* const Watcher = const_cast<Watchable*>(this->Watcher.target());
         if (Watcher == nullptr)
             return 2;
         IObjRW* const Adjusted = ObjRwFromWatchable(Watcher);
@@ -529,7 +528,7 @@ int FaceIdea::Update(float /*DeltaTime*/)
         //   this->0x64 != 0        : BuildOrientationBasis(.., &UpHintTriple)
         //   flag 0, gate TRUE      : SteeringFrameFromRelativeDir(.., ShipUp)
         //   flag 0, gate FALSE     : BuildOrientationBasis(.., nullptr)
-        bool const UseRawUpHint = *reinterpret_cast<unsigned char const*>(B + 0x64) != 0;
+        bool const UseRawUpHint = this->Field64 != 0;
         bool Gate = false;
         if (!UseRawUpHint)
         {
@@ -541,16 +540,16 @@ int FaceIdea::Update(float /*DeltaTime*/)
         // Common to all three paths: refresh the cache, then
         // Delta = FallbackTargetA(this->0x1c..0x24) - Sys->CachedIfacePosition.
         RefreshCachedIfacePosition(Sys);
-        Vector const RelDir = Sub(*reinterpret_cast<Vector const*>(B + 0x1c), CachedIfacePosition(Sys));
+        Vector const RelDir = Sub(this->Position1c, CachedIfacePosition(Sys));
 
         Matrix* const Reference = IfaceOrientation(Sys);
         if (UseRawUpHint)
         {
             // The three fields really are 0xC apart, not packed. They are read with three
             // separate FLDs (062d6c5e/062d6c68/062d6c75).
-            Vector const UpHint{ *reinterpret_cast<float const*>(B + 0x6c),
-                                  *reinterpret_cast<float const*>(B + 0x78),
-                                  *reinterpret_cast<float const*>(B + 0x84) };
+            Vector const UpHint{ *reinterpret_cast<float const*>(this->Opaque65 + 7),
+                                  *reinterpret_cast<float const*>(this->Opaque65 + 19),
+                                  *reinterpret_cast<float const*>(this->Opaque65 + 31) };
             BuildOrientationBasis(WorkingFrame, *Reference, RelDir, &UpHint);
         }
         else if (Gate)
@@ -603,7 +602,7 @@ int FaceIdea::Update(float /*DeltaTime*/)
 
     case 4:
         // Raw 9-float frame, copied verbatim (no orientation rebuild at all).
-        WorkingFrame = *reinterpret_cast<Matrix const*>(B + 0x34);
+        WorkingFrame = *reinterpret_cast<Matrix const*>(this->ZeroBlock34);
         break;
 
     default:
@@ -871,8 +870,8 @@ int FaceIdea::Update(float /*DeltaTime*/)
     // velocity magnitude (GetIfaceVectorMagnitude, item 1773 -- vtable slot 4)
     // must exceed 1.0 (DAT_06399410, bytes 00 00 00 00 00 00 f0 3f == 1.0
     // double; `TEST AH,0x41 / JNZ` branches away on below-or-equal).
-    IObjInspect const* const BoundObject = static_cast<IObjInspect const*>(*reinterpret_cast<void* const*>(B + 0x4));
-    IObjRW* const LeadNode = ObjRwFromWatchable(*reinterpret_cast<void* const*>(B + 0x14));
+    IObjInspect const* const BoundObject = static_cast<IObjInspect const*>(this->Object);
+    IObjRW* const LeadNode = ObjRwFromWatchable(const_cast<Watchable*>(this->Watcher.target()));
 
     Vector LimitedSteer{ 0.0f, 0.0f, 0.0f };
     if (LeadNode != nullptr && GetIfaceVectorMagnitude(LeadNode) > 1.0)
@@ -919,7 +918,7 @@ int FaceIdea::Update(float /*DeltaTime*/)
     else
     {
         LimitAxisThrottleForTurn(LimitedSteer, BoundObject, SteerVector, &ThrottleFrame,
-                                 0.0f, *reinterpret_cast<float const*>(B + 0x98), true);
+                                 0.0f, this->AngleWeight98, true);
     }
     SteerVector = LimitedSteer;
 

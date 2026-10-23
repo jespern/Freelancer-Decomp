@@ -495,7 +495,7 @@ public:
     FThornEventDesc SetCameraDesc; // actual type-2 common-only owner (44e60).
     FThornFloorEventDesc FloorDesc; // actual type-18 live 56-byte owner (49570).
     FThornPathEventDesc PathDesc; // actual type-6 live 76-byte owner (450a0).
-    IParamCurve*& ParamCurve;
+    FlPtr32<IParamCurve>& ParamCurve; // aliases the active descriptor's dword slot
     FThornEventDesc& Desc;
     int& PcurvePeriod;
     float TargetPos[3];
@@ -545,8 +545,8 @@ public:
     void AdoptConnectStringStorage();
     void ReleaseConnectStringStorage();
     char* EndEffector;
-    const char* LegacyTargetPart;
-    const char*& TargetPart;
+    FlPtr32<const char> LegacyTargetPart;
+    FlPtr32<const char>& TargetPart;
     FThornConnectString IkEndEffectorStorage;
     FThornConnectString IkTargetPartStorage;
     bool bIkStorageActive = false;

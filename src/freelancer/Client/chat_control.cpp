@@ -919,7 +919,7 @@ void ChatControl::FillPrivate(int FirstItem, unsigned VisibleRows)
     }
 }
 
-bool ChatControl::Slot23(unsigned Msg, unsigned A, unsigned B)
+bool ChatControl::Slot23(unsigned Msg, uintptr_t A, uintptr_t B)
 {
     // LAB_00467f10
     if (Msg == 0xef01)
@@ -955,7 +955,7 @@ bool ChatControl::Slot23(unsigned Msg, unsigned A, unsigned B)
         return true;
     }
 
-    UiScrollTable* const List = reinterpret_cast<UiScrollTable*>(static_cast<uintptr_t>(A));
+    UiScrollTable* const List = reinterpret_cast<UiScrollTable*>(A);
     bool const bOwnList = List == BroadcastList || List == PrivateList;
 
     if (Msg == 0x300d && bOwnList)

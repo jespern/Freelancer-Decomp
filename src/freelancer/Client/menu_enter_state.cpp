@@ -5,6 +5,9 @@
 // Author: Giperion.
 
 #include "menu_enter_state.h"
+#include "hd_console.h"
+#include "hd_client.h"
+#include "hd_plugins.h"
 
 #include "character_select_equip.h"
 #include "client_frame_tick.h" // FUN_00424f30 / FUN_00425080 / FUN_00425140, FUN_0041b2e0
@@ -52,11 +55,13 @@
 
 #include "common_net.h" // CPlayerAccount (cases 2 and 4)
 #include "common_misc.h" // SinglePlayer, SetMultiPlayer, GetFullFilename
+#include "hd_plugins.h"
 
 #include <math.h>
 #include <process.h>
 #include <stdarg.h>
 #include <stdio.h>
+#include <stdlib.h> // getenv (FLWIN_LOAD)
 #include <string.h>
 #include <wchar.h>
 #include <windows.h>
@@ -202,11 +207,20 @@ namespace
         for (int Index = 0; Index < 5; ++Index)
         {
             FCase18Static const& Slot = kCase18Statics[Index];
+            // HD: HudShift.ini bases of the offsets' PUSH operands (x, y, z), by slot.
+            static unsigned const kOffsetAddresses[5][3] = {
+                {0x00575055, 0x00575050, 0x0057504b}, {0x005750cf, 0, 0}, {0x00575149, 0, 0},
+                {0, 0, 0}, {0x00575235, 0x00575230, 0x0057522b}};
+            float Offset[3];
+            for (int Axis = 0; Axis < 3; ++Axis)
+                Offset[Axis] = kOffsetAddresses[Index][Axis] != 0
+                                   ? HdHudShiftBase(kOffsetAddresses[Index][Axis], Slot.Offset[Axis])
+                                   : Slot.Offset[Axis];
             Win3D* const Created = WinFactoryCreate(Slot.Nickname, "StaticControl", &Page, nullptr);
             Case18StaticSlot(Page, Index) = Created;
             if (Index < 3 && Created == nullptr)
                 continue;
-            static_cast<NnStaticControl*>(Created)->Init(Slot.Mesh, Slot.Offset, nullptr, Zero, 0, 0,
+            static_cast<NnStaticControl*>(Created)->Init(Slot.Mesh, Offset, nullptr, Zero, 0, 0,
                                                          0, 1, 1, 0, 1, 0, 0, 0, Zero);
         }
     }
@@ -271,9 +285,15 @@ namespace
         // 0x005745bd..0x005745f4: the caption box height is the "Normal" font's line height
         // (slot 6, unsigned) times 0.002.
         IFont* const NormalFont = FindMenuFontImp("Normal"); // FUN_004177b0
+        // HD: fixed_menu_button_height (HD's exe) and VersionText.dll make the same patch -- 0.03
+        // whatever the resolution (0x005745d9 fild -> nop, 0x005745e6 `fmul [0x5e2554]` ->
+        // `fld [0x5e207c]`, DAT_005e207c = 0.03f).
+        static const bool bHdFixedHeight = HdPlugins::Feature("fixed_menu_button_height");
         float const BoxHeight =
-            static_cast<float>(static_cast<unsigned>(NormalFont->GetLineHeight())) *
-            kFontLineScale;
+            bHdFixedHeight
+                ? 0.03f
+                : HdVersionTextHeight(static_cast<float>(static_cast<unsigned>(NormalFont->GetLineHeight())) *
+                                      kFontLineScale);
 
         // 0x005745f8..0x0057469c: five "bImg" StaticControls, FRONT_button.cmp, one per row.
         for (int Index = 0; Index < 5; ++Index)
@@ -314,7 +334,7 @@ namespace
         Column.AnimTime = -2.0; // DAT_0067bce0/e4 = 0 / 0xc0000000
 
         // 0x0057480a..0x005748dc: the "Version" TextControl.
-        Win3D* const VersionWin = WinFactoryCreate("Version", "TextControl", &Column, nullptr);
+        Win3D* const VersionWin = WinFactoryCreate("Version", HdVersionTextClass(), &Column, nullptr); // HD
         Column.Version = VersionWin;
         if (VersionWin != nullptr)
         {
@@ -322,12 +342,18 @@ namespace
             // width 0.25, height = the caption box height (ESI), Arg6 1.0, no ids, +0x358 = 1,
             // +0x344 = 0, +0x378 = 0) -- the text comes from slot 42 below.
             NnTextControl* const VersionText = static_cast<NnTextControl*>(VersionWin);
-            float const VersionPos[3] = {kVersionPosX, kVersionPosY, kVersionPosZ};
-            VersionText->Init("Normal", VersionPos, nullptr, kMainColumnBoxWidth, BoxHeight, 1.0f,
-                              0u, 1, 0, 0);
+            // HD: HudShift.ini bases (0x00574862 / 0x0057485d).
+            float const VersionPos[3] = {HdHudShiftBase(0x00574862, kVersionPosX),
+                                         HdHudShiftBase(0x0057485d, kVersionPosY), kVersionPosZ};
+            // HD: hd_version_text — width 0.15 (0x00574852) and HD's "FL %d.%d & HDE ..." IDS
+            // 0x70017 (458775, hderesources.dll) for 0x4f7 (0x00574890).
+            static const bool bHdVersion = HdPlugins::Feature("hd_version_text");
+            VersionText->Init("Normal", VersionPos, nullptr,
+                              bHdVersion ? 0.15f : kMainColumnBoxWidth, BoxHeight, 1.0f, 0u, 1, 0,
+                              0);
 
             wchar_t Format[0x100];
-            GetIdsStringWWithRawFallback(0x4f7u, Format, 0x100);
+            GetIdsStringWWithRawFallback(bHdVersion ? 0x70017u : 0x4f7u, Format, 0x100);
             // 0x0057489a..0x005748c0: the word at DAT_0067ecba (the high half of
             // DAT_0067ecb8, g_client.packed_version), its high byte then its low byte.
             unsigned const VersionWord =
@@ -445,7 +471,7 @@ void EnterMenuState(FMenuNavState* Nav, int State)
         // (FUN_0041dda0(1)), the chat window hidden in multiplayer (FUN_0046a4a0(0)).
         ReleaseActivePageInternal(Nav);
         SetClientMouseCursorDrawFlag(1);
-        if (!SinglePlayer())
+        if (!SinglePlayer() || HdConsoleEnabled()) // HD: console
             ChatShowMsgWin(false);
         // 0x00574b9c..0x00574c15: unless the server page is already the active one: the server
         // lists reset (FUN_005abc80), the Gun made (FUN_005ab4c0), the (again closed) active
@@ -479,7 +505,7 @@ void EnterMenuState(FMenuNavState* Nav, int State)
         // (LAB_00575294).
         ReleaseActivePageInternal(Nav);
         SetClientMouseCursorDrawFlag(1);
-        if (!SinglePlayer())
+        if (!SinglePlayer() || HdConsoleEnabled()) // HD: console
             ChatShowMsgWin(false);
         PageAccountSelect& AccountPage = GetPageAccountSelect();
         if (Nav->ActivePage == &AccountPage)
@@ -516,7 +542,7 @@ void EnterMenuState(FMenuNavState* Nav, int State)
         // state 1 (LAB_00575294).
         PreConnectReset();
         ReleaseActivePageInternal(Nav);
-        if (!SinglePlayer())
+        if (!SinglePlayer() || HdConsoleEnabled()) // HD: console
             ChatShowMsgWin(false);
         PageCharacterSelect& CharacterPage = GetPageCharacterSelect();
         if (!CharacterPage.Desc.LoadFromFile(GetFullFilename(kPageCharacterSelect)))
@@ -727,6 +753,15 @@ int MenuStateDriverUpdate(FMenuNavState* Nav, float DeltaSeconds)
         // 0x00573f76 (state 1): TypeSelect+0x80 (DAT_0067b800). Not cleared here -- EnterState
         // case 1 clears it.
         int const Next = GetTypeSelect().NextState;
+        // Dev aid: FLWIN_LOAD=<save> takes the column's Load Game (command 3) once, by itself;
+        // PageCharacterSelectSingle::Update then loads the named save.
+        static bool bAutoLoadTaken = false;
+        if (Next == 0 && !bAutoLoadTaken && getenv("FLWIN_LOAD") != nullptr)
+        {
+            bAutoLoadTaken = true;
+            Nav->CurrentState = 3;
+            break;
+        }
         if (Next != 0)
         {
             Nav->CurrentState = Next;
@@ -944,6 +979,15 @@ int MenuStateDriverUpdate(FMenuNavState* Nav, float DeltaSeconds)
     if (Nav->Flag22c == 0)
     {
         LoadingScreenCreateProgressBar();
+        // HD: FLSharp mouse_pos_fix — full screen, the soft cursor starts where the OS pointer
+        // is rather than top left, as the startup image goes (0x0057432a).
+        static const bool bMousePosFix = HdPlugins::FlSharp("mouse_pos_fix");
+        if (bMousePosFix && GetLoadingScreen().Screen != nullptr && g_display.fullscreen != 0)
+        {
+            POINT Pointer;
+            if (GetCursorPos(&Pointer) != 0 && ScreenToClient(g_client.window, &Pointer) != 0)
+                SetClientSoftwareCursor(Pointer.x, Pointer.y);
+        }
         LoadingScreenReleaseImage();
         LoadingScreenSetClear(0);
         Nav->Flag22c = 1;

@@ -22,6 +22,9 @@
 #include "common_cheapset.h" // CheapSet<CObject*> (CObject::get_intruder_set_r)
 #include "dacom.h"
 
+#include <cstddef>
+#include <type_traits>
+
 // Forward declarations for CShip's watcher members and its atmosphere pointer
 struct IObjRW;
 struct CSolar;
@@ -1950,8 +1953,7 @@ struct TWatcher : public BaseWatcher
         Watchable const* const Watched = target();
         if (Watched == nullptr)
             return nullptr;
-        return reinterpret_cast<T*>(
-            reinterpret_cast<char*>(const_cast<Watchable*>(Watched)) - WatchableOffset);
+        return FromWatchable(const_cast<Watchable*>(Watched));
     }
 
     // `EAX = Object ? Object + WatchableOffset : 0; CMP EAX,[this]; JZ; set_pointer(EAX)`.
@@ -1960,9 +1962,22 @@ struct TWatcher : public BaseWatcher
         set(Object != nullptr ? WatchableOf(Object) : nullptr);
     }
 
+    // WatchableOffset is the retail distance (IObjRW's Watchable base at +8, CSimple's
+    // SelfWatchable member at +0x9c); natively both are reached through the class.
     static Watchable const* WatchableOf(T* Object)
     {
-        return reinterpret_cast<Watchable const*>(reinterpret_cast<char*>(Object) + WatchableOffset);
+        if constexpr (std::is_base_of<Watchable, T>::value)
+            return static_cast<Watchable const*>(Object);
+        else
+            return &Object->SelfWatchable;
+    }
+
+    static T* FromWatchable(Watchable* Watched)
+    {
+        if constexpr (std::is_base_of<Watchable, T>::value)
+            return static_cast<T*>(Watched);
+        else
+            return reinterpret_cast<T*>(reinterpret_cast<char*>(Watched) - offsetof(T, SelfWatchable));
     }
 };
 

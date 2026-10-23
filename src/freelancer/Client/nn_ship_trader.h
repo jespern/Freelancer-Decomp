@@ -107,6 +107,9 @@ public:
     char const* RowMeshPaths[3];     // +0x424 the ship good's ItemIcon
     int RowNameIds[3];               // +0x430 Archetype::Ship::IdsName
     WinControl* RowClassTexts[3];    // +0x43c "ShipTraderShipClass%d"
+    // HD: FLSharp print_rep_requirements -- each row's required reputation in percent (FLSharp
+    // grows the 0x448 allocation by 12 bytes at 0x004b9739 for it).
+    int RowRepPercentages[3];        // +0x448
 
 private:
     // The close sequence of KeyEvent, SetProperty 0x26 / 0x27 / 0x4e and OnEvent: the NavBar
@@ -121,7 +124,7 @@ private:
     NnShipTrader& operator=(NnShipTrader const&) = delete;
 };
 
-static_assert(sizeof(NnShipTrader) == 0x448, "retail NN_ShipTrader is 0x448 bytes (operator_new 0x004b9738)");
+static_assert(sizeof(NnShipTrader) == 0x454, "retail NN_ShipTrader is 0x448 bytes (operator_new 0x004b9738), + 12 for HD");
 static_assert(offsetof(NnShipTrader, CancelButton) == 0x330, "NN_ShipTrader +0x330");
 static_assert(offsetof(NnShipTrader, ShipView) == 0x370, "NN_ShipTrader +0x370");
 static_assert(offsetof(NnShipTrader, PlayerWorth) == 0x3a4, "NN_ShipTrader +0x3a4");

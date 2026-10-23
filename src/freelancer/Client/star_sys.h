@@ -150,4 +150,10 @@ void StarSysLeaveWithoutPlayer();
 // object's attitude towards the player. Callers across the exe (HUD, scanner, StarSys music);
 // defined in star_sys.cpp.
 struct IObjInspect;
-int GetAttitudeClass(IObjInspect const* Target, IObjInspect const* Viewer);
+// HD: FLSharp unhostile_group_members -- with the fix, a hostile player in the player's group
+// counts as neutral towards the player; bGroupFix false is FUN_0045a490 itself (the Current
+// Information call 0x00475770, which FLSharp leaves alone).
+int GetAttitudeClass(IObjInspect const* Target, IObjInspect const* Viewer, bool bGroupFix = true);
+// HD: FLSharp's AreIObjRWsInSameGroup -- both objects ships ((class & 0x503) == 0x503) with the
+// same non-zero multiplayer group id (CShip +0x1b4).
+bool HdSameGroup(IObjInspect const* A, IObjInspect const* B);

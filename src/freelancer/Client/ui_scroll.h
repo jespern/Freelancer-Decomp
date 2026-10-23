@@ -91,6 +91,9 @@ public:
     void Relayout();
     // FUN_00595ca0 — clamp min <= max, page, value into range.
     void ClampValues();
+    // HD: WheelScroll.dll's step -- two of the held-arrow auto-repeat steps of LAB_00597560 at
+    // once, down for a negative wheel.
+    void WheelStep(int Wheel);
     // FUN_00595d60 (RET 8) — +0x3c0 = Min, +0x3c4 = Max, clamp, relayout.
     void SetRange(float Min, float Max);
     // FUN_00595d90 (RET 8).

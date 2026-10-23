@@ -174,6 +174,19 @@ namespace AlchemyImpl
     // The per-name CreateInstance bodies (06243390 and twins): no null test on Desc or
     // Instance; a size or name mismatch stores 0 and returns -3, and every failure path
     // leaves *Instance = 0.
+    // Descriptor sizes are version tags: callers send the retail size or their sizeof, which
+    // differ on LP64 (FAggDesc8 / AGGDESC 8 -> 16, FAggDesc14 0x14 -> 32).
+    static bool AlchemyDescSizeIs(unsigned long Size, unsigned long Retail)
+    {
+        if (Size == Retail)
+            return true;
+        if (Retail == 8)
+            return Size == sizeof(FAggDesc8) || Size == sizeof(AGGDESC);
+        if (Retail == 0x14)
+            return Size == sizeof(FAggDesc14);
+        return false;
+    }
+
     GENRESULT DACOM_API FComponentFactory::CreateInstance(AGGDESC* Desc, void** Instance)
     {
         const bool bAggregation = Spec_.Kind == KindAlchemy || Spec_.Kind == KindFxRuntime;
@@ -181,7 +194,7 @@ namespace AlchemyImpl
             *Instance = nullptr;
 
         const char* RequestedName = nullptr;
-        if (Desc->size == Spec_.RequiredSize)
+        if (AlchemyDescSizeIs(Desc->size, Spec_.RequiredSize))
         {
             RequestedName = reinterpret_cast<FAggDesc8*>(Desc)->NameAt4;
         }
@@ -315,7 +328,7 @@ namespace AlchemyImpl
             }
         }
 
-        if (Desc->size == 0x14 && !bAggregation)
+        if (AlchemyDescSizeIs(Desc->size, 0x14) && !bAggregation)
         {
             // Non-aggregation private descriptors retain their separate
             // initialization contract; Alchemy/Runtime inner outputs are

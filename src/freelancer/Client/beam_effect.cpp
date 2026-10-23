@@ -5,6 +5,8 @@
 // Author: Giperion.
 
 #include "beam_effect.h"
+#include "common_iface.h"
+#include "client_gameobj.h"
 
 #include "effect_base.h"
 #include "effect_type_info.h"
@@ -385,7 +387,7 @@ unsigned char FBeamEffect::BuildGeometry(FSpaceCamera* Cam)
     // (IEngine slot 0xa0) times the local one (math engine slot 0x1c, DAT_00674f50);
     // otherwise the local transform at +0x10. Retail copies either into a stack local.
     Watchable const* const Watched = This->Watcher.target();
-    if (Watched != nullptr && reinterpret_cast<uintptr_t>(Watched) - 8u != 0u &&
+    if (Watched != nullptr && reinterpret_cast<uintptr_t>(Watched) - (uintptr_t)FlWatchableOffset() != 0u &&
         This->EngineIndex != -1)
     {
         float* const InstanceRaw = DALib::Engine->GetInstanceTransform(

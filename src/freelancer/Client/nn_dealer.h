@@ -64,7 +64,8 @@ public:
     // FUN_0047fd50 (thiscall, RET 8) -- show ErrorHelp (+0x9d4) and hide the buy / sell and
     // quantity controls; the text is the ids itself when Arg is 0, otherwise the ids' string
     // used as a swprintf format with Arg.
-    void ShowErrorText(unsigned Ids, int Arg);
+    // HD: FLSharp print_rep_requirements -- bAlwaysFormat formats an Arg of 0 too (0x0047fe86).
+    void ShowErrorText(unsigned Ids, int Arg, bool bAlwaysFormat = false);
 
     // FUN_00482120 (thiscall, RET 8) -- select a row of the dealer's list: quantity back to 1,
     // the row's item on the ship model, the partner inventory's filter / hardpoint hint, and
@@ -171,3 +172,13 @@ private:
     NnDealer(NnDealer const&) = delete;
     NnDealer& operator=(NnDealer const&) = delete;
 };
+
+// HD: FLSharp equip_stat_flicker_fix -- BuyFromDealer bought the last of a good (0x0047eb35):
+// the next two top-level RefreshMarketList calls leave the info card alone.
+void NnDealerNoteSoldOut();
+
+// HD: the "friendlier terms" ids the dealers print: 1564 (0x61c), or 0x7001e (HDEResources'
+// "... (%d)") with the HD exe patch rep_requirement_ids (0x0048073c, 0x004b9011).
+unsigned NnRepRequirementIds();
+// HD: FLSharp print_rep_requirements (cached) -- the dealers format the required reputation.
+bool NnPrintRepRequirements();

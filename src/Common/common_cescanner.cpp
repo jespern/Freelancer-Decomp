@@ -202,8 +202,8 @@ int ScanList::add_in_range(Vector const& Pos, float Range, IObjDB* Db, unsigned 
 
     struct FIterState
     {
-        unsigned Unused0;
-        unsigned Unused1;
+        void* Unused0; // IObjDB cursor pointers (retail dwords)
+        void* Unused1;
         unsigned Mask;
     } IterState = { 0, 0, TypeMask & 0xffff0200u };
 

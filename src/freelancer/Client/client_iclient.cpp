@@ -13,6 +13,7 @@
 // Every slot's retail body is quoted by address.
 
 #include "freelancer_client.h"
+#include "hd_hudless.h"
 
 #include "best_path.h"                // objective map slots 71 / 72 / 73 (DAT_0067294c)
 #include "character_select_equip.h"   // player-state setters (FUN_004c3e20 ..)
@@ -433,6 +434,7 @@ void IClientImpl::SendServerSetMissionMessage(const unsigned int& /*ClientId*/, 
 void IClientImpl::SendServerReplaceMissionObjective(const unsigned int& /*ClientId*/,
                                                     const FServerReplaceMissionObjectiveInfo& Info)
 {
+    FlScriptSignal("objective"); // port: input scripts (waitfor:objective)
     BestPathReplaceObjective(&Info);
 }
 
@@ -440,6 +442,7 @@ void IClientImpl::SendServerReplaceMissionObjective(const unsigned int& /*Client
 void IClientImpl::SendServerSetMissionObjectives(const unsigned int& /*ClientId*/,
                                                  const FServerSetMissionObjectivesInfo& Info)
 {
+    FlScriptSignal("objective"); // port: input scripts (waitfor:objective)
     BestPathSetObjectives(&Info);
 }
 
@@ -708,5 +711,9 @@ void IClientImpl::SendServerPlayerListRemove(unsigned int /*ClientId*/, unsigned
 void IClientImpl::SendCommonChatMsg(CHAT_ID /*TargetId*/, CHAT_ID SenderId, unsigned long Size,
                                     const void* Data)
 {
+    // HD: HUDless drops incoming chat while the HUD is hidden (IChatClient slot 0, 0x005a6250
+    // = RET 0x10), as HD does.
+    if (HdHudless::Hidden())
+        return;
     ChatDispatchIncoming(SenderId, Data, static_cast<unsigned>(Size));
 }

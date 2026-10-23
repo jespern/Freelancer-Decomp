@@ -5,6 +5,7 @@
 // Author: Giperion.
 
 #include "ui_text_msg_button.h"
+#include "hd_plugins.h"
 
 #include "client_mesh_load.h"
 #include "ids_rdl.h"
@@ -239,6 +240,21 @@ bool UiTextMsgButton::MouseEvent(FWin3DMouseEvent const* Event)
     if (Parent != nullptr)
         Parent->Slot23(0x3004u, static_cast<unsigned>(MessageArg), 0u);
     return true;
+}
+
+void UiTextMsgButtonHideSlidingText(UiTextMsgButton* Button)
+{
+    // HD: FLSharp slide_ui_anim_fix — the text image (+0x3ec) released and cleared, hovering
+    // off (+0x471), as at the slide-in.
+    static const bool bFix = HdPlugins::FlSharp("slide_ui_anim_fix");
+    if (!bFix || Button == nullptr)
+        return;
+    if (Button->Image != nullptr)
+    {
+        Button->Image->Release();
+        Button->Image = nullptr;
+    }
+    Button->bNeverHit = 1;
 }
 
 // Retail DAT_0067db44 -- WINFACTORY<UITextMsgButton> static (LAB_0059c210 -> FUN_0059c510;

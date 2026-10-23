@@ -104,6 +104,12 @@ static_assert(offsetof(FAsteroidBillboardBlock, AmbientIntensity) == 0x70, "bill
 static_assert(sizeof(FRpVertexSrcDesc) == 0x70, "MeshDesc 0x70 at +0x30");
 
 #pragma pack(push, 1)
+// The band record (FUN_0054c580): retail's 0x84 bytes, then the port's slots for the pointers
+// retail keeps in four of its dwords (cli_asteroid.cpp, BandPtr).
+constexpr std::size_t kCliBandRetailBytes = 0x84;
+constexpr std::size_t kCliBandPtrTail = 0x88;
+constexpr std::size_t kCliBandBytes = kCliBandPtrTail + 4 * sizeof(void*);
+
 struct FCliAsteroid
 {
     unsigned char Flag00;                              // +0x00
@@ -136,10 +142,10 @@ struct FCliAsteroid
     unsigned ZeroD4;
     float FloatD8;
     Exclusion::AsteroidExclusionZoneMgr* ExclusionMgr; // +0xDC
-    unsigned char ShapeDbE0[0x18];                     // +0xE0  the field's ShapeDB (FShapeDB in place)
+    alignas(FShapeDB) unsigned char ShapeDbE0[sizeof(FShapeDB)]; // +0xE0  the field's ShapeDB in place (0x18 in retail)
     unsigned char FlagF8;                              // +0xF8  [Band]
     unsigned char PadF9[3];
-    unsigned char BandBlob[0x84];                      // +0xFC  FUN_0054c580 / Band
+    alignas(void*) unsigned char BandBlob[kCliBandBytes]; // +0xFC  FUN_0054c580 / Band
     unsigned char Flag180;
     unsigned char Pad181[3];
     unsigned char VecAlloc184;

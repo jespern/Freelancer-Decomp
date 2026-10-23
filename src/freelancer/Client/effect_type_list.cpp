@@ -20,33 +20,33 @@ namespace
 
     void** NodeNext(void* Node)
     {
-        return reinterpret_cast<void**>(static_cast<unsigned char*>(Node) + 4);
+        return reinterpret_cast<void**>(Node) + 1; // retail +4: the pair is {LinkPrev, LinkNext}
     }
 
     void** EffectLinkSelf(void* Effect)
     {
         // Effect+0x68.
-        return reinterpret_cast<void**>(static_cast<unsigned char*>(Effect) + 0x68);
+        return &static_cast<FEffectBase*>(Effect)->LinkSelf; // +0x68
     }
 
     unsigned* EffectTypeId(void* Effect)
     {
-        return reinterpret_cast<unsigned*>(static_cast<unsigned char*>(Effect) + 0x5c);
+        return &static_cast<FEffectBase*>(Effect)->EffectTypeId; // +0x5c
     }
 
     unsigned* EffectRefCount(void* Effect)
     {
-        return reinterpret_cast<unsigned*>(static_cast<unsigned char*>(Effect) + 0x58);
+        return &static_cast<FEffectBase*>(Effect)->RefCount; // +0x58
     }
 
     unsigned char* EffectFlags(void* Effect)
     {
-        return static_cast<unsigned char*>(Effect) + 8;
+        return &static_cast<FEffectBase*>(Effect)->Flags08; // +0x08
     }
 
     void* EffectLinkNode(void* Effect)
     {
-        return static_cast<unsigned char*>(Effect) + 0x60;
+        return &static_cast<FEffectBase*>(Effect)->LinkPrev; // +0x60
     }
 }
 
@@ -144,7 +144,7 @@ void EffectTypeListKillAll()
         FEffectTypeBucket* const Bucket = &G_EffectTypeBuckets[Index];
         while (Bucket->Head != nullptr)
         {
-            void* const Effect = *reinterpret_cast<void**>(static_cast<unsigned char*>(Bucket->Head) + 8);
+            void* const Effect = reinterpret_cast<void**>(Bucket->Head)[2]; // node +8: LinkSelf
             typedef void(__thiscall * FKillSlot)(void*);
             ((FEffectBase*)Effect)->Kill();
             EffectTypeListUnlinkAndRelease(Effect);

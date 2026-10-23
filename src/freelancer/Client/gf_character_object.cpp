@@ -117,14 +117,9 @@ namespace
         }
 
         // 0x00443c7f..0x00443c95: the table header {Count, Entries}.
-        struct FDeformPartTable
-        {
-            int Count;
-            FDeformPartDesc* Entries;
-        };
         FDeformPartTable Table;
         Table.Count = Count;
-        Table.Entries = Entries;
+        Table.Parts = Entries;
         RefreshLoadingProgress();
 
         // 0x00443c97..0x00443ce5: a material-library reference per bodypart mesh

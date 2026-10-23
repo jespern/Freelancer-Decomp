@@ -372,10 +372,13 @@ namespace
             return;
         }
 
-        unsigned long CrcStruct[2];
-        CrcStruct[0] = (unsigned long)(Name);
-        CrcStruct[1] = DACOM_CRC::GetCRC32(Name);
-        Materials->RemoveMaterial(0, CrcStruct);
+        // {name, CRC}, as every material/texture CRC query is laid out.
+        struct
+        {
+            const char* Name;
+            unsigned long Crc;
+        } CrcStruct = {Name, DACOM_CRC::GetCRC32(Name)};
+        Materials->RemoveMaterial(0, &CrcStruct);
     }
 
     void CreateOverrides(IDAComponent* Library)
@@ -854,7 +857,7 @@ namespace
 
     struct FShadowInstance
     {
-        void* Id;
+        unsigned long Id; // the instance (a dword handle, retail +0)
         float Radius;
     };
 
@@ -962,8 +965,12 @@ namespace
 
         FShadowTextureScope Texture((ITextureLibrary2*)Appearance->TextureLibrary_);
         unsigned long Handle = 0;
-        unsigned long Crc[2] = {(unsigned long)("efxshadow"), DACOM_CRC::GetCRC32("efxshadow")};
-        const GENRESULT Found = Texture.Library->FindTextureByCrc(Crc, &Texture.Record);
+        struct
+        {
+            const char* Name;
+            unsigned long Crc;
+        } Crc = {"efxshadow", DACOM_CRC::GetCRC32("efxshadow")}; // {name, CRC}
+        const GENRESULT Found = Texture.Library->FindTextureByCrc(&Crc, &Texture.Record);
         if (Found < 0)
         {
             FDUMP(0x100002, "%s(%d) : WARNING:General:%s",
@@ -1005,11 +1012,11 @@ namespace
                 for (int Index = 0; Index < InstanceCount; ++Index)
                 {
                     IEngine* Engine = (IEngine*)Appearance->Engine_;
-                    float* Transform = Engine->GetInstanceTransform(Instances[Index].Id);
+                    float* Transform = Engine->GetInstanceTransform(FL_U32_TO_PTR(void, Instances[Index].Id));
                     float PosX = Transform[9];
                     float PosY = Transform[10];
                     float PosZ = Transform[11];
-                    void* Archetype = Engine->GetInstanceArchetype(Instances[Index].Id);
+                    void* Archetype = Engine->GetInstanceArchetype(FL_U32_TO_PTR(void, Instances[Index].Id));
                     Engine->ReleaseHandle(Archetype);
                     float Extents[6];
                     bool bUsedFallback = true;

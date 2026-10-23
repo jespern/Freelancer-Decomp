@@ -631,12 +631,8 @@ private:
     // (RunCollisionProbe, an always-true stub for FUN_062e53e0, is gone 2026-10-08: its one
     // call site, Update case 9 at .text:062c4edd, now calls IsPointOutsideHeadingCone.)
 
-    // Raw-offset reach for the two spans inside this class that retail addresses but
-    // whose width it never proves -- Opaque3a8 (+0x3a8), Opaque40c's +0x40c and
-    // +0x430. Retail only ever takes their address, so no typed member is declared;
-    // see each field's own comment. Keeping the reach in one named helper makes the
-    // remaining raw offsets greppable.
-    void* RawAt(unsigned Offset) { return reinterpret_cast<unsigned char*>(this) + Offset; }
+    // (RawAt, a retail-offset reach for +0x40c / +0x430, is gone: on LP64 it read other members.
+    // The readers use Orient40c and Opaque430.)
     // ---- Not-yet-identified sub-object constructors (FULLPORT-DEFERRED). ----
     // SubObjectA/B (FUN_062d4e60/FUN_062d6750) are IDENTIFIED as real
     // MoveIdea/FaceIdea (see the field declarations below) -- their real
@@ -883,7 +879,7 @@ public:
     // transform's rotation here (9-dword MOVSD at .text:062c5175-062c5184) and reads its
     // column z (+0x414/+0x420/+0x42c). Split out of `Opaque40c[0x30]` 2026-10-08.
     Matrix Orient40c;
-    unsigned char Opaque430[0x43c - 0x430]; // +0x430: EnterState reads a Vector here (RawAt)
+    unsigned char Opaque430[0x43c - 0x430]; // +0x430: a Vector offset, written by OnResult, read by EnterState
     int Field43c;              // +0x43c. Set by OnResult() to its own 3rd int parameter; also
                                 // reset to -1 by RecomputeApproach().
     int SubStateValue440;       // +0x440. Cleared by RecomputeApproach()/Disengage() -- CONFIRMED

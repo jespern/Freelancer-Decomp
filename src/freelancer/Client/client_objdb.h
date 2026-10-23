@@ -95,6 +95,9 @@ void ClientObjDb_ProcessCollisions();
 // (DAT_00678a30) advances its time and CRemotePhysicsSimulation by Dt; a ship CheckForSync
 // flags is sent to the server (IServer::SPObjUpdate) and fed back through RemoteUpdate.
 void ClientObjDb_UpdateRemotePhysics(float Dt);
+// HD: FLSharp better_updates -- reset the multiplayer sync pacing after the player ship spawns
+// (FLSharp's PostInitDealloc hook at 0x0054b8b9); nothing in single player or with the fix off.
+void ClientObjDb_ResetSyncPacing(struct CShip const* Ship);
 // FUN_005416c0 (cdecl) -- the Gameobj whose get_id is ObjectId: Kind 0 searches buckets
 // 1, 4, 5, 6, 7, 2 in that order, any other Kind searches only that bucket. Null for an id
 // with no bits under 0x3fffffff.

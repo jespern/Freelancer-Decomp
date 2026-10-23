@@ -4,7 +4,9 @@
 // developed by Digital Anvil.
 // Author: Giperion.
 
+#include "client_cliobj.h" // CliCompanionAt
 #include "cli_projectile_fx.h"
+#include "hd_plugins.h"
 
 // Before anything that could instantiate std::vector<unsigned short>: Common.dll exports that
 // instantiation (extern template in common_fuses.h); CliShipFireWeapons' shot-id vector must
@@ -28,6 +30,7 @@
 #include "star_sys.h"             // StarSysNoteTargetChange (FUN_005532d0) -- launcher fire
 #include "character_select_equip.h" // FUN_004c45d0 / FUN_004c4320 -- launcher ammo
 #include "vis_effect_arch.h"
+#include "hd_plugins.h"
 
 #include "DALib.h"
 #include "dacom.h"
@@ -47,6 +50,7 @@
 #include <cstdio>
 #include <cstring>
 #include <new>
+#include <unordered_map>
 #include <vector>
 
 namespace
@@ -220,9 +224,9 @@ void CliEffectListInsert(void* ListOwnerPlus28, void const* Payload16)
     // its Prev at 0x004fcea8 unconditionally -- the owner's constructor allocates the head
     // (FGameobjEffectListStorage).
     unsigned char* ListBase = static_cast<unsigned char*>(ListOwnerPlus28);
-    int& CountRef = *reinterpret_cast<int*>(ListBase + 8);
+    int& CountRef = reinterpret_cast<FGameobjEffectListStorage*>(ListBase)->Count;
 
-    FEffectListNode* Head = *reinterpret_cast<FEffectListNode**>(ListBase + 4);
+    FEffectListNode* Head = reinterpret_cast<FEffectListNode*&>(reinterpret_cast<FGameobjEffectListStorage*>(ListBase)->Head);
     FEffectListNode* OldPrev = Head->Prev;
     FEffectListNode* Node =
         static_cast<FEffectListNode*>(::operator new(sizeof(FEffectListNode)));
@@ -312,7 +316,7 @@ unsigned char CliEffectListRemove(void* ListOwnerPlus28, void* Payload16)
     // No test of the list, its head (0x004fcef0 MOV ECX,[ECX+4]; 0x004fcef8 MOV ESI,[ECX]) or
     // the companion (0x004fcf03 reads +8 once the list is non-empty). The node is not unlinked.
     unsigned char* const ListBase = static_cast<unsigned char*>(ListOwnerPlus28);
-    FEffectListNode* const Head = *reinterpret_cast<FEffectListNode**>(ListBase + 4);
+    FEffectListNode* const Head = reinterpret_cast<FEffectListNode*&>(reinterpret_cast<FGameobjEffectListStorage*>(ListBase)->Head);
 
     void** const Want = static_cast<void**>(Payload16);
     for (FEffectListNode* Cursor = Head->Next; Cursor != Head; Cursor = Cursor->Next)
@@ -353,8 +357,8 @@ void CliEffectListClear(void* ListOwnerPlus28, void* ArchFilter)
     // FUN_004fd0d0 — listing 004fd0d0..004fd226. ECX = the list (+0 allocator byte, +4 head,
     // +8 count). No null tests: the head is always there (the owner's ctor allocates it).
     unsigned char* const ListBase = static_cast<unsigned char*>(ListOwnerPlus28);
-    FEffectListNode* const Head = *reinterpret_cast<FEffectListNode**>(ListBase + 4);
-    int& CountRef = *reinterpret_cast<int*>(ListBase + 8);
+    FEffectListNode* const Head = reinterpret_cast<FEffectListNode*&>(reinterpret_cast<FGameobjEffectListStorage*>(ListBase)->Head);
+    int& CountRef = reinterpret_cast<FGameobjEffectListStorage*>(ListBase)->Count;
 
     // Pass 1 (004fd0f0..004fd1db). With a filter, a node whose slot 0 is null or does not hold
     // the filter in its first dword is skipped (004fd0f4..004fd101). Every other node gets the
@@ -396,7 +400,7 @@ namespace
     FEffectListNode* EffectListInsertBefore(void* ListBase, FEffectListNode* Where,
                                             void const* Payload16)
     {
-        int& CountRef = *reinterpret_cast<int*>(static_cast<unsigned char*>(ListBase) + 8);
+        int& CountRef = static_cast<FGameobjEffectListStorage*>(ListBase)->Count; // retail +8
         FEffectListNode* const Node =
             static_cast<FEffectListNode*>(::operator new(sizeof(FEffectListNode)));
         Node->Next = Where;
@@ -429,8 +433,8 @@ void CliEffectListDetachPart(void* ListOwnerPlus28, long PartIndex, FClientGameo
     // one of its descendants leaves this list: with NewOwner, one that is still alive moves to
     // the end of NewOwner's list; everything else is stopped and released.
     unsigned char* const ListBase = static_cast<unsigned char*>(ListOwnerPlus28);
-    FEffectListNode* const* const HeadSlot = reinterpret_cast<FEffectListNode**>(ListBase + 4);
-    int& CountRef = *reinterpret_cast<int*>(ListBase + 8);
+    FEffectListNode* const* const HeadSlot = reinterpret_cast<FEffectListNode**>(&reinterpret_cast<FGameobjEffectListStorage*>(ListBase)->Head);
+    int& CountRef = reinterpret_cast<FGameobjEffectListStorage*>(ListBase)->Count;
 
     FEffectListNode* Next = (*HeadSlot)->Next;
     while (Next != *HeadSlot)
@@ -932,7 +936,7 @@ namespace
         if (PlayerRw == nullptr || PlayerRw == reinterpret_cast<void*>(static_cast<intptr_t>(-0xc)))
             return nullptr;
         unsigned char* RwBytes = static_cast<unsigned char*>(PlayerRw);
-        CObject* Nested = *reinterpret_cast<CObject**>(RwBytes + 0x10);
+        CObject* Nested = ClientGameobjObject(RwBytes);
         if (Nested == nullptr ||
             ((static_cast<unsigned>(Nested->ObjectClass) & 0x503u) != 0x503u))
             return nullptr;
@@ -1078,6 +1082,56 @@ namespace
         return 0;
     }
 
+namespace
+{
+// HD: FLSharp flash_particle_fix — the muzzle effects of barrels 1.. (barrel 0 stays at +0x28).
+std::unordered_map<FCliLauncherFx const*, std::vector<void*>> G_ExtraMuzzleEffects;
+
+// 0x0052d1b4..0x0052d26a for one barrel (retail: barrel 0 into +0x28).
+void PlayMuzzleFxOnBarrel(FCliLauncherFx* Launcher, CELauncher* Launch,
+                          FCliGunFxCompanion* Companion, void*& Slot, unsigned BarrelIndex)
+{
+    // 0x0052d1b4..0x0052d1d0: the previous muzzle effect -- FUN_004f8110, its vt+4, and
+    // FUN_004f7a90 -- then cleared.
+    if (Slot != nullptr)
+    {
+        FParticleEffect* const Prior = static_cast<FParticleEffect*>(Slot);
+        ParticleEffectCleanupAlchemy(Prior);
+        ParticleEffectArmDeath(Prior);
+        ParticleEffectRelease(Prior);
+        Slot = nullptr;
+    }
+
+    // 0x0052d1d7..0x0052d1e8: CELauncher::GetBarrelInfo(0) (IAT 005c68b0, not tested); no
+    // engine part -> done.
+    CELauncher::Barrel const* const Barrel = Launch->GetBarrelInfo(BarrelIndex);
+    if (Barrel->EngineIndex == -1)
+        return;
+
+    // 0x0052d1ee..0x0052d216: FUN_0040f080 (not tested), then EffectAlloc(0x84) + FUN_004f8060(0)
+    // (null when the pool is empty) stored at +0x28.
+    FEffectArch* const EffectArch = FindEffectArch(&Companion->OneShotEffect.Id);
+    FParticleEffect* const Effect = ParticleEffectCreate();
+    Slot = Effect;
+
+    // 0x0052d219..0x0052d24d: the barrel's orientation (+4, nine dwords) and position (+0x28)
+    // as the local transform, attached to the host at the barrel's part (FUN_004f7d20).
+    FTransform BarrelXform;
+    MatrixCopyFromCommon(&BarrelXform.Rotation, Barrel->Orient);
+    BarrelXform.Translation.X = Barrel->Position.x;
+    BarrelXform.Translation.Y = Barrel->Position.y;
+    BarrelXform.Translation.Z = Barrel->Position.z;
+    ParticleEffectAttach(Effect, Launcher->Host, Barrel->EngineIndex, &BarrelXform);
+
+    // 0x0052d252..0x0052d26a: vt+0 start(arch); false -> FUN_004f7a90 and +0x28 cleared.
+    if (ParticleEffectStart(Effect, EffectArch) == 0)
+    {
+        ParticleEffectRelease(Effect);
+        Slot = nullptr;
+    }
+}
+} // namespace
+
 void CliLauncherPlayMuzzleFx(FCliLauncherFx* Launcher)
 {
     // FUN_0052cfd0 (thiscall, plain RET) -- listing 0x0052cfd0..0x0052d278. Callers: the fire
@@ -1157,44 +1211,25 @@ void CliLauncherPlayMuzzleFx(FCliLauncherFx* Launcher)
     if (Companion->OneShotEffect.IsEmpty())
         return;
 
-    // 0x0052d1b4..0x0052d1d0: the previous muzzle effect -- FUN_004f8110, its vt+4, and
-    // FUN_004f7a90 -- then cleared.
-    if (Launcher->MuzzleEffect != nullptr)
+    // HD: FLSharp flash_particle_fix — the flash plays on every barrel (0x0052d1b4 loops
+    // 0x0052d1dc over GetProjectilesPerFire); barrels past 0 keep their effects in a side table.
+    static const bool bEveryBarrel = HdPlugins::FlSharp("flash_particle_fix");
+    if (bEveryBarrel)
     {
-        FParticleEffect* const Prior = static_cast<FParticleEffect*>(Launcher->MuzzleEffect);
-        ParticleEffectCleanupAlchemy(Prior);
-        ParticleEffectArmDeath(Prior);
-        ParticleEffectRelease(Prior);
-        Launcher->MuzzleEffect = nullptr;
-    }
-
-    // 0x0052d1d7..0x0052d1e8: CELauncher::GetBarrelInfo(0) (IAT 005c68b0, not tested); no
-    // engine part -> done.
-    CELauncher::Barrel const* const Barrel = Launch->GetBarrelInfo(0);
-    if (Barrel->EngineIndex == -1)
+        unsigned const Barrels = Launch->GetProjectilesPerFire();
+        std::vector<void*>* Extra = nullptr;
+        if (Barrels > 1u)
+        {
+            Extra = &G_ExtraMuzzleEffects[Launcher];
+            if (Extra->size() < Barrels - 1u)
+                Extra->resize(Barrels - 1u, nullptr);
+        }
+        for (unsigned Index = 0; Index < Barrels; ++Index)
+            PlayMuzzleFxOnBarrel(Launcher, Launch, Companion,
+                                 Index == 0 ? Launcher->MuzzleEffect : (*Extra)[Index - 1u], Index);
         return;
-
-    // 0x0052d1ee..0x0052d216: FUN_0040f080 (not tested), then EffectAlloc(0x84) + FUN_004f8060(0)
-    // (null when the pool is empty) stored at +0x28.
-    FEffectArch* const EffectArch = FindEffectArch(&Companion->OneShotEffect.Id);
-    FParticleEffect* const Effect = ParticleEffectCreate();
-    Launcher->MuzzleEffect = Effect;
-
-    // 0x0052d219..0x0052d24d: the barrel's orientation (+4, nine dwords) and position (+0x28)
-    // as the local transform, attached to the host at the barrel's part (FUN_004f7d20).
-    FTransform BarrelXform;
-    MatrixCopyFromCommon(&BarrelXform.Rotation, Barrel->Orient);
-    BarrelXform.Translation.X = Barrel->Position.x;
-    BarrelXform.Translation.Y = Barrel->Position.y;
-    BarrelXform.Translation.Z = Barrel->Position.z;
-    ParticleEffectAttach(Effect, Launcher->Host, Barrel->EngineIndex, &BarrelXform);
-
-    // 0x0052d252..0x0052d26a: vt+0 start(arch); false -> FUN_004f7a90 and +0x28 cleared.
-    if (ParticleEffectStart(Effect, EffectArch) == 0)
-    {
-        ParticleEffectRelease(Effect);
-        Launcher->MuzzleEffect = nullptr;
     }
+    PlayMuzzleFxOnBarrel(Launcher, Launch, Companion, Launcher->MuzzleEffect, 0);
 }
 
 int CliShipActivateEquip(void* AdjustorThis, unsigned short const* HardpointId,
@@ -1331,6 +1366,7 @@ unsigned CliShipFireWeapons(void* AdjustorThis, unsigned short const* HardpointI
             // 0x00534a37..0x00534ae1: no ids -- every wrapper whose equipment is an active
             // launcher (CELauncher::cast, vtable +4), the same slot 3 / slot 4 choice, the
             // launcher's own id (+0x08) recorded.
+            static const bool bHdNoCmOnFireAll = HdPlugins::Feature("no_cm_on_fire_all");
             for (FEquipFxListNode* Node = Head->Next; Node != Head; Node = Node->Next)
             {
                 CELauncher* const Launch = CELauncher::cast(Node->Wrapper->Equip);
@@ -1344,6 +1380,13 @@ unsigned CliShipFireWeapons(void* AdjustorThis, unsigned short const* HardpointI
                     bFired = Launcher->TryFire(TargetPos);
                     if (bFired != 0)   // 0x00534a93..0x00534aab
                         Info.Hardpoints.insert(Info.Hardpoints.end(), 1u, Launch->GetID());
+                }
+                else if (bHdNoCmOnFireAll && dynamic_cast<FCliCmDropperFx*>(Launcher) != nullptr)
+                {
+                    // HD: no_cm_on_fire_all — the CM dropper table's slot 4 (0x005dd5a8) is the
+                    // stub 0x0052d279 "cmp ecx,esi; je FUN_0052d280; xor al,al; ret", which
+                    // refuses here (ecx = [esi+8] at 0x00534ab8, not the list node).
+                    bFired = 0;
                 }
                 else
                 {
@@ -1448,13 +1491,20 @@ unsigned CliShipFireWeapons(void* AdjustorThis, unsigned short const* HardpointI
     // share its one-shot sound (FUN_0052cf80): their projectiles-per-fire add up, their barrel-0
     // world positions add up and they drop out; the summed position times 1.0 (DAT_005c75dc) /
     // the summed count is where FUN_0052ced0 plays the sound for all of them.
+    // HD: FLSharp projectiles_sound_fix — a launcher counts once however many barrels it has
+    // (0x00534d0d: GetProjectilesPerFire clamped to 1), so the shared sound is not attenuated.
+    static const bool bOncePerLauncher = HdPlugins::FlSharp("projectiles_sound_fix");
+    auto const SoundShots = [](CELauncher* L) {
+        unsigned const N = L->GetProjectilesPerFire();
+        return static_cast<int>(bOncePerLauncher && N > 1u ? 1u : N);
+    };
     for (unsigned I = 0; I < FiredCount; ++I)
     {
         FCliLauncherFx* const Launcher = Fired[I];
         if (Launcher == nullptr)
             continue;
         CELauncher* const Launch = Launcher->LaunchEquip();
-        int ShotCount = static_cast<int>(Launch->GetProjectilesPerFire());
+        int ShotCount = SoundShots(Launch);
         Vector Pos = Launch->GetBarrelPosWS(0);
         ID_String const SoundId = Launcher->OneShotSoundId();
         for (unsigned J = I + 1; J < FiredCount; ++J)
@@ -1463,7 +1513,7 @@ unsigned CliShipFireWeapons(void* AdjustorThis, unsigned short const* HardpointI
             if (Other == nullptr || Other->OneShotSoundId().Id != SoundId.Id)
                 continue;
             CELauncher* const OtherLaunch = Other->LaunchEquip();
-            ShotCount = ShotCount + static_cast<int>(OtherLaunch->GetProjectilesPerFire());
+            ShotCount = ShotCount + SoundShots(OtherLaunch);
             Vector const OtherPos = OtherLaunch->GetBarrelPosWS(0);
             Fired[J] = nullptr;
             Pos.x = Pos.x + OtherPos.x;
@@ -1884,6 +1934,22 @@ FCliLauncherFx::~FCliLauncherFx()
         EffectRelease(Effect);
         MuzzleEffect = nullptr;
     }
+    // HD: FLSharp flash_particle_fix — the other barrels' effects go the same way.
+    auto const Extra = G_ExtraMuzzleEffects.find(this);
+    if (Extra != G_ExtraMuzzleEffects.end())
+    {
+        for (void* Slot : Extra->second)
+        {
+            if (Slot == nullptr)
+                continue;
+            FEffectBase* const Effect = static_cast<FEffectBase*>(Slot);
+            FTransform const Identity = IdentityTransform();
+            EffectAttach(Effect, nullptr, -1, &Identity);
+            Effect->Kill();
+            EffectRelease(Effect);
+        }
+        G_ExtraMuzzleEffects.erase(Extra);
+    }
     // 0x0052cb73..0x0052cba4: the munition explosion (FUN_00536170), the const effect arch
     // (FUN_0040e990), then the one-shot and dry-fire sound archetypes (slot 4, +0x10) -- each
     // only when set; none of the pointers is cleared.
@@ -1937,6 +2003,20 @@ void FCliLauncherFx::DropOnDestroying()
         Effect->Kill();
         EffectRelease(Effect);
         MuzzleEffect = nullptr;
+    }
+    // HD: FLSharp flash_particle_fix — and the other barrels' effects.
+    auto const Extra = G_ExtraMuzzleEffects.find(this);
+    if (Extra != G_ExtraMuzzleEffects.end())
+    {
+        for (void*& Slot : Extra->second)
+        {
+            if (Slot == nullptr)
+                continue;
+            FEffectBase* const Effect = static_cast<FEffectBase*>(Slot);
+            Effect->Kill();
+            EffectRelease(Effect);
+            Slot = nullptr;
+        }
     }
 }
 
@@ -2070,7 +2150,7 @@ void FCliGunFx::notify(Event Code, void* Param)
         if (TurretVoice != nullptr)
         {
             ID_String const* const MotionSound = reinterpret_cast<ID_String const*>(
-                reinterpret_cast<unsigned char const*>(Equip->Arch->Companion) + 0x84);
+                Archetype::CliCompanionAt(Equip->Arch->Companion, 0x84));
             if (!MotionSound->IsEmpty())
                 UnloadClientSoundArch(MotionSound);
         }
@@ -2094,7 +2174,7 @@ bool FCliGunFx::Update(float Dt)
             if (Voice != nullptr)
             {
                 ID_String const* const MotionSound = reinterpret_cast<ID_String const*>(
-                    reinterpret_cast<unsigned char const*>(Equip->Arch->Companion) + 0x84);
+                    Archetype::CliCompanionAt(Equip->Arch->Companion, 0x84));
                 Voice->Start(LookupClientSoundArch(MotionSound), 0);
             }
         }
@@ -2133,11 +2213,23 @@ namespace
         CELauncher* const Launch = Wrapper->LaunchEquip();
         Archetype::Launcher const* const LaunchArch =
             static_cast<Archetype::Launcher const*>(Launch->EquipArch());
-        char const* const UseAnimation = LaunchArch->UseAnimation.Value;
+        char const* UseAnimation = LaunchArch->UseAnimation.Value;
         if (UseAnimation[0] != '\0')
         {
-            int const ScriptIndex = LaunchArch->AnimIndex;
-            long const RootIndex = Launch->GetRootIndex();
+            int ScriptIndex = LaunchArch->AnimIndex;
+            long RootIndex = Launch->GetRootIndex();
+            // HD: FLSharp weapon_anim_fix — a leading '_' plays the rest of the name on the
+            // owner's model and script (0x0052c8af..0x0052c8c7).
+            static const bool bParentAnim = HdPlugins::FlSharp("weapon_anim_fix");
+            if (bParentAnim && UseAnimation[0] == '_')
+            {
+                ++UseAnimation;
+                if (CEqObj* const Owner = Launch->Owner)
+                {
+                    ScriptIndex = Owner->get_archetype()->AnimIndex;
+                    RootIndex = Owner->get_index();
+                }
+            }
             Wrapper->AnimJointIndex.Value = static_cast<int>(DALib::Anim->PlayScript(
                 AsOpaqueDword(ScriptIndex), AsOpaqueDword(static_cast<int>(RootIndex)),
                 UseAnimation, nullptr, nullptr));
@@ -2149,7 +2241,7 @@ namespace
         unsigned char const* const LauncherComp =
             reinterpret_cast<unsigned char const*>(Launch->Arch->Companion);
         ID_String const* const DryFireSound =
-            reinterpret_cast<ID_String const*>(LauncherComp + 0x80);
+            reinterpret_cast<ID_String const*>(Archetype::CliCompanionAt(LauncherComp, 0x80));
         if (!DryFireSound->IsEmpty())
         {
             Wrapper->DryFireSoundArch = LookupClientSoundArch(DryFireSound);
@@ -2164,7 +2256,7 @@ namespace
         unsigned char const* const MunitionComp =
             reinterpret_cast<unsigned char const*>(Munition->Companion);
         ID_String const* const OneShotSound =
-            reinterpret_cast<ID_String const*>(MunitionComp + 0x5c);
+            reinterpret_cast<ID_String const*>(Archetype::CliCompanionAt(MunitionComp, 0x5c));
         if (!OneShotSound->IsEmpty())
         {
             Wrapper->OneShotSoundArch = LookupClientSoundArch(OneShotSound);
@@ -2175,7 +2267,7 @@ namespace
         // 0x0052c95f..0x0052c9d2: its const_effect (+0x58); non-empty -> FUN_0040f080 into
         // +0x20, referenced (FUN_0040e960(1)) when found, else the FDUMP at line 0x51.
         ID_String const* const ConstEffect =
-            reinterpret_cast<ID_String const*>(MunitionComp + 0x58);
+            reinterpret_cast<ID_String const*>(Archetype::CliCompanionAt(MunitionComp, 0x58));
         if (!ConstEffect->IsEmpty())
         {
             Wrapper->ConstEffectArch = FindEffectArch(&ConstEffect->Id);
@@ -2236,7 +2328,7 @@ FCliLauncherFx* CliGunEquipFxConstruct(CEquip* Equip, void* Host)
     // 0x0052d8b1..0x0052d8e5: the gun companion's turret sound (+0x84, companion not tested)
     // must be non-empty and DALib::Sound live.
     ID_String const* const TurretSound = reinterpret_cast<ID_String const*>(
-        reinterpret_cast<unsigned char const*>(Wrapper->Equip->Arch->Companion) + 0x84);
+        Archetype::CliCompanionAt(Wrapper->Equip->Arch->Companion, 0x84));
     if (!TurretSound->IsEmpty() && DALib::Sound != nullptr)
     {
         // 0x0052d8fe: FUN_00427a10(&sound, 1) -- look up and Acquire; the result is not read.

@@ -103,11 +103,15 @@ bool Loot::update(float Dt)
             // .text:06cf2568-06cf2596: RadiusSq = LOOT_UNSEEN_RADIUS squared, stored as a float;
             // the IObjDB cursor {0, 0, 0x7f0000} walks the system's ships.
             float const RadiusSq = LOOT_UNSEEN_RADIUS * LOOT_UNSEEN_RADIUS;
-            unsigned int Cursor[3];
-            Cursor[0] = 0;
-            Cursor[1] = 0;
-            Cursor[2] = 0x7f0000u;
-            IObjRW* Other = OwnerSystem->GetNext(Cursor);
+            // Port: the cursor's first two members are pointers (node, list), as in every
+            // other IObjDB caller; retail's three dwords overflow on LP64.
+            struct FObjDbCursor
+            {
+                void* Node;
+                void* List;
+                unsigned int Mask;
+            } Cursor = {nullptr, nullptr, 0x7f0000u};
+            IObjRW* Other = OwnerSystem->GetNext(&Cursor);
             while (Other != nullptr)
             {
                 // .text:06cf25a9 CALL [EDX+0xbc] (IObjInspect::is_player).
@@ -125,7 +129,7 @@ bool Loot::update(float Dt)
                     if (DistSq < static_cast<double>(RadiusSq))
                         UnseenLife = LOOT_UNSEEN_LIFE_TIME; // .text:06cf25f2
                 }
-                Other = OwnerSystem->GetNext(Cursor); // .text:06cf2606
+                Other = OwnerSystem->GetNext(&Cursor); // .text:06cf2606
             }
 
             // .text:06cf260f-06cf261d: FCOMP 0.0f, TEST AH,5 / JP -- below zero destroys the

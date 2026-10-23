@@ -5,6 +5,8 @@
 // Author: Giperion.
 
 #include "globals.h"
+#include "hd_client.h"
+#include "hd_plugins.h"
 #include "widescreen.h"   // port-only (FREELANCER_WIDESCREEN_SUPPORT)
 #include "win_factory.h"   // WinFactoryCreate (FUN_0059db20)
 #include "character_info.h"
@@ -47,6 +49,7 @@
 #include "space_camera.h"
 #include "win3d.h"                // Win3DStartupManager (FUN_0059d5a0)
 #include "win3d_engine_submit.h"
+#include "hd_plugins.h"
 #ifdef FREELANCER_RP9
 #include "render_ex.h"            // RenderEx::Startup (port-only Direct3D 9 extensions)
 #endif
@@ -509,7 +512,10 @@ void ApplyGammaRampOption(float Value)
     // FUN_00424510, its result dropped.
     if (!(Value >= 0.0f))
         return;
-    G_RenderGamma = static_cast<float>(static_cast<double>(Value) + 1.0);
+    // HD: gamma_range — the slider spans 0.75..1.75 (0x004244f5 `fadd [0x5c89b8]` 1.0 ->
+    // `[0x5debf8]` 0.75).
+    static const double Base = HdPlugins::Feature("gamma_range") ? 0.75 : 1.0;
+    G_RenderGamma = static_cast<float>(static_cast<double>(Value) + Base);
     RenderMgrApplyGamma();
 }
 
@@ -754,7 +760,9 @@ bool InitializeEngine(const FClientCommandLine* CommandLine)
     Mode.interval = 1;
     Mode.buffer_count = 2;
     Mode.border = 1;
-    Mode.fullscreen = 1;
+    // HD: windowed — the installer's windowed / borderless display mode (0x005b16cc
+    // `movb $1, 0x79(%esp)` -> 0). The command line still wins.
+    Mode.fullscreen = HdPlugins::Feature("windowed") ? 0 : 1;
     static_assert(offsetof(DisplaySettings, height) == offsetof(DisplaySettings, width) + 4 &&
                       offsetof(DisplaySettings, color_bpp) == offsetof(DisplaySettings, width) + 8 &&
                       offsetof(DisplaySettings, depth_bpp) == offsetof(DisplaySettings, width) + 12,
@@ -808,6 +816,18 @@ bool InitializeEngine(const FClientCommandLine* CommandLine)
     }
 
     ApplyDisplayCmdlineOverrides(&Mode, CommandLine);
+#ifdef FREELANCER_WIDESCREEN_SUPPORT
+    // HD: FLSharp better_resolutions — a saved size beyond the monitor is dropped, so the
+    // default (the desktop size) is used instead (0x005b17ae).
+    if (HdPlugins::FlSharp("better_resolutions"))
+    {
+        int DesktopWidth = 0;
+        int DesktopHeight = 0;
+        if (WidescreenGetDesktopSize(&DesktopWidth, &DesktopHeight) &&
+            (Mode.width > DesktopWidth || Mode.height > DesktopHeight))
+            Mode.width = 0;
+    }
+#endif
     if (!SelectInitialRenderMode(g_client.window, &Mode, Mode.fullscreen))
         ShowEngineFatalError(0xc9);
 
@@ -909,6 +929,7 @@ bool InitializeEngine(const FClientCommandLine* CommandLine)
     // 0x005b1ca5..0x005b1caf: FUN_005b0c30(DAT_00679d04) -- freelancer.ini's client [Data]
     // keys, its [Resources] DLLs and audio\SoundCFG.ini; the result is not read.
     LoadClientIniData(g_display.ini_path.c_str());
+    HdZoneRegisterResources(); // HD: Zone.dll's strings after [Resources] (0x005b1cb3)
     if (!PumpInitMessages())
         return false;
 

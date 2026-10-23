@@ -220,6 +220,18 @@ unsigned GetObjectIdsName(CObject const* Object);
 // 0x004756f8, 0x0048ab1f, 0x004cb85f, HUD_Target 0x004e4400.
 unsigned GetShipPilotName(CObject const* Object, FHudWideText* Out);
 
+// HD: FLSharp waypoint_name_fixes -- a solar that is a waypoint (CSolar::is_waypoint).
+bool HudIsWaypointObject(CObject const* Object);
+
+// HD: FLSharp waypoint_name_fixes -- GetObjectIdsName for 0x00475676 / 0x004e8131: with the fix,
+// a waypoint the HUD_Waypoint reports as not the player's is "Mission Waypoint" (1091).
+unsigned GetObjectIdsNameForWaypoint(CObject const* Object);
+
+// HD: FLSharp pilot_names_fix -- GetShipPilotName for 0x004756f8 / 0x0048ab1f / 0x004cb85f: with
+// the fix, a ship's full pilot name from HudBuildObjectCaption mode 1 (the Vibe name is cut at
+// 0x17 characters); both text scratch buffers are cleared after it.
+unsigned GetShipPilotNameFull(CObject const* Object, FHudWideText* Out);
+
 // FUN_0048dc10 (cdecl; retail NavMap) -- the nav-map sector of Pos into Out: the system's
 // NavMapScale (ISystem slot 20, 1.0 without a system) scales Pos; row = bands of 33333 from
 // -99999 over z * scale + 2700, column = the same over x * scale (0..8 each); ids 0x515 + row

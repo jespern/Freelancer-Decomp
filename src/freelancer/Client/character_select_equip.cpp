@@ -590,18 +590,13 @@ void SetPlayerLastOrientationRetail(float const* Orientation)
         G_PlayerLastOrientation[Index] = Orientation[Index];
 }
 
-void InitCreateParmsScratchRetail(void* ParmsBytes)
+void InitCreateParmsScratchRetail(CSimple::CreateParms* Parms)
 {
     // FUN_0052e0a0 (thiscall, returns this) -- the exe's compiled CSimple::CreateParms default
     // constructor: +0x00..+0x58 zero except HitPts +0x0c = -1.0f and the matrix diagonal
-    // +0x1c / +0x2c / +0x3c = 1.0f. No null test.
-    unsigned* Words = static_cast<unsigned*>(ParmsBytes);
-    for (int Index = 0; Index < 0x17; ++Index)
-        Words[Index] = 0;
-    Words[3] = 0xbf800000;  // -1.0f HitPts sentinel style
-    Words[7] = 0x3f800000;
-    Words[0xb] = 0x3f800000;
-    Words[0xf] = 0x3f800000;
+    // +0x1c / +0x2c / +0x3c = 1.0f. No null test. Assigned by member: the dword image only
+    // fits the 32-bit layout (on LP64 ObjDb is wider and the 1.0f words land off the diagonal).
+    *Parms = CSimple::CreateParms();
 }
 
 bool ApplyCharacterSelectEquipFields(CCharacterSet::CharacterInfo const* CharInfo)

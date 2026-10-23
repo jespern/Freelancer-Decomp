@@ -5,6 +5,7 @@
 // Author: Giperion.
 
 #include "client_gameobj.h"
+#include "hd_plugins.h"
 
 #include "DALib.h"
 #include "cli_projectile_fx.h"   // CliEffectListClear / FCliEquipFirePacket / fire-host ports
@@ -1918,7 +1919,7 @@ void FClientSolarGameobj::Slot170()
     FClientEquippedObj::Slot170();
     FNebulaEffect* const Nebula =
         StarSysFindNebula(&get_position(), reinterpret_cast<float*>(&DrawStateB), nullptr);
-    DrawStateA = static_cast<unsigned>(reinterpret_cast<uintptr_t>(Nebula));
+    DrawStateA = FL_PTR_TO_U32(Nebula);
 }
 
 void FClientSolarGameobj::update(float Dt)
@@ -2235,7 +2236,7 @@ void FClientSolarGameobj::ReadIni(INI_Reader& Reader)
     // into +0x3c (FUN_005553b0, no hint).
     FNebulaEffect* const Nebula =
         StarSysFindNebula(&get_position(), reinterpret_cast<float*>(&DrawStateB), nullptr);
-    DrawStateA = static_cast<unsigned>(reinterpret_cast<uintptr_t>(Nebula));
+    DrawStateA = FL_PTR_TO_U32(Nebula);
 }
 
 // ===========================================================================
@@ -2816,7 +2817,7 @@ void FClientShipGameobj::Slot170()
     // (0x503) with no null test of the result.
     CShip* const Ship = static_cast<CShip*>(NarrowObject(this, CObject::ClassShip));
     AttachPilotMesh(reinterpret_cast<ID_String const*>(
-        reinterpret_cast<unsigned char const*>(Ship->Archetype->Companion) + 0x64));
+        Archetype::CliCompanionAt(Ship->Archetype->Companion, 0x64)));
 
     // 0x00544806..0x00544846: the local player's ship (the CShip's +0xb4 against DAT_00673344)
     // gets its behaviour interface for the "Player" state graph.
@@ -2907,6 +2908,16 @@ IObjRW* FClientShipGameobj::PickNextTarget(int ConnectionId)
         bool bListed = false;
         if (!Ship->is_enemy(Other))
             continue;
+        // HD: FLSharp unhostile_group_members — a player of the same group is no enemy here
+        // (0x00544a8e is_enemy hooked).
+        static const bool bUnhostile = HdPlugins::FlSharp("unhostile_group_members");
+        if (bUnhostile && Other->is_player() && Ship->GroupId != 0)
+        {
+            CObject const* const OtherShip = Other->cobject();
+            if (OtherShip != nullptr && (static_cast<unsigned>(OtherShip->ObjectClass) & 0x503u) == 0x503u &&
+                static_cast<CShip const*>(OtherShip)->GroupId == Ship->GroupId)
+                continue;
+        }
         if (Other->is_dying())
             continue;
         // 0x00544aab..0x00544aef: a CSimple ((class & 3) == 3) counts only with TypeBits &
@@ -3151,7 +3162,7 @@ void FClientShipGameobj::update(float Dt)
         // 0x005454f6..0x00545511: it leaves the effect list (FUN_004fcef0) once the ship stops
         // colliding, leaves the atmosphere or is landing (+0x18c bit 3).
         if (!bCollides || Atmosphere == nullptr || (Field_0x18c & 0x8u) != 0)
-            CliEffectListRemove(reinterpret_cast<unsigned char*>(this) + 0x28, Field_0xf4);
+            CliEffectListRemove(&EffectList, Field_0xf4);
     }
     else if (bCollides && Atmosphere != nullptr && (Field_0x18c & 0x8u) == 0)
     {
@@ -3497,10 +3508,10 @@ void FClientShipGameobj::Slot1b8(float Dt)
 
     // 0x00545628..0x00545643: FUN_005553b0(get_position() (vt+0), &+0x3c, hint +0x38) into
     // +0x38.
-    FNebulaEffect* const Hint = reinterpret_cast<FNebulaEffect*>(static_cast<uintptr_t>(DrawStateA));
+    FNebulaEffect* const Hint = FL_U32_TO_PTR(FNebulaEffect, DrawStateA);
     FNebulaEffect* const Nebula =
         StarSysFindNebula(&get_position(), reinterpret_cast<float*>(&DrawStateB), Hint);
-    DrawStateA = static_cast<unsigned>(reinterpret_cast<uintptr_t>(Nebula));
+    DrawStateA = FL_PTR_TO_U32(Nebula);
 
     // 0x0054563c..0x0054565f: the clock reloaded; above the period it is reduced on the FPU
     // stack (FSUB / FCOM / TEST AH,0x41 / JZ loops while still greater) and stored once.
@@ -4769,7 +4780,7 @@ namespace
             return;
         FNebulaEffect* const Nebula = StarSysFindNebula(
             &Self->get_position(), reinterpret_cast<float*>(&Self->DrawStateB), nullptr);
-        Self->DrawStateA = static_cast<unsigned>(reinterpret_cast<uintptr_t>(Nebula));
+        Self->DrawStateA = FL_PTR_TO_U32(Nebula);
         Self->Field_0x34 = 1.0f;
     }
 
@@ -5088,7 +5099,7 @@ int FClientGuidedGameobj::set_target(IObjRW* Target, unsigned short SubTarget, i
     Watchable const* const Watched = Guided->TargetWatch.target();
     IObjRW const* const Current =
         (Watched != nullptr)
-            ? reinterpret_cast<IObjRW const*>(reinterpret_cast<unsigned char const*>(Watched) - 8)
+            ? reinterpret_cast<IObjRW const*>(reinterpret_cast<unsigned char const*>(Watched) - FlWatchableOffset())
             : nullptr;
     if (Current == Target && Guided->SubTarget == SubTarget)
         return 0;
@@ -5108,7 +5119,7 @@ int FClientGuidedGameobj::set_target(IObjRW* Target, unsigned short SubTarget, i
     {
         Watchable const* const NewWatched =
             (Target != nullptr) ? reinterpret_cast<Watchable const*>(
-                                      reinterpret_cast<unsigned char const*>(Target) + 8)
+                                      reinterpret_cast<unsigned char const*>(Target) + FlWatchableOffset())
                                 : nullptr;
         Guided->TargetWatch.set(NewWatched);
     }
@@ -5197,7 +5208,7 @@ void FClientLootGameobj::Slot170()
     // 0x0053e677..0x0053e68c: FUN_005553b0(&get_position(), &DrawStateB, 0) into DrawStateA.
     FNebulaEffect* const Nebula =
         StarSysFindNebula(&get_position(), reinterpret_cast<float*>(&DrawStateB), nullptr);
-    DrawStateA = static_cast<unsigned>(reinterpret_cast<uintptr_t>(Nebula));
+    DrawStateA = FL_PTR_TO_U32(Nebula);
 }
 
 void FClientLootGameobj::update(float Dt)
@@ -5275,7 +5286,7 @@ namespace
         Watchable const* const Target = Watcher.target();
         if (Target == nullptr)
             return nullptr;
-        return reinterpret_cast<IObjRW const*>(reinterpret_cast<unsigned char const*>(Target) - 8);
+        return reinterpret_cast<IObjRW const*>(reinterpret_cast<unsigned char const*>(Target) - FlWatchableOffset());
     }
 
     // FUN_0045aa10(out, first, last, &Obj): the first node from first up to last whose
@@ -5308,7 +5319,7 @@ void GameobjWatchListAdd(IObjRW* Obj)
     if (Obj != nullptr)
     {
         Watchable const* const Target =
-            reinterpret_cast<Watchable const*>(reinterpret_cast<unsigned char const*>(Obj) + 8);
+            reinterpret_cast<Watchable const*>(reinterpret_cast<unsigned char const*>(Obj) + FlWatchableOffset());
         G_GameobjWatchList.back().set(Target);
     }
 }

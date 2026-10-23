@@ -5,6 +5,7 @@
 // Author: Giperion.
 
 #include "hud_element_list.h"
+#include "client_gameobj.h"
 
 #include "common_cequip.h"
 #include "common_cobject.h"
@@ -68,7 +69,7 @@ namespace
         if (ObjRW == nullptr || ObjRW == reinterpret_cast<void*>(static_cast<intptr_t>(-0xc)))
             return nullptr;
         CEqObj* const EqObj =
-            *reinterpret_cast<CEqObj**>(static_cast<unsigned char*>(ObjRW) + 0x10);
+            static_cast<CEqObj*>(ClientGameobjObject(ObjRW));
         if (EqObj == nullptr)
             return nullptr;
         if ((static_cast<unsigned>(EqObj->ObjectClass) & 0x503u) != 0x503u)
@@ -198,7 +199,7 @@ void HUDItem::SetTarget(IObjRW* NewTarget)
     // differs from the one watched, which is BaseWatcher::set.
     Watchable const* const Watched = (NewTarget == nullptr)
         ? nullptr
-        : reinterpret_cast<Watchable const*>(reinterpret_cast<unsigned char const*>(NewTarget) + 8);
+        : reinterpret_cast<Watchable const*>(reinterpret_cast<unsigned char const*>(NewTarget) + FlWatchableOffset());
     Target.set(Watched);
 }
 

@@ -5,6 +5,7 @@
 // Author: Giperion.
 
 #include "hud_comm.h"
+#include "hd_hudless.h"
 
 #include "character_info.h"   // GetCharacterInfoDb (FUN_004356c0), AcquireScriptByName (FUN_00434e90)
 #include "client_gameobj.h"   // FClientGameobj : IObjInspectImpl
@@ -1184,7 +1185,7 @@ void FCommChannel::Appearance(CObject* SpeakerObject, CObject* ReceiverUnused,
     {
         CObject* const Object = ObjectOfSimple(Watched);
         FHudWideText Pilot = {nullptr, 0};
-        if (GetShipPilotName(Object, &Pilot) != 0) // FUN_005472d0
+        if (GetShipPilotNameFull(Object, &Pilot) != 0) // FUN_005472d0; HD: FLSharp pilot_names_fix
         {
             wcscat(G_NnTextScratchB, Pilot.Text);
             LineCount = 1;
@@ -1795,7 +1796,9 @@ void HUD_Receiver::Update()
 
 void HUD_Receiver::Draw()
 {
-    // FUN_004cd8a0.
+    // FUN_004cd8a0. HD: HUDless writes RET here (0x004cd8a0) while the HUD is hidden.
+    if (HdHudless::Hidden())
+        return;
     if (IsLetterboxVisible())
     {
         return;

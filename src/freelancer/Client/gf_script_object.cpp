@@ -37,8 +37,10 @@
 #include "soundmanager.h"
 #include "space_letterbox.h"
 #include "thorn_iface.h"
+#include "hd_plugins.h"
 
 #include <math.h>
+#include <stdlib.h> // getenv (FLWIN_SKIP_CUTSCENES)
 #include <string.h>
 
 FGfScriptManager G_GfScriptManager;
@@ -1557,6 +1559,18 @@ FGfScriptSequence* FGfScriptManager::CreateSequence(FRoomRuntime* Room, unsigned
 // with +0x0d and a current script: identity slot 21 (+0x54) on each non-null spawned object.
 void FGfScriptManager::Update(int Ms)
 {
+    // Dev aid: FLWIN_SKIP_CUTSCENES skips every skippable letterboxed sequence as soon as it
+    // plays, as pressing Escape (OnEvent 0xf) would.
+    static bool const bSkipCutscenes = getenv("FLWIN_SKIP_CUTSCENES") != nullptr;
+    if (bSkipCutscenes)
+    {
+        for (FGfScriptSequence* const Sequence : Sequences)
+        {
+            if (Sequence->bLetterbox != 0 && Sequence->bPlaying != 0 && Sequence->Field_0x15 != 0)
+                Sequence->bSkip = 1;
+        }
+    }
+
     std::list<FGfScriptSequence*>::iterator It = Sequences.begin();
     while (It != Sequences.end())
     {
@@ -1646,13 +1660,16 @@ bool FGfScriptManager::OnEvent(unsigned MsgId)
     if (MsgId != 0xf)
         return false;
     bool bAny = false;
+    // HD: skippable_cutscenes — every letterboxed sequence is skipped (0x0045685f 8A 50 -> EB 0C:
+    // JMP 0x0045686d past the +0x2d / +0x15 tests).
+    static const bool bHdSkippable = HdPlugins::Feature("skippable_cutscenes");
     std::list<FGfScriptSequence*>::iterator It = Sequences.begin();
     for (; It != Sequences.end(); ++It)
     {
         FGfScriptSequence* const Sequence = *It;
         if (Sequence->bLetterbox == 0)
             continue;
-        if (Sequence->bPlaying != 0 && Sequence->Field_0x15 != 0)
+        if (bHdSkippable || (Sequence->bPlaying != 0 && Sequence->Field_0x15 != 0))
             Sequence->bSkip = 1;
         bAny = true;
     }

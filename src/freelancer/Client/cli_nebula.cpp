@@ -67,6 +67,49 @@ static_assert(offsetof(FNebulaZoneShell, ShellScalar) == 0x24, "zone_shell +0x24
 static_assert(offsetof(FNebulaZoneShell, Tint) == 0x2c, "zone_shell +0x2c");
 
 
+unsigned char* NebulaRetailAt(FNebulaEffect* Nebula, int Off)
+{
+    // Retail offsets of the named members (cli_nebula.h); everything else is the byte image.
+    unsigned char* const Image = Nebula->Image;
+    switch (Off)
+    {
+    case 0x1c: return reinterpret_cast<unsigned char*>(&Nebula->FrameDelta);
+    case 0x20: return reinterpret_cast<unsigned char*>(&Nebula->Zone);
+    case 0x24: return reinterpret_cast<unsigned char*>(&Nebula->Field24);
+    case 0x28: return reinterpret_cast<unsigned char*>(&Nebula->Field28);
+    case 0x2c: return reinterpret_cast<unsigned char*>(&Nebula->Flag2C);
+    case 0x30: return reinterpret_cast<unsigned char*>(&Nebula->Field30);
+    case 0x34: return reinterpret_cast<unsigned char*>(&Nebula->ExclusionMgr);
+    case 0x5c: return reinterpret_cast<unsigned char*>(&Nebula->FogShape);
+    case 0xe0: return reinterpret_cast<unsigned char*>(&Nebula->BoltSegments);
+    case 0x248: return reinterpret_cast<unsigned char*>(&Nebula->Zone248);
+    case 0x270: return reinterpret_cast<unsigned char*>(&Nebula->AmbientLight);
+    case 0x298: return reinterpret_cast<unsigned char*>(&Nebula->FogDistance);
+    case 0x29c: return reinterpret_cast<unsigned char*>(&Nebula->FogNear);
+    case 0x2c0: return &Nebula->FlagLoaded;
+    default: break;
+    }
+    if (Off >= 0x60 && Off < 0x80 && (Off & 3) == 0)
+        return reinterpret_cast<unsigned char*>(&Nebula->BoltShapes[(Off - 0x60) / 4]);
+    if (Off >= 0xe4 && Off < 0xf4 && (Off & 3) == 0)
+        return reinterpret_cast<unsigned char*>(&Nebula->Companion.Values[(Off - 0xe4) / 4]);
+    return Image + Off;
+}
+
+unsigned char* FNebulaClouds::FRaw::operator+(int Off)
+{
+    FNebulaClouds* const Clouds = reinterpret_cast<FNebulaClouds*>(this);
+    if (Off == 0x00)
+        return reinterpret_cast<unsigned char*>(&Clouds->PuffTable);
+    if (Off >= 0x18 && Off < 0x28 && (Off & 3) == 0)
+        return reinterpret_cast<unsigned char*>(&Clouds->LightningShapes[(Off - 0x18) / 4]);
+    if (Off >= 0x28 && Off < 0x48 && (Off & 3) == 0)
+        return reinterpret_cast<unsigned char*>(&Clouds->PuffShapes[(Off - 0x28) / 4]);
+    if (Off == 0xc4)
+        return reinterpret_cast<unsigned char*>(&Clouds->Zone);
+    return Bytes + Off;
+}
+
 namespace
 {
     // DAT_006132dc / +0xe0/+0xe4/+0xe8 — PE .data defaults (exe RVA 0x2132dc…).
@@ -223,7 +266,7 @@ namespace
     // caller 0x00507309 (NebulaUpdate). No test of `this` or of the position pointer.
     void NebulaAmbientTick(FNebulaEffect* Nebula, float const* CamPos3)
     {
-        unsigned char* const B = reinterpret_cast<unsigned char*>(Nebula);
+        FNebulaBytes const B{Nebula};
         // 0x005097c6..0x005097cf: the light at +0x270 is the one pointer retail tests.
         FGameLight* const GLight = *reinterpret_cast<FGameLight**>(B + 0x270);
         if (GLight == nullptr)
@@ -345,16 +388,16 @@ namespace
         // FUN_00550180 (thiscall): only these fields; the rest of the 0x12c block keeps what
         // operator new left there until the [Clouds] parse. The zeroed local vector at
         // [ESP+4..0xc] is an inlined empty ctor that nothing reads.
-        unsigned char* const R = Clouds->Raw;
+        FNebulaClouds::FRaw& R = Clouds->Raw;
         *reinterpret_cast<float*>(R + 0x8) = 1.0f;
         *reinterpret_cast<float*>(R + 0xac) = 1.0f;
         *reinterpret_cast<int*>(R + 0xf4) = 0;
         *reinterpret_cast<int*>(R + 0xf8) = 0;
         *reinterpret_cast<int*>(R + 0xfc) = 0;
-        *reinterpret_cast<int*>(R + 0x0) = 0;
+        *reinterpret_cast<void**>(R + 0x0) = nullptr;
         *reinterpret_cast<int*>(R + 0x4) = 0;
         *reinterpret_cast<int*>(R + 0xc) = 0;
-        *reinterpret_cast<int*>(R + 0xc4) = 0;
+        *reinterpret_cast<void**>(R + 0xc4) = nullptr;
         R[0xec] = 0;
         *reinterpret_cast<int*>(R + 0x128) = 0;
     }
@@ -382,16 +425,16 @@ namespace
     // +0x00. No test of the table pointer; +0x04 / +0xec are left alone.
     void LocalNebulaCloudsFreePuffTable(FNebulaClouds* Clouds)
     {
-        unsigned char* const R = Clouds->Raw;
+        FNebulaClouds::FRaw& R = Clouds->Raw;
         for (int I = 0; I < *reinterpret_cast<int*>(R + 0xc); ++I)
         {
-            void** const Table = *reinterpret_cast<void***>(R);
+            void** const Table = *reinterpret_cast<void***>(R + 0);
             if (Table[I] != nullptr)
                 operator delete(Table[I]);
-            (*reinterpret_cast<void***>(R))[I] = nullptr;
+            (*reinterpret_cast<void***>(R + 0))[I] = nullptr;
         }
-        operator delete(*reinterpret_cast<void**>(R));
-        *reinterpret_cast<void**>(R) = nullptr;
+        operator delete(*reinterpret_cast<void**>(R + 0));
+        *reinterpret_cast<void**>(R + 0) = nullptr;
     }
 
     // FUN_005501e0 (thiscall): with +0xec set, the FUN_00550cf0 body, then +0x04 = 0 and
@@ -463,13 +506,13 @@ namespace
     // FUN_00550b60 (thiscall): rebuild the puff table while +0xec is set.
     void LocalNebulaCloudsRebuildBits(FNebulaClouds* Clouds)
     {
-        unsigned char* const R = Clouds->Raw;
+        FNebulaClouds::FRaw& R = Clouds->Raw;
         if (R[0xec] == 0)
             return;
 
         // 0x00550b75..0x00550bb1: an existing table (the one pointer tested here) is freed as
         // in FUN_00550cf0.
-        if (*reinterpret_cast<void**>(R) != nullptr)
+        if (*reinterpret_cast<void**>(R + 0) != nullptr)
             LocalNebulaCloudsFreePuffTable(Clouds);
 
         // 0x00550bb7..0x00550bd4: +0x0c = ftol(+0x04 * +0x08 + 0.5f); +0x00 = operator new
@@ -479,8 +522,8 @@ namespace
             0.5f);
         *reinterpret_cast<int*>(R + 0xc) = Count;
         void** const Table =
-            static_cast<void**>(operator new(static_cast<unsigned>(Count) << 2));
-        *reinterpret_cast<void***>(R) = Table;
+            static_cast<void**>(operator new(static_cast<unsigned>(Count) * sizeof(void*)));
+        *reinterpret_cast<void***>(R + 0) = Table;
 
         // 0x00550be8..0x00550cdf: per puff (the count re-read every step).
         for (int I = 0; I < *reinterpret_cast<int*>(R + 0xc); ++I)
@@ -568,7 +611,7 @@ namespace
     void LocalNebulaCloudsUpdate(FNebulaClouds* Clouds, void* Camera, float Dt, float Visibility,
                                  Exclusion::NebulaExclusionZoneMgr* ExclusionMgr)
     {
-        unsigned char* const C = Clouds->Raw;
+        FNebulaClouds::FRaw& C = Clouds->Raw;
         // 00550d49: nothing to do until the puff table was built.
         if (C[0xec] == 0)
             return;
@@ -617,7 +660,7 @@ namespace
         *reinterpret_cast<float*>(C + 0xf8) = Centre.Y;
         *reinterpret_cast<float*>(C + 0xfc) = Centre.Z;
 
-        unsigned char** const Table = *reinterpret_cast<unsigned char***>(C);
+        unsigned char** const Table = *reinterpret_cast<unsigned char***>(C + 0);
 
         // 00550e6f..00550f16: pass 1 over every puff.
         int Active = 0;
@@ -862,13 +905,13 @@ namespace
     // the table around the clouds centre (+0xf4..+0xfc). No test of `this`, the table or a puff.
     void LocalNebulaCloudsRegenExcluded(FNebulaClouds* Clouds, void* ExclusionCtx)
     {
-        unsigned char* const R = Clouds->Raw;
+        FNebulaClouds::FRaw& R = Clouds->Raw;
         Exclusion::NebulaExclusionZoneMgr* const ExclMgr =
             static_cast<Exclusion::NebulaExclusionZoneMgr*>(ExclusionCtx);
         // 0x005513b6..0x005514ee: for i < +0x0c (re-read each step).
         for (int I = 0; I < *reinterpret_cast<int*>(R + 0xc); ++I)
         {
-            unsigned char* const Puff = static_cast<unsigned char*>((*reinterpret_cast<void***>(R))[I]);
+            unsigned char* const Puff = static_cast<unsigned char*>((*reinterpret_cast<void***>(R + 0))[I]);
             // 0x005513d7 / LAB_005514cb: past the active count (+0x10) -> hidden, flagged.
             if (I >= *reinterpret_cast<int*>(R + 0x10))
             {
@@ -931,7 +974,7 @@ namespace
     // nebula +0x04 at 0x0050545c, TexturePanels +0x04 at 0x0050a75d). No test of `this`.
     void LocalNebulaCloudsParseIni(FNebulaClouds* Clouds, INI_Reader& Reader, FShapeDB* Shapes)
     {
-        unsigned char* const R = Clouds->Raw;
+        FNebulaClouds::FRaw& R = Clouds->Raw;
 
         // 0x0055024a..0x0055025e: an existing puff table is freed (FUN_00550cf0), +0x04 and
         // +0xec cleared.
@@ -1235,7 +1278,7 @@ namespace
     // the bit_radius_random_variation clamp).
     void ParseExteriorSection(FNebulaEffect* Nebula, INI_Reader& Reader)
     {
-        unsigned char* const B = reinterpret_cast<unsigned char*>(Nebula);
+        FNebulaBytes const B{Nebula};
         while (Reader.read_value())
         {
             if (Reader.is_value("bit_radius"))
@@ -1321,7 +1364,7 @@ namespace
     // before it).
     void ParseFogSection(FNebulaEffect* Nebula, INI_Reader& Reader)
     {
-        unsigned char* const B = reinterpret_cast<unsigned char*>(Nebula);
+        FNebulaBytes const B{Nebula};
         while (Reader.read_value())
         {
             if (Reader.is_value("distance"))
@@ -1347,7 +1390,7 @@ namespace
     // FUN_00504e60's [BackgroundLightning] section, 0x00505712..0x0050585e.
     void ParseBackgroundLightningSection(FNebulaEffect* Nebula, INI_Reader& Reader)
     {
-        unsigned char* const B = reinterpret_cast<unsigned char*>(Nebula);
+        FNebulaBytes const B{Nebula};
         while (Reader.read_value())
         {
             if (Reader.is_value("gap"))
@@ -1375,7 +1418,7 @@ namespace
     // FUN_00504e60's [DynamicLightning] section, 0x00505879..0x005059c9.
     void ParseDynamicLightningSection(FNebulaEffect* Nebula, INI_Reader& Reader)
     {
-        unsigned char* const B = reinterpret_cast<unsigned char*>(Nebula);
+        FNebulaBytes const B{Nebula};
         while (Reader.read_value())
         {
             if (Reader.is_value("gap"))
@@ -1394,7 +1437,7 @@ namespace
     // FUN_00504e60's [NebulaLight] section, 0x005059e4..0x00505abc.
     void ParseNebulaLightSection(FNebulaEffect* Nebula, INI_Reader& Reader)
     {
-        unsigned char* const B = reinterpret_cast<unsigned char*>(Nebula);
+        FNebulaBytes const B{Nebula};
         while (Reader.read_value())
         {
             if (Reader.is_value("ambient"))
@@ -1845,7 +1888,7 @@ void NebulaCloudsParseIni(FNebulaClouds* Clouds, INI_Reader& Reader, FShapeDB* S
 void FNebulaEffect::Load(char const* FilePath, char const* ZoneName)
 {
     FNebulaEffect* const This = this;
-    unsigned char* const B = reinterpret_cast<unsigned char*>(This);
+    FNebulaBytes const B{This};
 
     // 0x00504e83..0x00504e94: a loaded nebula is shut down first (vt+0x04); +0x4c = 1.
     if (This->FlagLoaded != 0)
@@ -1869,10 +1912,10 @@ void FNebulaEffect::Load(char const* FilePath, char const* ZoneName)
         reinterpret_cast<float*>(B + 0x80)[I] = 1.0f;
     This->FogDistance = 10000.0f;
     *reinterpret_cast<int*>(B + 0x29c) = 0;
-    *reinterpret_cast<int*>(B + 0x24) = 0;
+    *reinterpret_cast<void**>(B + 0x24) = nullptr;
     *reinterpret_cast<int*>(B + 0x28) = 0;
     B[0x2c] = 0;
-    *reinterpret_cast<int*>(B + 0x30) = 0;
+    *reinterpret_cast<void**>(B + 0x30) = nullptr;
     *reinterpret_cast<float*>(B + 0x258) = -1.0f;
     *reinterpret_cast<int*>(B + 0xbc) = 1;
 
@@ -1963,7 +2006,7 @@ void FNebulaEffect::Load(char const* FilePath, char const* ZoneName)
 
     // LAB_0050604f..00506144 — ambient GameLight when period@+0x278 > 0.
     {
-        unsigned char* const LB = reinterpret_cast<unsigned char*>(This);
+        FNebulaBytes const LB{This};
         // 0x0050604f: FCOMP 0.0 / TEST AH,0x41 / JNZ -- only a strictly positive period
         // builds the light. There is no else: +0x270 keeps whatever it held (null from the
         // ctor, or the pointer the last Shutdown released -- retail never clears it there).
@@ -2014,7 +2057,7 @@ void FNebulaEffect::DrawFogOverlay(void* Camera)
     // LAB_00508b00 (thiscall, RET 4), 0x00508b00..0x00508ce6. No test of `this` or Camera.
     if (This->FlagLoaded == 0)
         return;
-    unsigned char* const B = reinterpret_cast<unsigned char*>(This);
+    FNebulaBytes const B{This};
     ICamera* const Cam = static_cast<ICamera*>(Camera);
 
     // 0x00508b12 / 0x00508b21: the zone's GetPos (IZone vt+0x10) and the camera's
@@ -2098,7 +2141,7 @@ void FNebulaEffect::DrawFogShell(void* Camera)
     // the MaterialBatcher or the Pipeline.
     if (This->FlagLoaded == 0)
         return;
-    unsigned char* const B = reinterpret_cast<unsigned char*>(This);
+    FNebulaBytes const B{This};
     // 0x00508d07: FCOMP 1.0f, TEST AH,5 / JP -- only an ordered "less" goes on.
     float const Fade = *reinterpret_cast<float*>(B + 0x294);
     if (!(Fade < 1.0f))
@@ -2141,7 +2184,7 @@ void FNebulaEffect::DrawBoltsPass(void* Camera)
     FNebulaEffect* const This = this;
     if (This->FlagLoaded == 0)
         return;
-    unsigned char* const B = reinterpret_cast<unsigned char*>(This);
+    FNebulaBytes const B{This};
     float const FarZ = *reinterpret_cast<float*>(B + 0x2ac);
     float const Near = *reinterpret_cast<float*>(B + 0x29c);
     float const FogDist = *reinterpret_cast<float*>(B + 0x298);
@@ -2182,7 +2225,7 @@ void FNebulaEffect::DrawExclusionShell(void* Camera)
     // while Update found a shell for the current exclusion zone (+0x2c / +0x30).
     if (This->FlagLoaded == 0)
         return;
-    unsigned char* const B = reinterpret_cast<unsigned char*>(This);
+    FNebulaBytes const B{This};
     if (B[0x2c] == 0)
         return;
 
@@ -2308,25 +2351,25 @@ float FNebulaEffect::ZoneExteriorFactor(float const* CamPos3)
 float FNebulaEffect::GetFloat294()
 {
     FNebulaEffect* const This = this;
-    return *reinterpret_cast<float*>(reinterpret_cast<unsigned char*>(This) + 0x294);
+    return *reinterpret_cast<float*>(NebulaRetailAt(This, 0x294));
 }
 
 float FNebulaEffect::GetFloat2C4()
 {
     FNebulaEffect* const This = this;
-    return *reinterpret_cast<float*>(reinterpret_cast<unsigned char*>(This) + 0x2c4);
+    return *reinterpret_cast<float*>(NebulaRetailAt(This, 0x2c4));
 }
 
 float FNebulaEffect::GetFloat2C8()
 {
     FNebulaEffect* const This = this;
-    return *reinterpret_cast<float*>(reinterpret_cast<unsigned char*>(This) + 0x2c8);
+    return *reinterpret_cast<float*>(NebulaRetailAt(This, 0x2c8));
 }
 
 float* FNebulaEffect::CopyFogRgb(float* OutRgb3)
 {
     FNebulaEffect* const This = this;
-    float const* Src = reinterpret_cast<float*>(reinterpret_cast<unsigned char*>(This) + 0x2a0);
+    float const* Src = reinterpret_cast<float*>(NebulaRetailAt(This, 0x2a0));
     OutRgb3[0] = Src[0];
     OutRgb3[1] = Src[1];
     OutRgb3[2] = Src[2];
@@ -2336,7 +2379,7 @@ float* FNebulaEffect::CopyFogRgb(float* OutRgb3)
 float* FNebulaEffect::FillFogRgb(float* OutRgb3)
 {
     FNebulaEffect* const This = this;
-    unsigned char* const B = reinterpret_cast<unsigned char*>(This);
+    FNebulaBytes const B{This};
     // 0x005094b6..0x005094c8: +0x254 FCOMP 0.0f, TEST AH,0x41 / JNP -> copy when the period
     // is <= 0 (a NaN period goes on).
     float const Period = *reinterpret_cast<float*>(B + 0x254);
@@ -2418,13 +2461,13 @@ float* FNebulaEffect::FillFogRgb(float* OutRgb3)
 float FNebulaEffect::GetFloat2AC()
 {
     FNebulaEffect* const This = this;
-    return *reinterpret_cast<float*>(reinterpret_cast<unsigned char*>(This) + 0x2ac);
+    return *reinterpret_cast<float*>(NebulaRetailAt(This, 0x2ac));
 }
 
 float FNebulaEffect::FogFactor(float const* CamPos3)
 {
     FNebulaEffect* const This = this;
-    unsigned char* const B = reinterpret_cast<unsigned char*>(This);
+    FNebulaBytes const B{This};
     float const FarZ = *reinterpret_cast<float*>(B + 0x2b0);
     Exclusion::NebulaExclusionZone* const Excl =
         *reinterpret_cast<Exclusion::NebulaExclusionZone**>(B + 0x24);
@@ -2452,14 +2495,14 @@ float FNebulaEffect::FogFactor(float const* CamPos3)
 float FNebulaEffect::GetFloat2B0()
 {
     FNebulaEffect* const This = this;
-    return *reinterpret_cast<float*>(reinterpret_cast<unsigned char*>(This) + 0x2b0);
+    return *reinterpret_cast<float*>(NebulaRetailAt(This, 0x2b0));
 }
 
 float FNebulaEffect::FogFarClamp(float Unused)
 {
     FNebulaEffect* const This = this;
     (void)Unused;
-    unsigned char* const B = reinterpret_cast<unsigned char*>(This);
+    FNebulaBytes const B{This};
     // 0x00509714..0x0050971f: vt+0x40 (GetFloat2B0) + 500.0f (.rdata 0x005d9668), stored
     // rounded to [ESP+4]; the compare below uses the unrounded sum.
     typedef float(__thiscall* FGetFloatFn)(FNebulaEffect* Self);
@@ -2490,7 +2533,7 @@ float FNebulaEffect::FogFarClamp(float Unused)
 unsigned char const* FNebulaEffect::GetAmbientBytes()
 {
     FNebulaEffect* const This = this;
-    unsigned char* const B = reinterpret_cast<unsigned char*>(This);
+    FNebulaBytes const B{This};
     if (B[0x2cc] == 0)
         return nullptr;
     return B + 0x2cd;
@@ -2527,10 +2570,11 @@ FNebulaEffectCompanion::~FNebulaEffectCompanion()
 
 FNebulaCloudsListStorage::FNebulaCloudsListStorage()
 {
-    void* ListSent = operator new(0xc);
-    *static_cast<void**>(ListSent) = ListSent;
-    *reinterpret_cast<void**>(static_cast<unsigned char*>(ListSent) + 4) = ListSent;
-    Sentinel = static_cast<FNebulaCloudsListNode*>(ListSent);
+    FNebulaCloudsListNode* const ListSent =
+        static_cast<FNebulaCloudsListNode*>(operator new(sizeof(FNebulaCloudsListNode)));
+    ListSent->Next = ListSent;
+    ListSent->Prev = ListSent;
+    Sentinel = ListSent;
     Count = 0;
 }
 
@@ -2549,12 +2593,13 @@ FNebulaCloudsListStorage::~FNebulaCloudsListStorage()
 }
 
 FNebulaEffect::FNebulaEffect()
-    : Field24(0), Field28(0), Flag2C(0), Field30(0)
+    : Field24(nullptr), Field28(0), Flag2C(0), Field30(nullptr), FogShape(nullptr),
+      BoltShapes{}, BoltSegments(nullptr), Zone248(nullptr), AmbientLight(nullptr)
 {
     FNebulaEffect* const This = this;
     // FUN_00504970: member construction registers the native cleanup order for exceptions.
     // Remaining stores deliberately leave every other byte untouched.
-    unsigned char* const B = reinterpret_cast<unsigned char*>(This);
+    FNebulaBytes const B{This};
 
     // The compiler installs the derived vptr; +0x24c retains its explicit zero store.
     B[0x24c] = 0;
@@ -2562,14 +2607,14 @@ FNebulaEffect::FNebulaEffect()
     // 0x00504a56..0x00504ade.
     *reinterpret_cast<unsigned*>(B + 0xa0) = 0;
     *reinterpret_cast<unsigned*>(B + 0xdc) = 0;
-    *reinterpret_cast<unsigned*>(B + 0xe0) = 0;
+    *reinterpret_cast<void**>(B + 0xe0) = nullptr;
     This->Zone = nullptr;
     This->FlagLoaded = 0;
     B[0x2cc] = 0;
     *reinterpret_cast<unsigned*>(B + 0xd0) = 0;
     *reinterpret_cast<unsigned*>(B + 0x294) = 0;
     *reinterpret_cast<unsigned*>(B + 0x2b4) = 0;
-    *reinterpret_cast<unsigned*>(B + 0x5c) = 0;
+    *reinterpret_cast<void**>(B + 0x5c) = nullptr;
     This->ExclusionMgr = nullptr;
 
     // 0x00504ae1..0x00504af4: FUN_00509d60, erase(begin, end) of the (empty) zone_shell map.
@@ -2577,58 +2622,58 @@ FNebulaEffect::FNebulaEffect()
 
     // 0x00504b48..0x00504b4e, 0x00504b87.
     B[0x26c] = 0;
-    *reinterpret_cast<unsigned*>(B + 0x270) = 0;
+    *reinterpret_cast<void**>(B + 0x270) = nullptr;
     *reinterpret_cast<unsigned*>(B + 0x1c) = 0;
 
     // Constants of 0x00504a77..0x00504b8a.
-    *reinterpret_cast<unsigned*>(reinterpret_cast<unsigned char*>(This) + 0xc0) = 4;
-    *reinterpret_cast<unsigned*>(reinterpret_cast<unsigned char*>(This) + 0xc4) = 8;
-    *reinterpret_cast<float*>(reinterpret_cast<unsigned char*>(This) + 0xc8) = 1.0f;
-    *reinterpret_cast<float*>(reinterpret_cast<unsigned char*>(This) + 0xcc) = 1.0f;
-    *reinterpret_cast<float*>(reinterpret_cast<unsigned char*>(This) + 0xd4) =
+    *reinterpret_cast<unsigned*>(NebulaRetailAt(This, 0xc0)) = 4;
+    *reinterpret_cast<unsigned*>(NebulaRetailAt(This, 0xc4)) = 8;
+    *reinterpret_cast<float*>(NebulaRetailAt(This, 0xc8)) = 1.0f;
+    *reinterpret_cast<float*>(NebulaRetailAt(This, 0xcc)) = 1.0f;
+    *reinterpret_cast<float*>(NebulaRetailAt(This, 0xd4)) =
         BitsToFloat(0x3f400000);
-    *reinterpret_cast<unsigned*>(reinterpret_cast<unsigned char*>(This) + 0xd8) = 1;
+    *reinterpret_cast<unsigned*>(NebulaRetailAt(This, 0xd8)) = 1;
 
-    *reinterpret_cast<float*>(reinterpret_cast<unsigned char*>(This) + 0x50) =
+    *reinterpret_cast<float*>(NebulaRetailAt(This, 0x50)) =
         BitsToFloat(0x3dcccccd);
-    *reinterpret_cast<float*>(reinterpret_cast<unsigned char*>(This) + 0x54) =
+    *reinterpret_cast<float*>(NebulaRetailAt(This, 0x54)) =
         BitsToFloat(0x41200000);
-    *reinterpret_cast<float*>(reinterpret_cast<unsigned char*>(This) + 0x58) =
+    *reinterpret_cast<float*>(NebulaRetailAt(This, 0x58)) =
         BitsToFloat(0x3e4ccccd);
 
-    *reinterpret_cast<float*>(reinterpret_cast<unsigned char*>(This) + 0x250) =
+    *reinterpret_cast<float*>(NebulaRetailAt(This, 0x250)) =
         BitsToFloat(0x41200000);
-    *reinterpret_cast<float*>(reinterpret_cast<unsigned char*>(This) + 0x254) =
+    *reinterpret_cast<float*>(NebulaRetailAt(This, 0x254)) =
         BitsToFloat(0x3f000000);
-    *reinterpret_cast<float*>(reinterpret_cast<unsigned char*>(This) + 0x258) =
+    *reinterpret_cast<float*>(NebulaRetailAt(This, 0x258)) =
         BitsToFloat(0xbf800000);
-    *reinterpret_cast<float*>(reinterpret_cast<unsigned char*>(This) + 0x25c) =
+    *reinterpret_cast<float*>(NebulaRetailAt(This, 0x25c)) =
         BitsToFloat(0x3e800000);
-    *reinterpret_cast<float*>(reinterpret_cast<unsigned char*>(This) + 0x260) =
+    *reinterpret_cast<float*>(NebulaRetailAt(This, 0x260)) =
         BitsToFloat(0x3e800000);
-    *reinterpret_cast<float*>(reinterpret_cast<unsigned char*>(This) + 0x264) =
+    *reinterpret_cast<float*>(NebulaRetailAt(This, 0x264)) =
         BitsToFloat(0x3e800000);
-    *reinterpret_cast<float*>(reinterpret_cast<unsigned char*>(This) + 0x268) = 1.0f;
+    *reinterpret_cast<float*>(NebulaRetailAt(This, 0x268)) = 1.0f;
 
-    *reinterpret_cast<float*>(reinterpret_cast<unsigned char*>(This) + 0x274) =
+    *reinterpret_cast<float*>(NebulaRetailAt(This, 0x274)) =
         BitsToFloat(0x40400000);
-    *reinterpret_cast<float*>(reinterpret_cast<unsigned char*>(This) + 0x278) =
+    *reinterpret_cast<float*>(NebulaRetailAt(This, 0x278)) =
         BitsToFloat(0x3f000000);
-    *reinterpret_cast<float*>(reinterpret_cast<unsigned char*>(This) + 0x27c) =
+    *reinterpret_cast<float*>(NebulaRetailAt(This, 0x27c)) =
         BitsToFloat(0xbf800000);
-    *reinterpret_cast<float*>(reinterpret_cast<unsigned char*>(This) + 0x280) = 1.0f;
-    *reinterpret_cast<float*>(reinterpret_cast<unsigned char*>(This) + 0x284) = 1.0f;
-    *reinterpret_cast<float*>(reinterpret_cast<unsigned char*>(This) + 0x288) = 1.0f;
-    *reinterpret_cast<float*>(reinterpret_cast<unsigned char*>(This) + 0x28c) =
+    *reinterpret_cast<float*>(NebulaRetailAt(This, 0x280)) = 1.0f;
+    *reinterpret_cast<float*>(NebulaRetailAt(This, 0x284)) = 1.0f;
+    *reinterpret_cast<float*>(NebulaRetailAt(This, 0x288)) = 1.0f;
+    *reinterpret_cast<float*>(NebulaRetailAt(This, 0x28c)) =
         BitsToFloat(0x3e800000);
-    *reinterpret_cast<float*>(reinterpret_cast<unsigned char*>(This) + 0x290) =
+    *reinterpret_cast<float*>(NebulaRetailAt(This, 0x290)) =
         BitsToFloat(0x3f400000);
 
-    *reinterpret_cast<float*>(reinterpret_cast<unsigned char*>(This) + 0x2c4) =
+    *reinterpret_cast<float*>(NebulaRetailAt(This, 0x2c4)) =
         BitsToFloat(0x3f000000);
-    *reinterpret_cast<float*>(reinterpret_cast<unsigned char*>(This) + 0x2c8) =
+    *reinterpret_cast<float*>(NebulaRetailAt(This, 0x2c8)) =
         BitsToFloat(0x3fe00000);
-    *reinterpret_cast<float*>(reinterpret_cast<unsigned char*>(This) + 0x2bc) =
+    *reinterpret_cast<float*>(NebulaRetailAt(This, 0x2bc)) =
         BitsToFloat(0x459c4000);
 
 }
@@ -2697,7 +2742,7 @@ void NebulaOrientBolts(FNebulaEffect* Nebula, float Tx, float Ty, float Tz)
     // FUN_00507340 (thiscall, RET 0xc), 0x00507340..0x005074d9: re-aim each bolt anchor's
     // axis (+0x14..+0x1c) square to the direction from the anchor to the target. No test of
     // `this`, the zone or the buffer; no zero-length test.
-    unsigned char* const B = reinterpret_cast<unsigned char*>(Nebula);
+    FNebulaBytes const B{Nebula};
 
     // 0x00507346..0x00507393: the target relative to the zone position (GetPos, vt+0x10), as
     // floats.
@@ -2766,7 +2811,7 @@ namespace
     // sqrt; the sites differ in their summation order.
     void NebulaBoltShrink(FNebulaEffect* Nebula, float* Seg, double Len)
     {
-        unsigned char* const B = reinterpret_cast<unsigned char*>(Nebula);
+        FNebulaBytes const B{Nebula};
         double const Margin = static_cast<double>(*reinterpret_cast<float*>(B + 0xd4)) *
                               *reinterpret_cast<float*>(B + 0xa4);
         double const Shrink = (Len - Margin) / Len;
@@ -2780,7 +2825,7 @@ void NebulaRebuild(FNebulaEffect* Nebula)
 {
     // FUN_00506600 (thiscall, no arguments), 0x00506600..0x00506cb2: the bolt-anchor buffer
     // (+0xe0, count +0xdc, 0x20 bytes each) rebuilt on the zone's surface. No test of `this`.
-    unsigned char* const B = reinterpret_cast<unsigned char*>(Nebula);
+    FNebulaBytes const B{Nebula};
 
     // 0x0050660f..0x00506623: FUN_005b7e1d (operator delete -> free) on the old buffer, then
     // +0xe0 = +0xdc = 0.
@@ -2908,7 +2953,9 @@ void NebulaRebuild(FNebulaEffect* Nebula)
             Running += reinterpret_cast<float*>(B + 0x80)[J];
             if (Pick < Running)
             {
-                memcpy(&S[4], B + 0x60 + J * 4, sizeof(float));
+                // The shape goes into the float slot as its 32-bit handle on LP64.
+                unsigned const ShapeId = FL_PTR_TO_U32(reinterpret_cast<FTexShape**>(B + 0x60)[J]);
+                memcpy(&S[4], &ShapeId, sizeof(ShapeId));
                 break;
             }
         }
@@ -3015,7 +3062,7 @@ void FNebulaEffect::Update(void* Camera, float Dt)
     // LAB_00506f20 — vtable +0x08 (__thiscall, RET 8). 506f20 MOV EAX,[ESP+8] /
     // MOV [ESI+0x1c],EAX: the SECOND argument (frame dt) lands at +0x1c; the first is the
     // camera (506f9c).
-    unsigned char* const B = reinterpret_cast<unsigned char*>(Nebula);
+    FNebulaBytes const B{Nebula};
     *reinterpret_cast<float*>(B + 0x1c) = Dt;
 
     // 00506f2f..00506f98: after a (re)load (+0x4c), +0x2b4 = the largest clouds reach
@@ -3028,7 +3075,7 @@ void FNebulaEffect::Update(void* Camera, float Dt)
         FNebulaCloudsListNode* const Sentinel = Nebula->Clouds.Sentinel;
         for (FNebulaCloudsListNode* N = Sentinel->Next; N != Sentinel; N = N->Next)
         {
-            unsigned char const* const C = N->Clouds->Raw;
+            FNebulaClouds::FRaw& C = N->Clouds->Raw;
             double const Reach =
                 static_cast<double>(*reinterpret_cast<float const*>(C + 0xc0)) * 0.5f +
                 *reinterpret_cast<float const*>(C + 0xa8);
@@ -3264,7 +3311,7 @@ void NebulaUpdateBoltCamera(FNebulaEffect* Nebula, float CamX, float CamY, float
     // FUN_005074e0 (thiscall, RET 0xc), 0x005074e0..0x00507e63: two crossing fog sheets through
     // the zone, textured with the fill shape (+0x5c). Only +0x5c is tested; the arguments are the
     // camera position.
-    unsigned char* const B = reinterpret_cast<unsigned char*>(Nebula);
+    FNebulaBytes const B{Nebula};
     FTexShape* const Shape = *reinterpret_cast<FTexShape**>(B + 0x5c);
     if (Shape == nullptr)
         return;
@@ -3466,7 +3513,7 @@ void NebulaUpdateBoltCamera(FNebulaEffect* Nebula, float CamX, float CamY, float
 void NebulaDrawBolts(FNebulaEffect* Nebula, void* Camera)
 {
     // FUN_00507ed0 (__thiscall, RET 4), traced end to end against .text:00507ed0..00508aef.
-    unsigned char* const B = reinterpret_cast<unsigned char*>(Nebula);
+    FNebulaBytes const B{Nebula};
 
     // 0x00507edf..0x00507f00: nothing without segments (+0xdc, signed JLE), nothing once +0x294
     // is not below 1.0 (`TEST AH,0x5; JP` also exits when unordered).
@@ -3709,7 +3756,8 @@ void NebulaDrawBolts(FNebulaEffect* Nebula, void* Camera)
             Win3DColor3f(Cr * A, Cg * A, Cb * A);
 
         // 0x00508850..0x00508a4b: four corners, P+Q+H, P+Q-H, P-Q-H, P-Q+H.
-        FTexShape const* const Shape = *reinterpret_cast<FTexShape* const*>(Seg + 4);
+        FTexShape const* const Shape =
+            FL_U32_TO_PTR(FTexShape const, *reinterpret_cast<unsigned const*>(Seg + 4));
         Win3DTexCoord2f(Shape->U0, Shape->V0);
         Win3DVertex3f((P[0] + Qx) + Hx, (P[1] + Qy) + Hy, (P[2] + Qz) + Hz);
         Win3DTexCoord2f(Shape->U1, Shape->V0);
@@ -3747,7 +3795,7 @@ void FNebulaEffect::Shutdown()
     if (Nebula->FlagLoaded == 0)
         return;
 
-    unsigned char* const B = reinterpret_cast<unsigned char*>(Nebula);
+    FNebulaBytes const B{Nebula};
     *reinterpret_cast<unsigned*>(B + 0xa0) = 0;
 
     void* Bolt = *reinterpret_cast<void**>(B + 0xe0);
@@ -3839,7 +3887,7 @@ FNebulaEffect::~FNebulaEffect()
     // after Shutdown.
     NebulaShutdown(Nebula);
 
-    unsigned char* const B = reinterpret_cast<unsigned char*>(Nebula);
+    FNebulaBytes const B{Nebula};
 
     // 0x00504d25..0x00504d30: ~lightning (+0x100) is FUN_005526d0.
     LightningDisable(reinterpret_cast<float*>(B + 0x100));

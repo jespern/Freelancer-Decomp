@@ -15,3 +15,7 @@
 // bEmitLabels / bEmitValues match retail param_3 / param_4 (caller splits label vs value columns).
 void BuildDealerEquipmentStatText(RenderDisplayList& OutRdl, unsigned ArchId, bool bEmitLabels,
                                   bool bEmitValues);
+
+// HD: jflp.dll's extra stats (Power, Engine, Scanner, Tractor, Armor), unless its "nostats"
+// option is given. True also makes those classes take the info card's stat panes.
+bool DealerJflpExtraStats();

@@ -34,7 +34,7 @@ struct FStarGlowDesc
     float OuterColor[3];     // +0x34
     float Alpha;             // +0x40
     unsigned Field44;        // +0x44
-    unsigned Field48;        // +0x48
+    void const* Field48;     // +0x48 cached FTexShape (a retail dword)
     unsigned char Field4C;   // +0x4c
     unsigned char Pad4D[3];
 };
@@ -44,15 +44,59 @@ static_assert(sizeof(FStarGlowDesc) == 0x50, "star_glow desc 0x50");
 struct FSunEffectBody
 {
     unsigned char Raw[0x30c];
+    // Retail +0x2e0, the cached corona FTexShape: a dword in the block, so natively it is kept
+    // here, past it (the alpha byte at +0x2e4 stays in Raw).
+    void const* CoronaShape;
 };
-static_assert(sizeof(FSunEffectBody) == 0x30c, "SunEffect body 0x30c");
+// Retail allocates 0x30c (the Raw block); CoronaShape is the port's native slot past it.
 
 // Lens-flare / spines child shell (0x40). Load parsers FUN_0050f3a0 / 0050fba0 fill
 // the element ranges; draw (FUN_0050f850 / 00510160) walks [Begin, End).
+struct FStarFxChild40Fields
+{
+    float Field00;            // +0x00
+    void* Begin;              // +0x04 element vector (float[6]* beads / 0x2c spine records)
+    void* End;                // +0x08
+    void* Cap;                // +0x0c
+    unsigned Field10;         // +0x10
+    char Name[0x20];          // +0x14 inline name
+    void const* Shape;        // +0x34 cached FTexShape
+    float Clamp38;            // +0x38
+    float Clamp3C;            // +0x3c
+};
+
 struct FStarFxChild40
 {
-    unsigned char Raw[0x40];
+    // Retail is a 0x40-byte block addressed by byte offset; the fields hold pointers, so the
+    // native block is FStarFxChild40Fields and StarFxChild40At maps the retail offsets.
+    union
+    {
+        unsigned char Raw[0x40];
+        FStarFxChild40Fields Fields;
+    };
 };
+
+// The native address of retail offset `RetailOffset` in a child block (its Raw).
+inline unsigned char* StarFxChild40At(unsigned char* Raw, unsigned RetailOffset)
+{
+    FStarFxChild40Fields* F = reinterpret_cast<FStarFxChild40Fields*>(Raw);
+    unsigned char* Base = nullptr;
+    unsigned Start = 0;
+    if (RetailOffset >= 0x3c) { Base = reinterpret_cast<unsigned char*>(&F->Clamp3C); Start = 0x3c; }
+    else if (RetailOffset >= 0x38) { Base = reinterpret_cast<unsigned char*>(&F->Clamp38); Start = 0x38; }
+    else if (RetailOffset >= 0x34) { Base = reinterpret_cast<unsigned char*>(&F->Shape); Start = 0x34; }
+    else if (RetailOffset >= 0x14) { Base = reinterpret_cast<unsigned char*>(F->Name); Start = 0x14; }
+    else if (RetailOffset >= 0x10) { Base = reinterpret_cast<unsigned char*>(&F->Field10); Start = 0x10; }
+    else if (RetailOffset >= 0x0c) { Base = reinterpret_cast<unsigned char*>(&F->Cap); Start = 0x0c; }
+    else if (RetailOffset >= 0x08) { Base = reinterpret_cast<unsigned char*>(&F->End); Start = 0x08; }
+    else if (RetailOffset >= 0x04) { Base = reinterpret_cast<unsigned char*>(&F->Begin); Start = 0x04; }
+    else { Base = reinterpret_cast<unsigned char*>(&F->Field00); Start = 0x00; }
+    return Base + (RetailOffset - Start);
+}
+inline unsigned char const* StarFxChild40At(unsigned char const* Raw, unsigned RetailOffset)
+{
+    return StarFxChild40At(const_cast<unsigned char*>(Raw), RetailOffset);
+}
 
 struct IObjInspect;
 struct FStarSphere;

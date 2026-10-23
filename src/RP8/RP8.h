@@ -74,7 +74,8 @@ struct TRp8SlotPad<0>
 };
 
 template <typename T, unsigned int Size>
-struct TRp8Slot : TRp8SlotPad<(unsigned int)(Size - sizeof(T))>
+// The STL containers are larger on LP64 than their retail slot: no pad then (not a wrapped one).
+struct TRp8Slot : TRp8SlotPad<(unsigned int)(Size > sizeof(T) ? Size - sizeof(T) : 0)>
 {
     T Value;
 };
@@ -120,7 +121,7 @@ struct FRp8Vb
     unsigned long Fvf;
     unsigned long Count;
     unsigned long Used;
-    unsigned long Locked;
+    void* Locked; // the locked data pointer (D3D Lock writes it), doubling as the lock flag
     FRp8Vb* Next;
     FRp8Vb* Prev;
     unsigned long Field1C;
@@ -144,6 +145,20 @@ struct FRp8Ib
 };
 
 static_assert(sizeof(FRp8Ib) == 0x1C, "index buffer node");
+
+// The create_vb / create_ib node lists (object +0x22E4 / +0x22F0); nodes are borrowed.
+struct FRp8VbList
+{
+    FRp8Vb* First;
+    FRp8Vb* Last;
+    unsigned long Count;
+};
+struct FRp8IbList
+{
+    FRp8Ib* First;
+    FRp8Ib* Last;
+    unsigned long Count;
+};
 
 enum ERp8StreamDirtyFlag : unsigned char
 {
@@ -515,6 +530,10 @@ public:
     GENRESULT NeedBuffers(const char* Message, int Line);
     GENRESULT NeedDeviceLifetime(const char* Message, int Line);
     unsigned char* ObjectBase();
+    // Retail +0x354..+0x3FC (pipeline-state slots through Field3F8_) and Ability_ after it hold
+    // only dwords, so their inner layout survives LP64; retail offsets into them resolve here
+    // instead of through ObjectBase.
+    unsigned char* PipelineStateAt(unsigned int RetailOffset);
     // FUN_06d0b607 / FUN_06d0bb58: MulTransform(diag(1,1,-1), M12) — negate row2 + Tz.
     void MulZFlip12(float* Out12, const float* In12);
     void ApplyIdentityTransforms();
@@ -558,13 +577,10 @@ public:
     IDirect3DDevice8* Device_;
     IDirect3DSurface8* LockBufferSurf_;
     FRp8StreamCache StreamCache_;
-    // +0x14C: first dword (usage flags) of the inline scratch IB node; the constructor writes
-    // 0x200|8 (06d01220).
-    unsigned long ScratchIbFlags_;
-    IDirect3DIndexBuffer8* ScratchIb_;
-    unsigned char Pad154_[0x160 - 0x154];
-    unsigned long IbUsed_;
-    unsigned long IbCapacity_;
+    // +0x14C: the inline scratch IB node (index-buffer handle -1). The constructor writes usage
+    // flags 0x200|8 (06d01220); Gpu +0x150 is the scratch buffer, Cursor/Capacity +0x160/+0x164
+    // its used and allocated index counts.
+    FRp8Ib ScratchIbNode_;
     unsigned long VidMem_;
     // +0x16C: the VBMgr / create_vb(flags & 1) pool, retail map<FVF, vertex-buffer node>
     // (constructed by FUN_06d1d490, find-or-insert FUN_06d19aa0, node value at node+0x10,
@@ -632,7 +648,9 @@ public:
     D3DVIEWPORT8 ViewportCache_;
     unsigned char bDepthRangeValid_;
     unsigned char bViewportRectValid_;
-    unsigned char Pad22E2_[0x22FC - 0x22E2];
+    unsigned char Pad22E2_[0x22E4 - 0x22E2];
+    FRp8VbList VbList_; // +0x22E4
+    FRp8IbList IbList_; // +0x22F0
     IDAComponent* Outer_;
     FRp8Inner Inner_;
 };
@@ -640,7 +658,7 @@ public:
 static_assert(offsetof(FDirectX8, Parser_) == 0x20, "Parser +0x20");
 static_assert(offsetof(FDirectX8, SectionName_) == 0x24, "SectionName +0x24");
 static_assert(offsetof(FDirectX8, LastSection_) == 0xA4, "LastSection +0xA4");
-static_assert(offsetof(FDirectX8, ScratchIbFlags_) == 0x14C, "ScratchIbFlags +0x14C");
+static_assert(offsetof(FDirectX8, ScratchIbNode_) == 0x14C, "scratch IB node +0x14C");
 static_assert(offsetof(FDirectX8, Adapters_) == 0x198, "Adapters +0x198");
 static_assert(offsetof(FDirectX8, PropertyMap_) == 0x278, "PropertyMap +0x278");
 static_assert(offsetof(FDirectX8, AbilityMap_) == 0x28C, "AbilityMap +0x28C");
@@ -653,7 +671,8 @@ static_assert(offsetof(FDirectX8, D3d_) == 0x12C, "D3d +0x12C");
 static_assert(offsetof(FDirectX8, Device_) == 0x130, "Device +0x130");
 static_assert(offsetof(FDirectX8, LockBufferSurf_) == 0x134, "LockBufferSurf +0x134");
 static_assert(offsetof(FDirectX8, StreamCache_) == 0x138, "stream cache +0x138");
-static_assert(offsetof(FDirectX8, ScratchIb_) == 0x150, "ScratchIb +0x150");
+static_assert(offsetof(FDirectX8, VbList_) == 0x22E4, "VB list +0x22E4");
+static_assert(offsetof(FDirectX8, IbList_) == 0x22F0, "IB list +0x22F0");
 static_assert(offsetof(FDirectX8, VidMem_) == 0x168, "VidMem +0x168");
 static_assert(offsetof(FDirectX8, VbPool_) == 0x16C, "VbPool +0x16C");
 static_assert(offsetof(FDirectX8, VbPoolBytes_) == 0x180, "VbPoolBytes +0x180");

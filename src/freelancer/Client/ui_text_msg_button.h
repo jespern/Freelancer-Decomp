@@ -70,6 +70,10 @@ private:
     UiTextMsgButton& operator=(UiTextMsgButton const&) = delete;
 };
 
+// HD: FLSharp slide_ui_anim_fix (ui_anim.cpp) -- before a menu button's slide-out offset: its
+// text image released and hovering off, so the text does not slide out faster than the button.
+void UiTextMsgButtonHideSlidingText(UiTextMsgButton* Button);
+
 static_assert(sizeof(UiTextMsgButton) == 0x4c8, "FUN_0059c580 allocates 0x4c8");
 static_assert(offsetof(UiTextMsgButton, bInteractive) == 0x498, "UITextMsgButton +0x498");
 static_assert(offsetof(UiTextMsgButton, MessageArg) == 0x4a4, "UITextMsgButton +0x4a4");

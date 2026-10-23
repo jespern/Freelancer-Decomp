@@ -282,6 +282,19 @@ static_assert(offsetof(FRpVertexSrcDesc, Diffuse) == 0x2c, "FRpVertexSrcDesc +0x
 static_assert(offsetof(FRpVertexSrcDesc, Tex) == 0x40, "FRpVertexSrcDesc +0x40 texcoords");
 static_assert(offsetof(FRpVertexSrcDesc, SrcFvf) == 0x68, "FRpVertexSrcDesc +0x68 source FVF");
 
+// LockTexture / LockBuffer output (retail five dwords: +0 width, +4 height, +8 pitch,
+// +0xC bits, +0x10 pixel-format index; callers seed Format before the call).
+struct FRpLockedSurface
+{
+    unsigned long Width;
+    unsigned long Height;
+    unsigned long Pitch;
+    void* Bits;
+    unsigned long Format;
+};
+static_assert(offsetof(FRpLockedSurface, Bits) == 0xC, "locked surface +0xC bits");
+static_assert(sizeof(FRpLockedSurface) == 0x14, "locked surface five dwords");
+
 // Borrowed vertex-buffer handle and draw offset.
 struct FVbListing
 {

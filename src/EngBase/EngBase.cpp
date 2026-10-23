@@ -6,7 +6,9 @@
 
 #include "x86math.h"
 #include "EngBase.h"
+#include "hd_plugins.h"
 #include "readfile.h"
+#include "hd_plugins.h"
 
 #include <cmath>
 #include <cstdarg>
@@ -16,6 +18,28 @@
 #include <cstring>
 #include <map>
 #include <new>
+
+// Engine handles (archetypes and instances) leave EngBase as 32-bit tokens: Common, the client
+// and the engine components keep them in retail dword slots (CObject +0x04 is an int). EngPtr
+// takes a token (zero- or sign-extended through an int), null, the -1 sentinel, or a real
+// pointer (EngBase calling its own interface), so it is safe on every inbound value.
+static void* EngTok(const void* Pointer)
+{
+    if (Pointer == nullptr || Pointer == (const void*)(intptr_t)-1)
+        return (void*)Pointer;
+    return (void*)(uintptr_t)FL_PTR_TO_U32(Pointer);
+}
+template <typename T> static T* EngPtr(const void* Handle)
+{
+    const uintptr_t Value = (uintptr_t)Handle;
+    if (Value == 0)
+        return nullptr;
+    if ((uint32_t)Value == 0xFFFFFFFFu)
+        return (T*)(intptr_t)-1;
+    if ((Value >> 32) != 0 && (Value >> 32) != 0xFFFFFFFFu)
+        return (T*)Handle;
+    return FL_U32_TO_PTR(T, (uint32_t)Value);
+}
 
 #pragma comment(lib, "dacom.lib")
 
@@ -90,11 +114,11 @@ struct FEngBaseFileSystemDesc
     const char* DataPath;
     unsigned long Field10;
     unsigned long Field14;
-    unsigned long Field18;
+    void* Field18; // pointer slot (FFileSystemDesc)
     unsigned long Field1C;
     unsigned long Field20;
-    unsigned long Field24;
-    unsigned long Field28;
+    void* Field24; // pointer slot (FFileSystemDesc)
+    void* Field28; // pointer slot (FFileSystemDesc)
     unsigned long Field2C;
     unsigned long Field30;
 };
@@ -476,12 +500,14 @@ static GENRESULT InnerQueryTable(void* Object, const char* Iid, void** Out,
 
 // Inner QI table @ 06629478 (PE bytes): {IAnimation2, 0}, {IAnimation, 0}, {IChannel, 8},
 // {IRootData, 0xC}, {IAggregateComponent, 4}, then a null iid.
+// The facet offsets are the base-class subobject positions (0x4/0x8/0xC in the 32-bit
+// layout); they are taken from the class hierarchy so they hold on LP64 too.
 static const FInnerIidEntry G_AnimationInnerIids[] = {
     {Iids::Animation2, 0},
     {Iids::Animation, 0},
-    {Iids::Channel, 0x08},
-    {Iids::RootData, 0x0C},
-    {Iids::AggregateComponent, 0x04},
+    {Iids::Channel, FlFacetOffset<FAnimationObject, FAnimationChannelFacet>()},  // 0x08
+    {Iids::RootData, FlFacetOffset<FAnimationObject, IRootData>()},              // 0x0C
+    {Iids::AggregateComponent, FlFacetOffset<FAnimationObject, IAggregateComponent>()}, // 0x04
     {nullptr, 0},
 };
 
@@ -489,8 +515,8 @@ static const FInnerIidEntry G_AnimationInnerIids[] = {
 // {IAggregateComponent, 4}, then a null iid. IAggregateComponent answers with the IEC facet.
 static const FInnerIidEntry G_HardpointInnerIids[] = {
     {Iids::Hardpoint, 0},
-    {Iids::EngineComponent, 0x04},
-    {Iids::AggregateComponent, 0x04},
+    {Iids::EngineComponent, FlFacetOffset<FHardpointObject, IEngineComponent>()},    // 0x04
+    {Iids::AggregateComponent, FlFacetOffset<FHardpointObject, IEngineComponent>()}, // 0x04
     {nullptr, 0},
 };
 
@@ -538,9 +564,20 @@ static unsigned long DACOM_API AnimationRelease(FAnimationObject* This)
     return This->Controller->Release();
 }
 
+// Offset is the retail (32-bit) position of the facet Nested points at: 4 = the
+// IAggregateComponent facet, 8 = the channel facet, 0xC = IRootData. It is mapped to this
+// build's layout so the adjustment holds on LP64.
 static FAnimationObject* AnimationFromNested(void* Nested, unsigned long Offset)
 {
-    return (FAnimationObject*)((unsigned char*)Nested - Offset);
+    long Actual = (long)Offset;
+    switch (Offset)
+    {
+    case 0x4: Actual = FlFacetOffset<FAnimationObject, IAggregateComponent>(); break;
+    case 0x8: Actual = FlFacetOffset<FAnimationObject, FAnimationChannelFacet>(); break;
+    case 0xC: Actual = FlFacetOffset<FAnimationObject, IRootData>(); break;
+    default: break;
+    }
+    return (FAnimationObject*)((unsigned char*)Nested - Actual);
 }
 
 // Shared engine cache; Engine2 has its own QI output slot.
@@ -717,7 +754,7 @@ static FTypedChannel* FindTypedChannel(FAnimationObject* Animation, unsigned lon
 {
     if (Key == 0xFFFFFFFF)
         return nullptr;
-    FTypedChannel* Wanted = (FTypedChannel*)((size_t)Key);
+    FTypedChannel* Wanted = FL_U32_TO_PTR(FTypedChannel, Key);
     FTypedChannelSet::iterator It = Animation->Channels->find(Wanted);
     if (It == Animation->Channels->end())
         return nullptr;
@@ -1318,8 +1355,8 @@ static unsigned long DACOM_API TypedBindType6(FPosQuatTypedChannel* This, unsign
         return 0;
     }
     const float* HeaderF = (const float*)Header;
-    const float* Block = (const float*)((size_t)(Header[6]));
-    FEngineInstance* Instance = (FEngineInstance*)((size_t)(This->Field14));
+    const float* Block = FL_U32_TO_PTR(const float, Header[6]);
+    FEngineInstance* Instance = EngPtr<FEngineInstance>((void*)(uintptr_t)(This->Field14));
     if (HeaderF[0] == 0.0f || (Header[1] & 0x40) != 0)
     {
         if (Block != nullptr)
@@ -1457,6 +1494,16 @@ static unsigned long DACOM_API TypedBindMap(FTypedChannel* This, unsigned long* 
 
 static unsigned long DACOM_API TypedBindMapType1(FScalarTypedChannel* This, unsigned long* Map, void* Bind)
 {
+    // HD: FLSharp weapon_anim_fix — joints bind to the top-most object (Flags 0) up the parent
+    // chain, the ship rather than the gun (0x0661b83f), so weapon use_animation scripts play.
+    static const bool bBindToTop = HdPlugins::FlSharp("weapon_anim_fix");
+    if (bBindToTop)
+    {
+        for (FEngineInstance* Instance = (FEngineInstance*)Bind; Instance != nullptr;
+             Instance = Instance->Parent)
+            if (Instance->Flags == 0)
+                Bind = Instance;
+    }
     const unsigned long bBound = TypedBindMap(This, Map, Bind);
     if (bBound != 0)
     {
@@ -1843,8 +1890,8 @@ unsigned long TypedTick(FTypedChannel* This, float Dt)
         float* Sampled = This->GetSampled();
         IChannelOwner* Owner = This->Owner;
         return (unsigned long)(Owner->Apply(
-            Sampled, (unsigned long)((size_t)This),
-            TypedBindDesc(This), NewTime));                       // 0661b466..7e
+            Sampled, FL_PTR_TO_U32(This),
+            &This->Kind, NewTime)); // the four-dword bind map, as retail hands it over                       // 0661b466..7e
     }
 
     unsigned long Flags = 0;
@@ -1856,7 +1903,7 @@ unsigned long TypedTick(FTypedChannel* This, float Dt)
         Result = TypedCollect(This, OldTime, This->Time, 3, &Keys[0][0], 0x40, &KeyCount);
         if (KeyCount == 0)                                       // 0661b4d6..d8
             return Result;
-        void* Sink = (void*)((size_t)(This->Field0C));
+        void* Sink = FL_U32_TO_PTR(void, This->Field0C);
         if (Sink == nullptr)                                     // 0661b4de..e3
             return Result;
         FChannelKeyBatch Batch;                                  // frame +0xA0
@@ -1864,8 +1911,8 @@ unsigned long TypedTick(FTypedChannel* This, float Dt)
         // REP MOVSD of (count & 0x1FFFFFFF) * 2 dwords (0661b4f4..0661b50a).
         std::memcpy(Batch.Keys, Keys, (KeyCount & 0x1FFFFFFFu) * 2 * sizeof(float));
         IChannelSink* KeySink = (IChannelSink*)Sink;
-        KeySink->OnKeys((unsigned long)((size_t)This),
-                        (void*)((size_t)(This->Field10)),
+        KeySink->OnKeys(FL_PTR_TO_U32(This),
+                        FL_U32_TO_PTR(void, This->Field10),
                         &Batch);                                  // 0661b50c..1c
         return Result;
     }
@@ -1916,13 +1963,13 @@ unsigned long TypedTick(FTypedChannel* This, float Dt)
                 Math->QuaternionToMatrix(*(FMatrix*)(&Frame[12]),
                                          *(const FQuaternion*)(Pose->AppliedQuat));
                 std::memcpy(Frame, &Frame[12], 9 * sizeof(float)); // 0661b648..5d
-                void* Sink = (void*)((size_t)(This->Field0C));
+                void* Sink = FL_U32_TO_PTR(void, This->Field0C);
                 if (Sink != nullptr)                             // 0661b65b..6e
                 {
                     IChannelSink* LoopSink = (IChannelSink*)Sink;
-                    LoopSink->OnLoop((unsigned long)((size_t)This),
+                    LoopSink->OnLoop(FL_PTR_TO_U32(This),
                                      Frame,
-                                     (void*)((size_t)(This->Field10)));
+                                     FL_U32_TO_PTR(void, This->Field10));
                 }
             }
             // 0661b673..0661b6d6: rebind at the start the channel wraps back to.
@@ -1936,7 +1983,7 @@ unsigned long TypedTick(FTypedChannel* This, float Dt)
             std::memcpy(&Header[4], &This->Scale, sizeof(float));
             std::memcpy(&Header[5], &This->Field_0x30, sizeof(float));
             Header[6] = This->Kind == 1
-                            ? (unsigned long)((size_t)(&Frame[0]))
+                            ? FL_PTR_TO_U32(&Frame[0])
                             : 0;
             This->BindHeader(Header);
             // FLD Duration (frame +0x10); FCOMP 0.0f; TEST AH,0x44; JNP -- skipped only when the
@@ -2434,7 +2481,7 @@ static unsigned long DACOM_API SetChannelOverlayOrientation(FPosQuatTypedChannel
     Quat[1] = Pose[4];
     Quat[2] = Pose[5];
     Quat[3] = Pose[6];
-    FEngineInstance* Instance = (FEngineInstance*)((size_t)(This->Field14));
+    FEngineInstance* Instance = EngPtr<FEngineInstance>((void*)(uintptr_t)(This->Field14));
     const float* InstanceOrient = G_AnimEngine->GetInstanceOrientation(Instance);
     float Transposed[9];                                         // FUN_0661caa0
     Transposed[0] = InstanceOrient[0];
@@ -2666,7 +2713,7 @@ static unsigned long PlaybackFilterTyped(FAnimPlayback* Playback, IChannel* Filt
         const unsigned long Type = Typed->GetType();
         if (Type != 8)
         {
-            if (Filter->InMixer((unsigned long)((size_t)Typed)) != 0)
+            if (Filter->InMixer(FL_PTR_TO_U32(Typed)) != 0)
                 return 0;
         }
         ++Cursor;
@@ -2726,7 +2773,7 @@ static unsigned long ChannelBindAndInsert(FAnimationObject* Animation, FTypedCha
         return 0xFFFFFFFF;
     }
     Animation->Channels->insert(Typed);
-    return (unsigned long)((size_t)Typed);
+    return FL_PTR_TO_U32(Typed);
 }
 
 // LAB_06615950 / IChannel+0x0C RET 0x14 (Owner, Type, BindA, BindB). Owner null -> -1
@@ -2868,7 +2915,7 @@ static unsigned long* DACOM_API ChannelGetHeader(void* ChannelThis, unsigned lon
     const unsigned long* Source = Default;
     FTypedChannel* Typed = FindTypedChannel(AnimationFromNested(ChannelThis, 8), Key);
     if (Typed != nullptr)
-        Source = (const unsigned long*)(TypedBindDesc(Typed));
+        Source = &Typed->Kind; // {Kind, +0x0c, +0x10, +0x14}
     std::memcpy(Out, Source, sizeof(Default));
     return Out;
 }
@@ -2954,9 +3001,11 @@ static unsigned long DACOM_API HardpointRelease(FHardpointObject* This)
     return This->Controller->Release();
 }
 
+// Offset 4 is the retail position of the IEngineComponent facet (see AnimationFromNested).
 static FHardpointObject* HardpointFromNested(void* Nested, unsigned long Offset)
 {
-    return (FHardpointObject*)((unsigned char*)Nested - Offset);
+    long Actual = Offset == 0x4 ? FlFacetOffset<FHardpointObject, IEngineComponent>() : (long)Offset;
+    return (FHardpointObject*)((unsigned char*)Nested - Actual);
 }
 
 static GENRESULT DACOM_API HardpointEngineComponentQueryInterface(void* Nested, const char* Iid,
@@ -3485,7 +3534,7 @@ static GENRESULT DACOM_API EngineQuerySearchPath(FEngineObject* This, char* Dest
 }
 
 static FArchetypeHandle* const G_InvalidArchetype =
-    (FArchetypeHandle*)G_InvalidEngineHandle;
+    EngPtr<FArchetypeHandle>(G_InvalidEngineHandle);
 
 // The 0x34 FileSystem descriptor every caller builds inline (LAB_0661ffc0 0661ffde..06620025,
 // FUN_066201b0, FUN_06611840 ...): zeroed, then size / "FileSystem" / +8 backend / +0xC path /
@@ -3579,7 +3628,7 @@ static unsigned long DACOM_API EngineReleaseHandle(FEngineObject* This, FArchety
 
     FEngineChildNode* Sentinel = This->EngineComponentList;
     for (FEngineChildNode* Node = Sentinel->Next; Node != Sentinel; Node = Node->Next)
-        AsEngineComponent(Node->Object)->DestroyArchetype(Handle);
+        AsEngineComponent(Node->Object)->DestroyArchetype(EngTok(Handle));
 
     if (This->Archetypes.erase(Handle->Crc) == 0)
     {
@@ -3607,7 +3656,7 @@ static void FanoutIecCreateArchetype(FEngineObject* This, FArchetypeHandle* Hand
 {
     FEngineChildNode* Sentinel = This->EngineComponentList;
     for (FEngineChildNode* Node = Sentinel->Next; Node != Sentinel; Node = Node->Next)
-        AsEngineComponent(Node->Object)->CreateArchetype(Handle, FileSystem);
+        AsEngineComponent(Node->Object)->CreateArchetype(EngTok(Handle), FileSystem);
 }
 
 static void FanoutIecDuplicateArchetype(FEngineObject* This, FArchetypeHandle* NewHandle,
@@ -3616,7 +3665,7 @@ static void FanoutIecDuplicateArchetype(FEngineObject* This, FArchetypeHandle* N
     // 06621387..9f: IEC +0x14 (new, old) on every node of +0x54, no tests.
     FEngineChildNode* Sentinel = This->EngineComponentList;
     for (FEngineChildNode* Node = Sentinel->Next; Node != Sentinel; Node = Node->Next)
-        AsEngineComponent(Node->Object)->DuplicateArchetype(NewHandle, OldHandle);
+        AsEngineComponent(Node->Object)->DuplicateArchetype(EngTok(NewHandle), EngTok(OldHandle));
 }
 
 // LAB_0661fda0 / IEngine +0x10 (RET 8): a null callback returns the +0x5C count at once;
@@ -4329,7 +4378,7 @@ static FEngineInstance* AnimEngineFindInstanceByName(FEngineInstance* From, cons
     if (std::strcmp(Text, Name) == 0)
         return From;
     FEngineInstance* Cursor =
-        (FEngineInstance*)(G_AnimEngine->GetRelatedInstance(From, 0, Invalid));
+        EngPtr<FEngineInstance>(G_AnimEngine->GetRelatedInstance(From, 0, Invalid));
     while (Cursor != Invalid)
     {
         Text = G_AnimEngine->GetInstanceName(&Out, Cursor)->Text;
@@ -4337,7 +4386,7 @@ static FEngineInstance* AnimEngineFindInstanceByName(FEngineInstance* From, cons
             Text = "";
         if (std::strcmp(Text, Name) == 0)
             return Cursor;
-        Cursor = (FEngineInstance*)(G_AnimEngine->GetRelatedInstance(From, 0, Cursor));
+        Cursor = EngPtr<FEngineInstance>(G_AnimEngine->GetRelatedInstance(From, 0, Cursor));
     }
     return Invalid;
 }
@@ -4368,7 +4417,7 @@ static unsigned char BindTrackTarget(FAnimBindOut* Out, FEngineInstance* Root, F
         *Already = bMapped ? 1 : 0;
         if (bMapped)
             return 0;
-        FEngineInstance* Parent = (FEngineInstance*)(G_AnimEngine->GetInstanceParent(Inst));
+        FEngineInstance* Parent = EngPtr<FEngineInstance>(G_AnimEngine->GetInstanceParent(Inst));
         if (Parent == Invalid)
             return 0;
         FArchetypeName NameOut;
@@ -4425,9 +4474,10 @@ static void BindPlaybackTracks(FAnimPlayback* Playback, FEngineInstance* Root, v
         if (bBound != 0)
         {
             FTypedChannel* Typed = *Cursor;
-            bBound = (unsigned char)(
-                Typed->BindMap(
-                    (unsigned long*)(&Bind), Root));
+            // BindMap takes retail's four-dword map; the bind-out's pointers go in as tokens.
+            unsigned long Map[4] = {Bind.Kind, FL_PTR_TO_U32(Bind.Extra), FL_PTR_TO_U32(Bind.Typed),
+                                    FL_PTR_TO_U32(Bind.Instance)};
+            bBound = (unsigned char)(Typed->BindMap(Map, Root));
         }
         if (bBound != 0)
         {
@@ -4591,7 +4641,8 @@ static FTypedChannel* PlaybackFindTypedByHeader(FAnimPlayback* Playback, const F
     while (Index < Playback->Typed.size())
     {
         FTypedChannel* Typed = Playback->Typed[Index];
-        const FAnimBindOut* Desc = TypedBindDesc(Typed);
+        const FAnimBindOut DescValue = TypedBindDesc(Typed);
+        const FAnimBindOut* Desc = &DescValue;
         if (Desc->Kind == Header->Kind)                          // 06612966..7c
         {
             if (Desc->Kind == 0 || Desc->Kind == 1)              // 0661297e..84 -> 0661298e
@@ -4625,6 +4676,10 @@ static void PlaybackSetTypedTime(FAnimPlayback* Playback, float Time)
 // FUN_066129f0 thiscall RET 0: MOV EAX,[this+0x18]; FLD [EAX+0x1C] -- the longest channel's
 static float PlaybackStoredDuration(FAnimPlayback* Playback)
 {
+    // HD: anim_null_fix — no channel gives 0 (engbase.dll 0x066129f3: `test eax,eax; jz -> fldz`).
+    static const bool bHdAnimNullFix = HdPlugins::Feature("anim_null_fix");
+    if (bHdAnimNullFix && Playback->LongestTyped == nullptr)
+        return 0.0f;
     return Playback->LongestTyped->Time;
 }
 
@@ -4792,7 +4847,7 @@ static unsigned long DACOM_API AnimationEvalPlayback(FAnimationObject* This, uns
         Playback, Flags, Time, Scale, (unsigned long)((size_t)A),
         (unsigned long)((size_t)B),
         (unsigned long)((size_t)C),
-        (unsigned long)((size_t)D));
+        FL_PTR_TO_U32(D)); // P6: the optional pose block (a pointer; a token on LP64)
     if (Result == 0xFFFFFFFF)                                    // 06614bfc..03
         return Result;
     const float BlendDuration = FloatFromOpaqueDword(A);
@@ -4864,7 +4919,7 @@ static unsigned long DACOM_API AnimationSetOverlayPos(FAnimationObject* This, un
     if (FindPlaybackRecord(This, PlaybackId, &Playback) == 0)
         return 0;
     FMixerDescMap* Inner =
-        MixerFindKey(This, (long)((ptrdiff_t)(Playback->Root)));
+        MixerFindKey(This, (long)FL_PTR_TO_U32(Playback->Root));
     if (Inner != nullptr)
         PlaybackWriteOverlayPos(Playback, Pos, Inner);
     return 0;
@@ -4878,7 +4933,7 @@ static unsigned long DACOM_API AnimationSetOverlayExtra(FAnimationObject* This, 
     if (FindPlaybackRecord(This, PlaybackId, &Playback) == 0)
         return 0;
     FMixerDescMap* Inner =
-        MixerFindKey(This, (long)((ptrdiff_t)(Playback->Root)));
+        MixerFindKey(This, (long)FL_PTR_TO_U32(Playback->Root));
     if (Inner != nullptr)
         PlaybackWriteOverlayOrient(Playback, Extra, Inner);
     return 0;
@@ -4904,7 +4959,7 @@ static unsigned long DACOM_API AnimationAddOverlayPos(FAnimationObject* This, un
     if (FindPlaybackRecord(This, PlaybackId, &Playback) == 0)
         return 0;
     FMixerDescMap* Inner =
-        MixerFindKey(This, (long)((ptrdiff_t)(Playback->Root)));
+        MixerFindKey(This, (long)FL_PTR_TO_U32(Playback->Root));
     if (Inner != nullptr)
         PlaybackAddOverlayPos(Playback, Delta, Inner);
     return 0;
@@ -5056,7 +5111,7 @@ static GENRESULT LinkCmpndPartHandle(FEngineObject* Engine, const char* Name, vo
             ((IDAComponent*)FileFs)->Release();
         return GR_E_FAIL;
     }
-    Child->Handle = (FArchetypeHandle*)PartHandle;
+    Child->Handle = EngPtr<FArchetypeHandle>(PartHandle);
     Child->Crc = DACOM_CRC::GetCRC32(Child->Name);
     if (FileFs != nullptr)
         ((IDAComponent*)FileFs)->Release();
@@ -5304,7 +5359,7 @@ static FArchetypeHandle* DACOM_API EngineCreateArchetypeHandle(FEngineObject* Th
     if (FileSystem == nullptr)
         return G_InvalidArchetype;
 
-    FArchetypeHandle* Handle = (FArchetypeHandle*)(This->CreateCompoundArchetype(Name)); // +0x2C
+    FArchetypeHandle* Handle = EngPtr<FArchetypeHandle>(This->CreateCompoundArchetype(Name)); // +0x2C
     if (Handle == G_InvalidArchetype)
         return G_InvalidArchetype;
 
@@ -5370,7 +5425,7 @@ static void InitInstanceMatrix(FEngineInstance* Instance)
 }
 
 static FEngineInstance* const G_InvalidInstance =
-    (FEngineInstance*)G_InvalidEngineHandle;
+    EngPtr<FEngineInstance>(G_InvalidEngineHandle);
 
 static bool IsValidInstance(FEngineInstance* Instance)
 {
@@ -5519,13 +5574,14 @@ static void CopyTransformState(IInstanceTransform* Dest, IInstanceTransform* Sou
     // 06621935..06621975: get-matrix / set-matrix, get-extra / set-extra, get-user /
     // set-user, in that order and always through the interface on both sides. No tests (the
     // two stack locals of the extra pair are uninitialised in retail; the port zeroes them).
-    Dest->SetMatrix(Instance, Source->GetMatrix(Instance));
+    void* const Handle = EngTok(Instance); // transforms see the instance as its dword token
+    Dest->SetMatrix(Handle, Source->GetMatrix(Handle));
     float Extra = 0.0f;
     float ExtraVec[3] = {0.0f, 0.0f, 0.0f};
-    Source->GetExtra(Instance, &Extra, ExtraVec);
-    Dest->SetExtra(Instance, Extra, ExtraVec);
-    const unsigned long User = Source->GetUser(Instance);
-    Dest->SetUser(Instance, User);
+    Source->GetExtra(Handle, &Extra, ExtraVec);
+    Dest->SetExtra(Handle, Extra, ExtraVec);
+    const unsigned long User = Source->GetUser(Handle);
+    Dest->SetUser(Handle, User);
 }
 
 // FUN_0661eb80 thiscall: zero lists/matrix extras, ident 3x3 @ +0x2c/3c/4c, Relative[0]=-1 then
@@ -5558,7 +5614,8 @@ static FEngineInstance* AllocEngineInstance(FArchetypeHandle* Handle)
 // The instance-root map key: the instance pointer as a signed int (FUN_06612e70, JGE).
 static long EngineInstanceKey(FEngineInstance* Instance)
 {
-    return (long)((intptr_t)Instance);
+    // Retail keys by the address; the token keeps the key a dword on LP64.
+    return (long)(uintptr_t)EngTok(Instance);
 }
 
 // FUN_06623ac0 with the pair {Instance, Instance} and the cache update every caller does
@@ -5667,7 +5724,7 @@ static void MathTransformVec(I3DMathEngine* Math, float* Out3, const float* Matr
 // port zero-filled both outputs first and returned early on a null Instance or Transform.
 static void InstanceTransformExtra(FEngineInstance* Instance, float* OutExtent, float* OutVec)
 {
-    Instance->Transform->GetExtra(Instance, OutExtent, OutVec);
+    Instance->Transform->GetExtra(EngTok(Instance), OutExtent, OutVec);
 }
 
 // DAT_0662b1b0: the 3DMathEngine every joint helper re-checks before each call
@@ -5846,7 +5903,7 @@ static void EngineSetExtentAndInvalidate(FEngineInstance* This, float Extent, co
 {
     if (bXform != 0)
     {
-        This->Transform->SetExtra(This, Extent, Vec);
+        This->Transform->SetExtra(EngTok(This), Extent, Vec);
         EngineInvalidateExtentChain(This, bXform);
         return;
     }
@@ -5887,8 +5944,8 @@ static FEngineInstance* EngineCreateInstanceSimple(FEngineObject* This, FArchety
     This->SetInstanceTransform(Instance, Transform);
     FEngineChildNode* Sentinel = This->EngineComponentList;
     for (FEngineChildNode* Node = Sentinel->Next; Node != Sentinel; Node = Node->Next)
-        AsEngineComponent(Node->Object)->CreateInstance(Instance, Handle);
-    Instance->Transform->AddRef(Instance);
+        AsEngineComponent(Node->Object)->CreateInstance(EngTok(Instance), EngTok(Handle));
+    Instance->Transform->AddRef(EngTok(Instance));
     return Instance;
 }
 
@@ -5915,7 +5972,7 @@ static FEngineInstance* EngineCreateInstanceTree(FEngineObject* This, FArchetype
         // 066228b8..066228c0: IEngine slot 23 on child+0x44, no filtering -- slot 23 itself
         // answers -1 for a -1/null handle.
         FEngineInstance* ChildInst =
-            (FEngineInstance*)(This->CreateInstance(Child->Handle, ChildTransform));
+            EngPtr<FEngineInstance>(This->CreateInstance(Child->Handle, ChildTransform));
         if (ChildInst != G_InvalidInstance) // 066228c5 CMP ESI,-1
         {
             ChildInst->ParentArchetype = Handle; // 066228d5 [inst+0xC]
@@ -6015,7 +6072,7 @@ static FEngineInstance* DACOM_API EngineCreateInstance(FEngineObject* This,
         FEngineInstance* Root = EngineCreateInstanceTree(This, Handle, Xf);
         if (Root == G_InvalidInstance)
             return Root;
-        Root->Transform->AddRef(Root);
+        Root->Transform->AddRef(EngTok(Root));
         return Root;
     }
     return EngineCreateInstanceSimple(This, Handle, Xf);
@@ -6026,12 +6083,12 @@ static void EngineDestroyInstanceBody(FEngineObject* This, FEngineInstance* Inst
 {
     while (Instance->FirstChild != nullptr)
         EngineDestroyInstanceBody(This, Instance->FirstChild);
-    Instance->Transform->Release(Instance);
+    Instance->Transform->Release(EngTok(Instance));
     if (Instance->Parent != nullptr)
         UnlinkInstanceChild(Instance->Parent, Instance);
     FEngineChildNode* Sentinel = This->EngineComponentList;
     for (FEngineChildNode* Node = Sentinel->Next; Node != Sentinel; Node = Node->Next)
-        AsEngineComponent(Node->Object)->DestroyInstance(Instance);
+        AsEngineComponent(Node->Object)->DestroyInstance(EngTok(Instance));
     if ((Instance->Flags & G_InstanceFlagOwnedTransform) != 0 && Instance->Transform != nullptr)
         FreeInstanceTransform((FInstanceTransform*)(Instance->Transform)); // flag 2: ours
     Instance->Transform = nullptr;
@@ -6080,8 +6137,8 @@ static GENRESULT DACOM_API EngineEnumerateArchetypeConstraints(FEngineObject* Th
     FConstraintRecord* const End = Record + Handle->Constraints.size();
     while (Record != End)
     {
-        if ((unsigned char)(Callback(Record->ParentPart->Handle,
-                                                Record->ChildPart->Handle, &Record->Payload[0],
+        if ((unsigned char)(Callback(EngTok(Record->ParentPart->Handle),
+                                                EngTok(Record->ChildPart->Handle), &Record->Payload[0],
                                                 Context)) == 0)
             break;
         Record += 1;
@@ -6103,7 +6160,7 @@ static GENRESULT DACOM_API EngineEnumerateArchetypeChildren(FEngineObject* This,
     FArchetypeChild* const End = Child + Handle->Children.size();
     while (Child != End)
     {
-        if ((unsigned char)(Callback(Handle, Child->Handle, 0, Context)) == 0)
+        if ((unsigned char)(Callback(EngTok(Handle), EngTok(Child->Handle), 0, Context)) == 0)
             break;
         Child += 1;
     }
@@ -6154,7 +6211,7 @@ static GENRESULT DACOM_API EngineQueryInstance(FEngineObject* This, FEngineInsta
     FEngineChildNode* Sentinel = This->EngineComponentList;
     for (FEngineChildNode* Node = Sentinel->Next; Node != Sentinel; Node = Node->Next)
     {
-        const GENRESULT Result = AsEngineComponent(Node->Object)->QueryInstance(Instance, Iid, Out);
+        const GENRESULT Result = AsEngineComponent(Node->Object)->QueryInstance(EngTok(Instance), Iid, Out);
         if (Result >= 0)
             return GR_OK;
     }
@@ -6184,11 +6241,11 @@ static GENRESULT DACOM_API EngineSetInstanceTransform(FEngineObject* This, FEngi
     if (Attached == Old)
         return GR_OK;
 
-    Attached->Init(Instance);
+    Attached->Init(EngTok(Instance));
     if (Old != nullptr)
     {
         CopyTransformState(Attached, Old, Instance);
-        Old->Release(Instance);
+        Old->Release(EngTok(Instance));
     }
     if ((OldFlags & G_InstanceFlagOwnedTransform) != 0 && Old != nullptr)
         FreeInstanceTransform((FInstanceTransform*)Old); // flag 2: ours
@@ -6214,7 +6271,7 @@ static void FanoutIecUpdateInstance(FEngineObject* This, FEngineInstance* Instan
 {
     FEngineChildNode* Sentinel = This->EngineComponentList;
     for (FEngineChildNode* Node = Sentinel->Next; Node != Sentinel; Node = Node->Next)
-        AsEngineComponent(Node->Object)->UpdateInstance(Instance, Arg);
+        AsEngineComponent(Node->Object)->UpdateInstance(EngTok(Instance), Arg);
 }
 
 static unsigned char EngineComposeWorld(FEngineInstance* Instance);
@@ -6240,7 +6297,7 @@ static void EngineUpdateInstanceTree(FEngineObject* This, FEngineInstance* Insta
 // The transform's vtable +0x34 with the instance; its AL decides the FUN_0661f210 recursion.
 static unsigned char MarkInstanceWorldDirty(FEngineInstance* Instance) // formerly CallTransformSlot34
 {
-    return (unsigned char)Instance->Transform->MarkWorldDirty(Instance);
+    return (unsigned char)Instance->Transform->MarkWorldDirty(EngTok(Instance));
 }
 
 // FUN_0661f210 (cdecl): children from FirstChild (+0x1C) through NextSibling (+0x14); a child
@@ -6263,7 +6320,7 @@ static unsigned char EngineComposeWorld(FEngineInstance* Instance)
     if (Instance->Parent == nullptr)
         return 0;
     const unsigned long bApplied = ApplyJointToLocal(Instance, 0);
-    const float* ParentWorld = Instance->Parent->Transform->GetMatrix(Instance->Parent);
+    const float* ParentWorld = Instance->Parent->Transform->GetMatrix(EngTok(Instance->Parent));
     if (G_ComposeMath == nullptr)
         G_ComposeMath = Create3DMathEngine();
     float Composed[12];
@@ -6272,7 +6329,7 @@ static unsigned char EngineComposeWorld(FEngineInstance* Instance)
                                         *(const FTransform*)(Instance->Matrix));
     float Copy[12];
     std::memcpy(Copy, Composed, sizeof(Copy));
-    Instance->Transform->SetMatrix(Instance, Copy);
+    Instance->Transform->SetMatrix(EngTok(Instance), Copy);
     if ((bApplied & 0xFF) != 0)
     {
         EngineInvalidateExtentChain(Instance, 1);
@@ -6365,7 +6422,7 @@ static void EngineComputeInstanceExtent(FEngineInstance* Instance, unsigned char
         return;
     }
 
-    float* WorldXf = Instance->Transform->GetMatrix(Instance);
+    float* WorldXf = Instance->Transform->GetMatrix(EngTok(Instance));
     float OwnR = 0.0f;
     float OwnLocal[3];
     InstanceTransformExtra(Instance, &OwnR, OwnLocal);
@@ -6385,7 +6442,7 @@ static void EngineComputeInstanceExtent(FEngineInstance* Instance, unsigned char
     FEngineInstance* Child = Instance->FirstChild;
     while (Child != nullptr)
     {
-        float* ChildXf = Child->Transform->GetMatrix(Child);
+        float* ChildXf = Child->Transform->GetMatrix(EngTok(Child));
         float ChildR = 0.0f;
         float ChildLocal[3];
         EngineComputeInstanceExtent(Child, 1, &ChildR, ChildLocal);
@@ -6423,7 +6480,7 @@ static void EngineComputeInstanceExtent(FEngineInstance* Instance, unsigned char
     Child = Instance->FirstChild;
     while (Child != nullptr)
     {
-        float* ChildXf = Child->Transform->GetMatrix(Child);
+        float* ChildXf = Child->Transform->GetMatrix(EngTok(Child));
         float ChildR = 0.0f;
         float ChildLocal[3];
         EngineComputeInstanceExtent(Child, 1, &ChildR, ChildLocal);
@@ -6482,7 +6539,7 @@ static GENRESULT DACOM_API EngineSetInstancePosition(FEngineObject* This, FEngin
     (void)This;
     if (!IsValidInstance(Instance))
         return GR_OK;
-    return Instance->Transform->SetPosition(Instance, (const float*)Position);
+    return Instance->Transform->SetPosition(EngTok(Instance), (const float*)Position);
 }
 
 // LAB_06621b40 / IEngine +0x90 (RET 8) -> transform +0x10; fallback [DAT_0662b124].
@@ -6491,7 +6548,7 @@ static float* DACOM_API EngineGetInstancePosition(FEngineObject* This, FEngineIn
     (void)This;
     if (!IsValidInstance(Instance))
         return G_IdentityMatrix + 9;
-    return Instance->Transform->GetPosition(Instance);
+    return Instance->Transform->GetPosition(EngTok(Instance));
 }
 
 // LAB_06621b70 / IEngine +0x94 (RET 0xC) -> transform +0x14.
@@ -6501,7 +6558,7 @@ static GENRESULT DACOM_API EngineSetInstanceOrientation(FEngineObject* This,
     (void)This;
     if (!IsValidInstance(Instance))
         return GR_OK;
-    return Instance->Transform->SetOrientation(Instance, (const float*)Rows);
+    return Instance->Transform->SetOrientation(EngTok(Instance), (const float*)Rows);
 }
 
 // LAB_06621ba0 / IEngine +0x98 (RET 8) -> transform +0x18; fallback [DAT_0662b110].
@@ -6510,7 +6567,7 @@ static float* DACOM_API EngineGetInstanceOrientation(FEngineObject* This, FEngin
     (void)This;
     if (!IsValidInstance(Instance))
         return G_IdentityMatrix;
-    return Instance->Transform->GetOrientation(Instance);
+    return Instance->Transform->GetOrientation(EngTok(Instance));
 }
 
 // LAB_06621bd0 / IEngine +0x9C (RET 0xC) -> transform +0x1C.
@@ -6520,7 +6577,7 @@ static GENRESULT DACOM_API EngineSetInstanceMatrix(FEngineObject* This, FEngineI
     (void)This;
     if (!IsValidInstance(Instance))
         return GR_OK;
-    return Instance->Transform->SetMatrix(Instance, (const float*)Matrix);
+    return Instance->Transform->SetMatrix(EngTok(Instance), (const float*)Matrix);
 }
 
 // LAB_06621c00 / IEngine +0xA0 (RET 8) -> transform +0x20; fallback DAT_0662b128 itself.
@@ -6529,7 +6586,7 @@ static float* DACOM_API EngineGetInstanceTransform(FEngineObject* This, FEngineI
     (void)This;
     if (!IsValidInstance(Instance))
         return G_IdentityMatrix;
-    return Instance->Transform->GetMatrix(Instance);
+    return Instance->Transform->GetMatrix(EngTok(Instance));
 }
 
 // LAB_06621c30 / IEngine +0xA8 and +0xB0 (RET 8): return [DAT_0662b124] -- the zero
@@ -6548,7 +6605,7 @@ static GENRESULT DACOM_API EngineSetTransformUser(FEngineObject* This, FEngineIn
     (void)This;
     if (!IsValidInstance(Instance))
         return GR_OK;
-    return Instance->Transform->SetUser(Instance, (unsigned long)User);
+    return Instance->Transform->SetUser(EngTok(Instance), (unsigned long)User);
 }
 
 // LAB_06621c70 / IEngine +0xB8 (RET 8) -> transform +0x30; fallback 0.
@@ -6557,7 +6614,7 @@ static unsigned long DACOM_API EngineGetTransformUser(FEngineObject* This, FEngi
     (void)This;
     if (!IsValidInstance(Instance))
         return 0;
-    return Instance->Transform->GetUser(Instance);
+    return Instance->Transform->GetUser(EngTok(Instance));
 }
 
 // LAB_06622580 / IEngine+0xC4 RET 8: parent ? inst+0x5C : 0.
@@ -6763,8 +6820,7 @@ static FEngineInstance* DACOM_API EngineFindMappedInstance(FEngineObject* This,
     {
         if (This->Instances.empty())
             return G_InvalidInstance;
-        return (FEngineInstance*)(
-            (intptr_t)(This->Instances.begin()->first));
+        return This->Instances.begin()->second; // retail: the key, i.e. the instance
     }
     const long Key = EngineInstanceKey(Instance);
     This->InstanceLookupCount += 1;
@@ -6788,7 +6844,7 @@ static FEngineInstance* DACOM_API EngineFindMappedInstance(FEngineObject* This,
     ++It;
     if (It == This->Instances.end())
         return G_InvalidInstance;
-    return (FEngineInstance*)((intptr_t)(It->first));
+    return It->second; // retail: the key, i.e. the instance
 }
 
 static I3DMathEngine* G_MathEngine = nullptr;
@@ -6837,7 +6893,7 @@ static FArchetypeHandle* DACOM_API EngineDuplicateArchetype(FEngineObject* This,
     }
 
     FArchetypeHandle* NewHandle =
-        (FArchetypeHandle*)(This->CreateCompoundArchetype(Name)); // vtable +0x2C
+        EngPtr<FArchetypeHandle>(This->CreateCompoundArchetype(Name)); // vtable +0x2C
     if (NewHandle == G_InvalidArchetype)
         return G_InvalidArchetype;
     FanoutIecDuplicateArchetype(This, NewHandle, ArchIn);
@@ -7545,7 +7601,9 @@ GENRESULT DACOM_API ChannelArchetypeFactoryCreateInstance(FDacomFactory* This, A
 
 static void* NestedThis(void* Object, unsigned long Offset)
 {
-    return (unsigned char*)Object + Offset;
+    // Only FHardpointObject uses this: retail offset 4 is its IEngineComponent facet.
+    long Actual = Offset == 0x4 ? FlFacetOffset<FHardpointObject, IEngineComponent>() : (long)Offset;
+    return (unsigned char*)Object + Actual;
 }
 
 GENRESULT DACOM_API FEngineObject::QueryInterface(const char* Iid, void** Out)
@@ -7595,31 +7653,31 @@ GENRESULT DACOM_API FEngineObject::CreateFileSystem(const char* Path, void** Out
 }
 void* DACOM_API FEngineObject::CreateCompoundArchetype(FEngineName* Name)
 {
-    return EngineCreateCompoundArchetype(this, Name);
+    return EngTok(EngineCreateCompoundArchetype(this, Name));
 }
 void* DACOM_API FEngineObject::CreateArchetypeHandle(FEngineName* Name, void* FileSystem)
 {
-    return EngineCreateArchetypeHandle(this, Name, FileSystem);
+    return EngTok(EngineCreateArchetypeHandle(this, Name, FileSystem));
 }
 void* DACOM_API FEngineObject::DuplicateArchetype(void* ArchIn, FEngineName* Name)
 {
-    return EngineDuplicateArchetype(this, (FArchetypeHandle*)ArchIn, Name);
+    return EngTok(EngineDuplicateArchetype(this, EngPtr<FArchetypeHandle>(ArchIn), Name));
 }
 unsigned long DACOM_API FEngineObject::AddRefHandle(void* Handle)
 {
-    return EngineAddRefHandle(this, (FArchetypeHandle*)Handle);
+    return EngineAddRefHandle(this, EngPtr<FArchetypeHandle>(Handle));
 }
 unsigned long DACOM_API FEngineObject::ReleaseHandle(void* Handle)
 {
-    return EngineReleaseHandle(this, (FArchetypeHandle*)Handle);
+    return EngineReleaseHandle(this, EngPtr<FArchetypeHandle>(Handle));
 }
 FEngineName* DACOM_API FEngineObject::GetArchetypeName(FEngineName* Out, void* Handle)
 {
-    return EngineGetArchetypeName(this, Out, (FArchetypeHandle*)Handle);
+    return EngineGetArchetypeName(this, Out, EngPtr<FArchetypeHandle>(Handle));
 }
 void* DACOM_API FEngineObject::FindArchetype(FEngineName* Name)
 {
-    return EngineFindArchetype(this, Name);
+    return EngTok(EngineFindArchetype(this, Name));
 }
 GENRESULT DACOM_API FEngineObject::QueryEngineComponent(int Id, void* Name, void** Out)
 {
@@ -7627,101 +7685,101 @@ GENRESULT DACOM_API FEngineObject::QueryEngineComponent(int Id, void* Name, void
 }
 unsigned long DACOM_API FEngineObject::IsCompoundArchetype(void* Handle)
 {
-    return EngineIsCompoundArchetype(this, (FArchetypeHandle*)Handle);
+    return EngineIsCompoundArchetype(this, EngPtr<FArchetypeHandle>(Handle));
 }
 GENRESULT DACOM_API FEngineObject::EnumerateArchetypeConstraints(
     void* Handle, int(__cdecl* Callback)(void*, void*, void*, void*), void* Context)
 {
-    return EngineEnumerateArchetypeConstraints(this, (FArchetypeHandle*)Handle,
+    return EngineEnumerateArchetypeConstraints(this, EngPtr<FArchetypeHandle>(Handle),
                                                Callback, Context);
 }
 GENRESULT DACOM_API FEngineObject::EnumerateArchetypeChildren(
     void* Handle, int(__cdecl* Callback)(void*, void*, int, void*), void* Context)
 {
-    return EngineEnumerateArchetypeChildren(this, (FArchetypeHandle*)Handle, Callback,
+    return EngineEnumerateArchetypeChildren(this, EngPtr<FArchetypeHandle>(Handle), Callback,
                                                Context);
 }
 void* DACOM_API FEngineObject::CreateInstanceFromName(FEngineName* Name, void* FileSystem,
                                                       void* Transform)
 {
-    return EngineCreateInstanceFromName(this, Name, FileSystem, Transform);
+    return EngTok(EngineCreateInstanceFromName(this, Name, FileSystem, Transform));
 }
 void* DACOM_API FEngineObject::CreateInstance(void* Handle, void* Transform)
 {
-    return EngineCreateInstance(this, (FArchetypeHandle*)Handle, Transform);
+    return EngTok(EngineCreateInstance(this, EngPtr<FArchetypeHandle>(Handle), Transform));
 }
 GENRESULT DACOM_API FEngineObject::DestroyInstance(void* Instance)
 {
-    return EngineDestroyInstance(this, (FEngineInstance*)Instance);
+    return EngineDestroyInstance(this, EngPtr<FEngineInstance>(Instance));
 }
 void* DACOM_API FEngineObject::GetInstanceArchetype(void* Instance)
 {
-    return EngineGetInstanceArchetype(this, (FEngineInstance*)Instance);
+    return EngTok(EngineGetInstanceArchetype(this, EngPtr<FEngineInstance>(Instance)));
 }
 FEngineName* DACOM_API FEngineObject::GetInstanceName(FEngineName* Out, void* Instance)
 {
-    return EngineGetInstanceName(this, Out, (FEngineInstance*)Instance);
+    return EngineGetInstanceName(this, Out, EngPtr<FEngineInstance>(Instance));
 }
 GENRESULT DACOM_API FEngineObject::UpdateInstance(void* Instance, unsigned long Flags, void* Arg)
 {
-    return EngineUpdateInstance(this, (FEngineInstance*)Instance, Flags, Arg);
+    return EngineUpdateInstance(this, EngPtr<FEngineInstance>(Instance), Flags, Arg);
 }
 GENRESULT DACOM_API FEngineObject::SetInstanceTransform(void* Instance, void* Transform)
 {
-    return EngineSetInstanceTransform(this, (FEngineInstance*)Instance,
+    return EngineSetInstanceTransform(this, EngPtr<FEngineInstance>(Instance),
                                        (IInstanceTransform*)Transform);
 }
 GENRESULT DACOM_API FEngineObject::GetInstanceTransformObject(void* Instance, void** Out)
 {
-    return EngineGetInstanceTransformObject(this, (FEngineInstance*)Instance,
+    return EngineGetInstanceTransformObject(this, EngPtr<FEngineInstance>(Instance),
                                             (IInstanceTransform**)Out);
 }
 GENRESULT DACOM_API FEngineObject::QueryInstance(void* Instance, const char* Iid, void** Out)
 {
-    return EngineQueryInstance(this, (FEngineInstance*)Instance, Iid, Out);
+    return EngineQueryInstance(this, EngPtr<FEngineInstance>(Instance), Iid, Out);
 }
 GENRESULT DACOM_API FEngineObject::SetInstanceUserData(void* Instance, void* Value)
 {
-    return EngineSetInstanceUserData(this, (FEngineInstance*)Instance, Value);
+    return EngineSetInstanceUserData(this, EngPtr<FEngineInstance>(Instance), Value);
 }
 void* DACOM_API FEngineObject::GetInstanceUserData(void* Instance)
 {
-    return EngineGetInstanceUserData(this, (FEngineInstance*)Instance);
+    return EngineGetInstanceUserData(this, EngPtr<FEngineInstance>(Instance));
 }
 GENRESULT DACOM_API FEngineObject::SetInstanceExtent(void* Instance, unsigned long Flags, float Extent,
                                                       const float* Vec)
 {
-    return EngineSetInstanceExtent(this, (FEngineInstance*)Instance, Flags, Extent, Vec);
+    return EngineSetInstanceExtent(this, EngPtr<FEngineInstance>(Instance), Flags, Extent, Vec);
 }
 GENRESULT DACOM_API FEngineObject::GetInstanceExtent(void* Instance, unsigned long Flags,
                                                       float* OutExtent, float* OutVec)
 {
-    return EngineGetInstanceExtent(this, (FEngineInstance*)Instance, Flags, OutExtent,
+    return EngineGetInstanceExtent(this, EngPtr<FEngineInstance>(Instance), Flags, OutExtent,
                                     OutVec);
 }
 GENRESULT DACOM_API FEngineObject::SetInstancePosition(void* Instance, void* Position)
 {
-    return EngineSetInstancePosition(this, (FEngineInstance*)Instance, Position);
+    return EngineSetInstancePosition(this, EngPtr<FEngineInstance>(Instance), Position);
 }
 float* DACOM_API FEngineObject::GetInstancePosition(void* Instance)
 {
-    return EngineGetInstancePosition(this, (FEngineInstance*)Instance);
+    return EngineGetInstancePosition(this, EngPtr<FEngineInstance>(Instance));
 }
 GENRESULT DACOM_API FEngineObject::SetInstanceOrientation(void* Instance, void* Orient)
 {
-    return EngineSetInstanceOrientation(this, (FEngineInstance*)Instance, Orient);
+    return EngineSetInstanceOrientation(this, EngPtr<FEngineInstance>(Instance), Orient);
 }
 float* DACOM_API FEngineObject::GetInstanceOrientation(void* Instance)
 {
-    return EngineGetInstanceOrientation(this, (FEngineInstance*)Instance);
+    return EngineGetInstanceOrientation(this, EngPtr<FEngineInstance>(Instance));
 }
 GENRESULT DACOM_API FEngineObject::SetInstanceMatrix(void* Instance, void* Matrix)
 {
-    return EngineSetInstanceMatrix(this, (FEngineInstance*)Instance, Matrix);
+    return EngineSetInstanceMatrix(this, EngPtr<FEngineInstance>(Instance), Matrix);
 }
 float* DACOM_API FEngineObject::GetInstanceTransform(void* Instance)
 {
-    return EngineGetInstanceTransform(this, (FEngineInstance*)Instance);
+    return EngineGetInstanceTransform(this, EngPtr<FEngineInstance>(Instance));
 }
 // formerly UnusedSlot41
 GENRESULT DACOM_API FEngineObject::NoOp41(void* A, void* B)
@@ -7743,58 +7801,59 @@ float* DACOM_API FEngineObject::GetIdentityMatrix2(void* Unused)
 }
 GENRESULT DACOM_API FEngineObject::SetTransformUser(void* Instance, unsigned long User)
 {
-    return EngineSetTransformUser(this, (FEngineInstance*)Instance,
+    return EngineSetTransformUser(this, EngPtr<FEngineInstance>(Instance),
                                    (void*)User);
 }
 unsigned long DACOM_API FEngineObject::GetTransformUser(void* Instance)
 {
-    return EngineGetTransformUser(this, (FEngineInstance*)Instance);
+    return EngineGetTransformUser(this, EngPtr<FEngineInstance>(Instance));
 }
 unsigned long DACOM_API FEngineObject::CreateJoint(void* Parent, void* Child,
                                                      const unsigned long* Payload)
 {
-    return EngineCreateJoint(this, (FEngineInstance*)Parent,
-                              (FEngineInstance*)Child, Payload);
+    return EngineCreateJoint(this, EngPtr<FEngineInstance>(Parent),
+                              EngPtr<FEngineInstance>(Child), Payload);
 }
 unsigned long DACOM_API FEngineObject::DestroyJoint(void* Parent, void* Child)
 {
-    return EngineDestroyJoint(this, (FEngineInstance*)Parent,
-                              (FEngineInstance*)Child);
+    return EngineDestroyJoint(this, EngPtr<FEngineInstance>(Parent),
+                              EngPtr<FEngineInstance>(Child));
 }
 unsigned long* DACOM_API FEngineObject::GetInstanceRelative(void* Instance)
 {
-    return EngineGetInstanceRelative(this, (FEngineInstance*)Instance);
+    return EngineGetInstanceRelative(this, EngPtr<FEngineInstance>(Instance));
 }
 unsigned long DACOM_API FEngineObject::SetJointParams(void* Instance, unsigned long Index,
                                                       const float* Values)
 {
-    return EngineSetJointParams(this, (FEngineInstance*)Instance, Index, Values);
+    return EngineSetJointParams(this, EngPtr<FEngineInstance>(Instance), Index, Values);
 }
 unsigned long DACOM_API FEngineObject::GetJointParams(void* Instance, unsigned long Index, float* Out)
 {
-    return EngineGetJointParams(this, (FEngineInstance*)Instance, Index, Out);
+    return EngineGetJointParams(this, EngPtr<FEngineInstance>(Instance), Index, Out);
 }
 void* DACOM_API FEngineObject::FindMappedInstance(void* Instance)
 {
-    return EngineFindMappedInstance(this, (FEngineInstance*)Instance);
+    return EngTok(EngineFindMappedInstance(this, EngPtr<FEngineInstance>(Instance)));
 }
 void* DACOM_API FEngineObject::GetInstanceParent(void* Instance)
 {
-    return EngineGetInstanceParent(this, (FEngineInstance*)Instance);
+    return EngTok(EngineGetInstanceParent(this, EngPtr<FEngineInstance>(Instance)));
 }
 void* DACOM_API FEngineObject::GetRelatedInstance(void* From, unsigned long Flags, void* Cursor)
 {
-    return EngineGetRelatedInstance(this, (FEngineInstance*)From, Flags,
-                                    (FEngineInstance*)Cursor);
+    return EngTok(EngineGetRelatedInstance(this, EngPtr<FEngineInstance>(From), Flags,
+                                    EngPtr<FEngineInstance>(Cursor)));
 }
 void* DACOM_API FEngineObject::GetInstanceRoot(void* Instance)
 {
-    return EngineGetInstanceRoot(this, (FEngineInstance*)Instance);
+    return EngTok(EngineGetInstanceRoot(this, EngPtr<FEngineInstance>(Instance)));
 }
 void* DACOM_API FEngineObject::FindArchetypeChild(void* Handle, void* ChildHandle)
 {
-    return EngineFindArchetypeChild(this, (FArchetypeHandle*)Handle,
-                                    (FArchetypeHandle*)ChildHandle);
+    // The child record itself (its name is the first member), which callers read: not a handle.
+    return EngineFindArchetypeChild(this, EngPtr<FArchetypeHandle>(Handle),
+                                    EngPtr<FArchetypeHandle>(ChildHandle));
 }
 // formerly UnusedSlot57
 unsigned long DACOM_API FEngineObject::RejectOperation(void* A, void* B)
@@ -7816,11 +7875,11 @@ unsigned long DACOM_API FAnimationObject::Release()
 }
 void* DACOM_API FAnimationObject::OpenScript(void* FileSystem)
 {
-    return AnimationOpenScript(this, FileSystem);
+    return EngTok(AnimationOpenScript(this, FileSystem)); // scripts leave as dword tokens
 }
 GENRESULT DACOM_API FAnimationObject::CloseScript(void* Script)
 {
-    return AnimationCloseScript(this, (FAnimScript*)Script);
+    return AnimationCloseScript(this, EngPtr<FAnimScript>(Script));
 }
 // Slots 5, 10 and 17 take a playback id, not a script (FUN_06615160 / LAB_06614a50 /
 // LAB_066148d0 all open with FUN_06614580 or FUN_06612e70 on the +0x14 map); the shared
@@ -7831,22 +7890,22 @@ float DACOM_API FAnimationObject::GetScriptDuration(void* Script)
 }
 float DACOM_API FAnimationObject::GetNamedDuration(void* Script, const char* Name)
 {
-    return AnimationGetNamedDuration(this, (FAnimScript*)Script, Name);
+    return AnimationGetNamedDuration(this, EngPtr<FAnimScript>(Script), Name);
 }
 GENRESULT DACOM_API FAnimationObject::EnumScriptNames(void* Callback, void* Script, void* Context)
 {
-    return AnimationEnumScriptNames(this, Callback, (FAnimScript*)Script, Context);
+    return AnimationEnumScriptNames(this, Callback, EngPtr<FAnimScript>(Script), Context);
 }
 GENRESULT DACOM_API FAnimationObject::FindScriptName(void* Callback, void* Script, const char* Name,
                                                      void* Context)
 {
-    return AnimationFindScriptName(this, Callback, (FAnimScript*)Script, Name, Context);
+    return AnimationFindScriptName(this, Callback, EngPtr<FAnimScript>(Script), Name, Context);
 }
 unsigned long DACOM_API FAnimationObject::PlayScript(void* Script, void* Root, const char* Name,
                                                       void* ArgD, void* ArgE)
 {
-    return AnimationPlayScript(this, (FAnimScript*)Script,
-                                 (FEngineInstance*)Root, Name, ArgD, ArgE);
+    return AnimationPlayScript(this, EngPtr<FAnimScript>(Script),
+                                 EngPtr<FEngineInstance>(Root), Name, ArgD, ArgE);
 }
 GENRESULT DACOM_API FAnimationObject::DestroyScript(void* Script)
 {
@@ -7913,7 +7972,7 @@ unsigned long DACOM_API FAnimationObject::GetDurationIfNamed(unsigned long Playb
 }
 unsigned long DACOM_API FAnimationObject::GetNamedDurationOut(void* Script, const char* Name, float* Out)
 {
-    return AnimationGetNamedDurationOut(this, (FAnimScript*)Script, Name, Out);
+    return AnimationGetNamedDurationOut(this, EngPtr<FAnimScript>(Script), Name, Out);
 }
 unsigned long DACOM_API FAnimationObject::FindObject(unsigned long PlaybackId, void* Query)
 {
@@ -7929,16 +7988,16 @@ unsigned long DACOM_API FAnimationObject::MixerWalkAll(float Time)
 }
 void* DACOM_API FAnimationObject::CreateEmptyScript()
 {
-    return AnimationCreateEmptyScript(this);
+    return EngTok(AnimationCreateEmptyScript(this));
 }
 unsigned long DACOM_API FAnimationObject::AddScriptNames(void* Script, void* FileSystem,
                                                        const char** Names, int Count)
 {
-    return AnimationAddScriptNames(this, (FAnimScript*)Script, FileSystem, Names, Count);
+    return AnimationAddScriptNames(this, EngPtr<FAnimScript>(Script), FileSystem, Names, Count);
 }
 unsigned long DACOM_API FAnimationObject::RemoveScriptNames(void* Script, const char** Names, int Count)
 {
-    return AnimationRemoveScriptNames(this, (FAnimScript*)Script, Names, Count);
+    return AnimationRemoveScriptNames(this, EngPtr<FAnimScript>(Script), Names, Count);
 }
 unsigned long DACOM_API FAnimationObject::EnumFsScripts(void* Callback, void* FileSystem, void* Context)
 {
@@ -7946,11 +8005,11 @@ unsigned long DACOM_API FAnimationObject::EnumFsScripts(void* Callback, void* Fi
 }
 unsigned long DACOM_API FAnimationObject::HasScriptName(void* Script, const char* Name)
 {
-    return AnimationHasScriptName(this, (FAnimScript*)Script, Name);
+    return AnimationHasScriptName(this, EngPtr<FAnimScript>(Script), Name);
 }
 unsigned long DACOM_API FAnimationObject::GetScriptNameCount(void* Script, unsigned long* Out)
 {
-    return AnimationGetScriptNameCount(this, (FAnimScript*)Script, Out);
+    return AnimationGetScriptNameCount(this, EngPtr<FAnimScript>(Script), Out);
 }
 unsigned long DACOM_API FAnimationObject::EnumObjects(void* Callback, unsigned long PlaybackId,
                                                        void* Context)
@@ -7985,28 +8044,28 @@ unsigned long DACOM_API FHardpointObject::Release()
 unsigned long DACOM_API FHardpointObject::GetHardpoint(void* Handle, FHardpointKey const* Key,
                                                        void* Out)
 {
-    return HardpointGetHardpoint(this, (FArchetypeHandle*)Handle, Key, Out);
+    return HardpointGetHardpoint(this, EngPtr<FArchetypeHandle>(Handle), Key, Out);
 }
 unsigned long DACOM_API FHardpointObject::AddHardpoint(void* Handle, FHardpointKey const* Key,
                                                        const void* Data)
 {
-    return HardpointAddHardpoint(this, (FArchetypeHandle*)Handle, Key, Data);
+    return HardpointAddHardpoint(this, EngPtr<FArchetypeHandle>(Handle), Key, Data);
 }
 GENRESULT DACOM_API FHardpointObject::EnumerateHardpoints(FHardpointEnumProc Callback,
                                                           void* Handle, void* Context)
 {
-    return HardpointEnumerateHardpoints(this, Callback, (FArchetypeHandle*)Handle,
+    return HardpointEnumerateHardpoints(this, Callback, EngPtr<FArchetypeHandle>(Handle),
                                          Context);
 }
 unsigned long DACOM_API FHardpointObject::ConnectHardpoints(void* InstA, FHardpointKey const* KeyA,
                                                             void* InstB, FHardpointKey const* KeyB)
 {
-    return HardpointConnect(this, (FEngineInstance*)InstA, KeyA,
-                                  (FEngineInstance*)InstB, KeyB);
+    return HardpointConnect(this, EngPtr<FEngineInstance>(InstA), KeyA,
+                                  EngPtr<FEngineInstance>(InstB), KeyB);
 }
 char const* DACOM_API FHardpointObject::FindHardpoint(void* Handle, unsigned long const* Crc)
 {
-    return HardpointFindHardpoint(this, (FArchetypeHandle*)Handle, Crc);
+    return HardpointFindHardpoint(this, EngPtr<FArchetypeHandle>(Handle), Crc);
 }
 int DACOM_API FHardpointObject::Initialize()
 {
@@ -8015,18 +8074,18 @@ int DACOM_API FHardpointObject::Initialize()
 int DACOM_API FHardpointObject::CreateArchetype(void* Arg1, void* Arg2)
 {
     return (int)(
-        HardpointCreateArchetype(NestedThis(this, 4), (FArchetypeHandle*)Arg1, Arg2));
+        HardpointCreateArchetype(NestedThis(this, 4), EngPtr<FArchetypeHandle>(Arg1), Arg2));
 }
 int DACOM_API FHardpointObject::DuplicateArchetype(void* Arg1, void* Arg2)
 {
     return (int)(
-        HardpointDuplicateArchetype(NestedThis(this, 4), (FArchetypeHandle*)Arg1,
-                                        (FArchetypeHandle*)Arg2));
+        HardpointDuplicateArchetype(NestedThis(this, 4), EngPtr<FArchetypeHandle>(Arg1),
+                                        EngPtr<FArchetypeHandle>(Arg2)));
 }
 int DACOM_API FHardpointObject::DestroyArchetype(void* Arg1)
 {
     return (int)(HardpointDestroyArchetype(NestedThis(this, 4),
-                                                       (FArchetypeHandle*)Arg1));
+                                                       EngPtr<FArchetypeHandle>(Arg1)));
 }
 int DACOM_API FHardpointObject::QueryArchetype(void* Arg1, const char* Iid, void** Out)
 {

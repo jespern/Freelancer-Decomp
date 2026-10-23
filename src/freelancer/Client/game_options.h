@@ -37,7 +37,8 @@
 // The option names are referenced from the descriptor table and from nowhere else in the PE --
 // the menu that would have edited them was stripped from the shipped build -- so every option
 // keeps its default for the life of the process, and every one of those 138 guards is decidable
-// ahead of time. See docs/re/freelancer.md.
+// ahead of time. See docs/re/freelancer.md. Freelancer: HD Edition's HUDless and TargetScreen
+// plugins are the exception: they flip options 9, 10, 0xc, 0xe and 0x16 (SetGameOption).
 
 // The option indices, in the numeric order the array is indexed by. The bracketed entries are
 // the menu's category headers; retail queries those exactly like the toggles under them, and
@@ -151,6 +152,8 @@ extern const int GGameOptionDescCount;
 // The compare is signed, as retail's JGE: a negative index reads the options-object fields in
 // front of the array. No caller in the PE passes anything but a small non-negative constant.
 int GetGameOption(int Index);
+// HD: the writes of HUDless.dll / TargetScreen.dll to DAT_00679be8 + 4 * Index.
+void SetGameOption(int Index, int Value);
 
 // The option's name. Retail keeps these strings but no surviving code reads them: the debug menu
 // that would have edited the options was stripped from the shipped build, which is why the values

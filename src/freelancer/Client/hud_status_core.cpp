@@ -5,6 +5,11 @@
 // Author: Giperion.
 
 #include "hud_status_core.h"
+#include "win3d_render.h"
+#include "win3d_immediate.h"
+#include "hd_client.h"
+#include "hd_hudless.h"
+#include "hd_plugins.h"
 
 #include "character_select_equip.h"
 #include "client_gameobj.h"
@@ -57,6 +62,56 @@
 // ---------------------------------------------------------------------------------------------
 // Shield sampler
 // ---------------------------------------------------------------------------------------------
+
+namespace
+{
+    // HD: fast_weapon_list — DAT_005d8484 (.rdata 0x1d8484) 1.0 -> 0.1: the weapon list's
+    // refresh period, read only by the HUD_Status weapon list (its timer +0x588 resets and the
+    // period test at 0x004db6e5 / 0x004db6f6).
+    float WeaponListPeriod()
+    {
+        static const float Period = HdPlugins::Feature("fast_weapon_list") ? 0.1f : 1.0f;
+        return Period;
+    }
+
+    // HD: DelayDisplay.dll's text for a weapon row (FLHDE/DelayDisplay Main.cpp).
+    void FormatHdWeaponDelay(FHudStatusWeapon const& Weapon, char* Buffer)
+    {
+        int const Ammo = Weapon.AmmoCount;
+        float TotalDelay = 0.0f;
+        float Elapsed = 0.0f;
+        CShip* const Ship = static_cast<CShip*>(GetPlayerShipObject());
+        CELauncher* const Launcher =
+            Ship != nullptr ? CELauncher::cast(Ship->EquipManager.FindByID(Weapon.SubId)) : nullptr;
+        if (Launcher != nullptr && Launcher->Arch != nullptr)
+        {
+            TotalDelay = static_cast<Archetype::Launcher const*>(Launcher->Arch)->RefireDelay;
+            Elapsed = Launcher->RefireElapsed;
+        }
+        float const Remaining = TotalDelay - Elapsed;
+        if (Ammo == -1)
+        {
+            if (TotalDelay >= 1.0f)
+            {
+                if (Remaining > 0.0f)
+                    sprintf(Buffer, "%.1f", Remaining);
+                else
+                    strcpy(Buffer, "0.0");
+            }
+            else
+                Buffer[0] = '\0';
+        }
+        else if (TotalDelay >= 1.0f)
+        {
+            if (Remaining > 0.0f)
+                sprintf(Buffer, "%d--%.1f", Ammo, Remaining);
+            else
+                sprintf(Buffer, "%d--0.0", Ammo);
+        }
+        else
+            sprintf(Buffer, "%d", Ammo);
+    }
+}
 
 namespace
 {
@@ -264,6 +319,11 @@ bool HUD_Core::OnEvent(unsigned MsgId)
     if (MsgId != 0x6d)
     {
         return false;
+    }
+    // HD: HUDless (0x004d5383) -- with a modifier the key cycles the hidden HUD instead.
+    if (HdHudless::Toggle())
+    {
+        return true;
     }
 
     HUD_Status* const Status = G_HudStatus;
@@ -502,7 +562,9 @@ void HUD_Core::Draw()
                      static_cast<double>(AxisY) * static_cast<double>(Velocity.y);
         Dot += static_cast<double>(AxisX) * static_cast<double>(Velocity.x);
         Speed = static_cast<float>(-Dot);
-        if (Ship->is_cruise_active() && Speed > 300.0f)
+        // HD: uncapped_speed_display — no 300 cap in cruise (0x004d5936 JNE -> NOP; JMP 0x004d58b1).
+        static const bool bHdUncappedSpeed = HdPlugins::Feature("uncapped_speed_display");
+        if (!bHdUncappedSpeed && Ship->is_cruise_active() && Speed > 300.0f)
         {
             Speed = 300.0f;
             bSkipPositive = true;
@@ -525,7 +587,9 @@ void HUD_Core::Draw()
     if (LastVelocity != SpeedInt)
     {
         LastVelocity = SpeedInt;
-        if (SpeedInt > 999)
+        // HD: uncapped_speed_display — never "---" above 999 (0x004d5984 JLE -> JMP).
+        static const bool bHdNoSpeedDashes = HdPlugins::Feature("uncapped_speed_display");
+        if (!bHdNoSpeedDashes && SpeedInt > 999)
         {
             VelocityText->SetProperty(0x1e, 0x526, 0);
         }
@@ -611,7 +675,7 @@ HUD_Status::HUD_Status(INI_Reader& /*Reader*/)
     , Byte584(0)
     , Byte585(0)
     , Byte586(0)
-    , Field588(1.0f)
+    , Field588(WeaponListPeriod())
     , Field5a0(1)
     , Field5a4(1)
     , Byte5b8(0)
@@ -638,8 +702,9 @@ HUD_Status::HUD_Status(INI_Reader& /*Reader*/)
     Win3D::SetName("HUD_Status");
     ClassName = "HUD_Status";
 
-    HitCenter.X = 0.418f;      // +0x4b4 {0.418, -0.29, -1}
-    HitCenter.Y = -0.29f;
+    // HD: HudShift.ini bases (the Advanced Widescreen HUD's player wireframe spot).
+    HitCenter.X = HdHudShiftBase(0x004da2fa, 0.418f);      // +0x4b4 {0.418, -0.29, -1}
+    HitCenter.Y = HdHudShiftBase(0x004da30e, -0.29f);
     HitCenter.Z = -1.0f;
     HitHalfWidth = 0.11f;      // +0x4c0
     HitHalfHeight = 0.11f;     // +0x4c4
@@ -651,8 +716,21 @@ HUD_Status::HUD_Status(INI_Reader& /*Reader*/)
     }
 }
 
+namespace
+{
+    // HD: HudWeaponGroups.dll's three buttons (children of the one HUD_Status).
+    WinControl* G_HdWeaponGroupButtons[3] = {nullptr, nullptr, nullptr};
+
+    bool HdWeaponGroupsEnabled()
+    {
+        static const bool bEnabled = HdPlugins::Enabled("HudWeaponGroups.dll");
+        return bEnabled;
+    }
+}
+
 HUD_Status::~HUD_Status()
 {
+    G_HdWeaponGroupButtons[0] = G_HdWeaponGroupButtons[1] = G_HdWeaponGroupButtons[2] = nullptr; // HD
     // FUN_004da740: the vptrs put back, then 0x004da799: DAT_00674aa0 = 0. It frees HpRowCache
     // (+0x5dc), the caption (+0x5d0) and Weapons (+0x58c) next -- here the member destructors,
     // in that same (reverse declaration) order; the ButtonScaler list at +0x4e8 and the
@@ -785,10 +863,12 @@ bool HUD_Status::Create(Win3D* NewParent, void* Data)
     Slot13(true);
 
     // 0x004daf28..0x004dafdf: the special-mode captions, both with Flags &= 0xfc.
-    float const SpecialPos[3] = {-0.513f, -0.29f, 0.0f};
+    float const SpecialPos[3] = {HdHudShiftBase(0x004daf4f, -0.513f), HdHudShiftBase(0x004daf57, -0.29f),
+                                 0.0f}; // HD: HudShift.ini bases
     SpecialModeText = CreateTextControl("SpecialModeText", "PageHeader", SpecialPos, nullptr,
                                         1.022f, 0.03f, 1.5f, 0, 1, 0, 1);
-    float const CancelPos[3] = {-0.513f, -0.321f, 0.0f};
+    float const CancelPos[3] = {HdHudShiftBase(0x004dafa3, -0.513f), HdHudShiftBase(0x004dafab, -0.321f),
+                                0.0f};
     SpecialModeTextCancel = CreateTextControl("SpecialModeTextCancel", "Normal", CancelPos,
                                               nullptr, 1.028f, 0.03f, 1.3f, 0, 1, 0, 1);
     SpecialModeText->Flags &= 0xfc;
@@ -803,6 +883,23 @@ bool HUD_Status::Create(Win3D* NewParent, void* Data)
                                      "ui_select_item", nullptr, LootPos, nullptr, SmallHalf, 0, 1,
                                      0, 0, 0x3a2, 0, 0x6f);
     LootButton->Flags &= 0xfc;
+
+    // HD: HudWeaponGroups -- three buttons, HUD_weaponsgroup1..3.3db, beside the close button
+    // (x + 0.04 + 0.03 i, y - 0.122); Update places and highlights them.
+    if (HdWeaponGroupsEnabled())
+    {
+        static char const* const Meshes[3] = {"INTERFACE\\HUD\\HUD_weaponsgroup1.3db",
+                                              "INTERFACE\\HUD\\HUD_weaponsgroup2.3db",
+                                              "INTERFACE\\HUD\\HUD_weaponsgroup3.3db"};
+        for (int Group = 0; Group < 3; ++Group)
+        {
+            float const Pos[3] = {CloseButton->Offset[0] + 0.04f + 0.03f * static_cast<float>(Group),
+                                  CloseButton->Offset[1] - 0.122f, 0.0f};
+            G_HdWeaponGroupButtons[Group] =
+                CreateButtonControl("HudWeaponGroupButton", Meshes[Group], nullptr, "ui_select_item",
+                                    nullptr, Pos, nullptr, SmallHalf, 0, 1, 0, 0, 0, 0, 0);
+        }
+    }
 
     // 0x004db057..0x004db0c0: slot 31 SetOffset(0, 0, -1) by value, slot 5 SetPosition(+0x60),
     // FUN_004b5060.
@@ -1083,6 +1180,28 @@ void HUD_Status::RefreshWeaponRows()
     }
 }
 
+void HUD_Status::Slot14()
+{
+    // HudStatus.dll 0x418d90: the HUD option, a viewed object, then the target view's own steps
+    // with the fixed orbit -- save the viewport, view camera, part colours, the part cache in the
+    // object's transform, the Win3D camera and viewport back.
+    static const bool bHudStatus = HdPlugins::Enabled("HudStatus.dll");
+    if (!bHudStatus || GetGameOption(0xa) == 0)
+        return;
+    IObjRW* const View = ObjRwFromWatchable(const_cast<Watchable*>(ViewObject.target()));
+    if (View == nullptr)
+        return;
+    int SavedViewport[4];
+    Win3DGetViewport(0xba2, SavedViewport);
+    SetupViewCamera(true, -0.0125f);
+    ColourViewParts();
+    PartCacheDraw(&PartCache, AsCamera(&ViewCamera),
+                  reinterpret_cast<FTransform const*>(&View->get_transform()));
+    Win3DApplyCamera(AsCamera(Win3DGetCamera()));
+    Win3DSetViewportRect(SavedViewport[0], SavedViewport[1], SavedViewport[2], SavedViewport[3],
+                         "E:\\FL\\Scratch\\Source\\Client\\space\\HUD_Target.cpp", 0x642);
+}
+
 void HUD_Status::Draw()
 {
     // FUN_004db2c0 (this = the WinControl face).
@@ -1161,7 +1280,7 @@ void HUD_Status::Slot12()
         float const BatteryCountStart[3] = {0.404f, -0.359f, 0.0f};
         float const BatteryCountEnd[3] = {0.404f, -0.4f, 0.0f};
         ButtonMover::AddButton(BatteryCountText, BatteryCountStart, BatteryCountEnd);
-        Field588 = 1.0f; // DAT_005d8484
+        Field588 = WeaponListPeriod(); // DAT_005d8484
         return;
     }
 
@@ -1183,7 +1302,7 @@ void HUD_Status::Slot12()
 void HUD_Status::OnMoveFinished()
 {
     // LAB_004dcf80 (this = the ButtonMover face at +0x364).
-    Field588 = 1.0f; // DAT_005d8484
+    Field588 = WeaponListPeriod(); // DAT_005d8484
 
     if (bExpanded == 0)
     {
@@ -1277,7 +1396,7 @@ void HUD_Status::OnScaleFinished()
     float const FrameLow[3] = {0.4101f, -0.4f, -1.0f};
     float const FrameHome[3] = {0.4101f, -0.37f, -1.0f};
     ButtonMover::AddButton(MinimizedFrame, FrameLow, FrameHome);
-    Field588 = 1.0f;
+    Field588 = WeaponListPeriod();
 }
 
 void HUD_Status::ToggleLauncher(unsigned short SubId)
@@ -1356,6 +1475,16 @@ intptr_t HUD_Status::SetProperty(int Msg, uintptr_t A, uintptr_t B)
             Slot12();
             return 1;
         }
+        // HD: HudWeaponGroups -- a button selects its group (USER_WEAPON_GROUP1..3).
+        for (int Group = 0; Group < 3; ++Group)
+        {
+            if (G_HdWeaponGroupButtons[Group] != nullptr &&
+                A == reinterpret_cast<uintptr_t>(G_HdWeaponGroupButtons[Group]))
+            {
+                HudDispatchCommand(0x91u + static_cast<unsigned>(Group), 1);
+                return 1;
+            }
+        }
 
         // 0x004db221..0x004db296: a weapon row's text (name, number, ammo -- in that order);
         // a row inside Weapons (unsigned compare, the top row not added) toggles the launcher
@@ -1373,7 +1502,7 @@ intptr_t HUD_Status::SetProperty(int Msg, uintptr_t A, uintptr_t B)
         if (Row < 10 && static_cast<unsigned>(Row) < Weapons.size())
         {
             ToggleLauncher(Weapons[WeaponTopRow + Row].SubId);
-            Field588 = 1.0f; // DAT_005d8484
+            Field588 = WeaponListPeriod(); // DAT_005d8484
         }
     }
     else if (Msg == 0x3e)
@@ -1382,7 +1511,7 @@ intptr_t HUD_Status::SetProperty(int Msg, uintptr_t A, uintptr_t B)
         if (!HudIsMousePickBlocked() && A == reinterpret_cast<uintptr_t>(WeaponListScroll))
         {
             WeaponTopRow = static_cast<int>(B);
-            Field588 = 1.0f;
+            Field588 = WeaponListPeriod();
         }
     }
 
@@ -1408,6 +1537,21 @@ namespace
 void HUD_Status::Update()
 {
     // LAB_004db340 (this = the WinControl face).
+
+    // HD: HudWeaponGroups -- the buttons ride 0.17 right of the battery count and 0.122 below it
+    // (0.06 higher while the panel is open), the current group's lit.
+    if (HdWeaponGroupsEnabled() && G_HdWeaponGroupButtons[0] != nullptr)
+    {
+        float const Dy = (CloseButton->Flags & 3) == 3 ? 0.06f : 0.0f;
+        for (int Group = 0; Group < 3; ++Group)
+        {
+            float const Pos[3] = {BatteryCountText->Offset[0] + 0.17f + 0.03f * static_cast<float>(Group),
+                                  BatteryCountText->Offset[1] - 0.122f + Dy, -0.3f};
+            G_HdWeaponGroupButtons[Group]->SetProperty(6, reinterpret_cast<uintptr_t>(Pos), 0);
+            if (GetPlayerShipWatcher() != nullptr)
+                G_HdWeaponGroupButtons[Group]->SetProperty(0xc, G_WeaponGroups.GetCurrent() == Group ? 1 : 0, 0);
+        }
+    }
 
     // 0x004db347..0x004db384: once the view object is live, sync the panel with session flag 2
     // (HUDItem slot 12 through the vftable when they differ). FUN_004c8110 answers 0 or 1.
@@ -1506,7 +1650,7 @@ void HUD_Status::Update()
         if (Field5a0 != Field5a4)
         {
             Field5a4 = Field5a0;
-            Field588 = 1.0f; // DAT_005d8484
+            Field588 = WeaponListPeriod(); // DAT_005d8484
             if (Field5a0 == 0)
             {
                 for (int Index = 0; Index < 10; ++Index)
@@ -1516,7 +1660,7 @@ void HUD_Status::Update()
                     AmmoText[Index]->SetProperty(1, 1, 0);
                 }
                 WeaponListScroll->SetProperty(1, 1, 0);
-                Field588 = 1.0f;
+                Field588 = WeaponListPeriod();
             }
             else
             {
@@ -1535,7 +1679,19 @@ void HUD_Status::Update()
         if (Byte500 != 0 && ObjRwFromWatchable(const_cast<Watchable*>(ViewObject.target())) != nullptr)
         {
             Byte500 = 0;
-            if (G_WeaponGroups.FindGroupIndex(0) == -1) // FUN_004f5540
+            // HD: jflp and HudWeaponGroups make the same patch (0x004db6a5 jne +0x13 -> +7,
+            // 0x004db6b7 `jmp +5` -> `push 0`): group 0 is stored when missing, then always made
+            // current and activated.
+            static const bool bFirstGroup =
+                HdPlugins::Enabled("jflp.dll") || HdPlugins::Enabled("HudWeaponGroups.dll");
+            if (bFirstGroup)
+            {
+                if (G_WeaponGroups.FindGroupIndex(0) == -1)
+                    G_WeaponGroups.StoreActive(0);
+                G_WeaponGroups.SetCurrent(0);
+                G_WeaponGroups.Activate(0);
+            }
+            else if (G_WeaponGroups.FindGroupIndex(0) == -1) // FUN_004f5540
             {
                 G_WeaponGroups.StoreActive(0);          // FUN_004f5580
                 G_WeaponGroups.SetCurrent(0);           // FUN_004f6180
@@ -1553,9 +1709,10 @@ void HUD_Status::Update()
         {
             double const Sum = GetClientFrameTimeCapped() + static_cast<double>(Field588);
             Field588 = static_cast<float>(Sum);
-            if (Sum > 1.0)
+            double const Period = static_cast<double>(WeaponListPeriod()); // fcom dword
+            if (Sum > Period)
             {
-                Field588 = static_cast<float>(Sum - 1.0);
+                Field588 = static_cast<float>(Sum - Period);
                 if (!ButtonMover::IsActive() && !ButtonScaler::IsActive())
                 {
                     // 0x004db724..0x004db736
@@ -1888,7 +2045,18 @@ void HUD_Status::ShowWeaponRows()
             // 0x004ddfa8..0x004ddfb0: FUN_0058a580(NumberText) on WeaponNumberText[Row].
             static_cast<NnTextControl*>(WeaponNumberText[Row])->SetNumberText(NumberText);
 
-            if (Weapon.AmmoCount >= 0)
+            // HD: DelayDisplay shows every row's ammo column (0x004ddfc0 jl +0) with the
+            // refire time left of launchers whose refire_delay is at least a second
+            // (0x004ddfd5): "ammo--delay", "delay" or "ammo".
+            static const bool bDelayDisplay = HdPlugins::Enabled("DelayDisplay.dll");
+            if (bDelayDisplay)
+            {
+                AmmoText[Row]->SetProperty(1, 0, 0);
+                char AmmoCountText[0x20];
+                FormatHdWeaponDelay(Weapon, AmmoCountText);
+                static_cast<NnTextControl*>(AmmoText[Row])->SetNumberText(AmmoCountText);
+            }
+            else if (Weapon.AmmoCount >= 0)
             {
                 AmmoText[Row]->SetProperty(1, 0, 0);
                 char AmmoCountText[0x20];
@@ -1931,6 +2099,15 @@ namespace
     // auto-avoidance toggles OnEvent 0x3e / 0x3d flip. Nothing else in the PE touches them.
     unsigned char G_StatusAutoLevel = 1;
     unsigned char G_StatusAutoAvoidance = 0;
+}
+
+void HudStatusSetAutoLevelState(bool bOn)
+{
+    G_StatusAutoLevel = bOn ? 1 : 0;
+}
+
+namespace
+{
 
     // FUN_00544d00 (thiscall on the player's IObjRW, RET 4; Client\space\ship.cpp, whose only
     // caller is FUN_004de4c0) -- the ship's first tractor (FindFirst 0x100000) pulls in every
@@ -2333,7 +2510,7 @@ bool HUD_Status::OnEvent(unsigned MsgId)
         G_WeaponGroups.SetCurrent(Group);                        // FUN_004f6180
         G_WeaponGroups.Activate(Group);                          // FUN_004f5920
         ActiveWeaponGroup = Group;
-        Field588 = 1.0f; // DAT_005d8484
+        Field588 = WeaponListPeriod(); // DAT_005d8484
         return true;
     }
 
@@ -2354,7 +2531,7 @@ bool HUD_Status::OnEvent(unsigned MsgId)
         if (Weapons.size() > Row)
         {
             ToggleLauncher(Weapons[Row].SubId); // FUN_004db930
-            Field588 = 1.0f;
+            Field588 = WeaponListPeriod();
         }
         return true;
     }

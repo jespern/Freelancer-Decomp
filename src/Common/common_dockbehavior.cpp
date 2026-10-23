@@ -4,6 +4,9 @@
 // developed by Digital Anvil.
 // Author: Giperion.
 
+#include <cstdlib>
+#include <ctime>
+#include <cstdio>
 #include "common_dockbehavior.h"
 #include "common_misc.h"   // SinglePlayer() -- UpdateApproachTail()'s case 0xb calls it
 #include "common_systemmanager.h"  // SystemManagerGunGroupManager::SetShieldActive -- FUN_062e9a60
@@ -12,6 +15,7 @@
 #include "common_csys.h"           // Transform, Acquire3DMathEngine -- SetContext's hpmount offset
 #include "x86math.h"               // I3DMathEngine::TransposeTransform, FVector, FMatrix
 #include "common_cobject.h"        // CObject, CShip::request_exit_tradelane -- Disengage
+#include "hd_plugins.h"
                                    // -- AdvancePreamble's two speed-cap sources
                            // directly (Common.dll.txt 062c5025)
 
@@ -40,7 +44,7 @@ static void* HeaderBlockFromWatched(Watchable const* Watched)
     if (Watched == nullptr)
         return nullptr;
     return const_cast<void*>(
-        static_cast<void const*>(reinterpret_cast<char const*>(Watched) - 8));
+        static_cast<void const*>(reinterpret_cast<char const*>(Watched) - FlWatchableOffset()));
 }
 
 // DockBehavior -- see common_dockbehavior.h for the full RTTI/layout writeup
@@ -158,11 +162,29 @@ void* DockBehavior::GetWatchedRawBlock() const
     char const* Watched = reinterpret_cast<char const*>(Watcher324.target());
     if (Watched == nullptr)
         return nullptr;
-    return const_cast<char*>(Watched) - 8;
+    return const_cast<char*>(Watched) - FlWatchableOffset();
 }
 
 // Own vtable slot 7 (offset 0x1c), Update/dispatch entry point.
 // Common.dll.txt 188633-188787 (LAB_062c3b70), 141 instructions.
+// Port dev aid: FLWIN_DOCK_TRACE=1 logs the dock behaviour's state changes, its approach
+// points and the per-update outcome (at most once a second per kind).
+static bool DockTraceOn()
+{
+    static bool const bOn = getenv("FLWIN_DOCK_TRACE") != nullptr;
+    return bOn;
+}
+
+static bool DockTraceThrottle(int Kind)
+{
+    static time_t Last[8] = {};
+    time_t const Now = time(nullptr);
+    if (Kind < 0 || Kind >= 8 || Last[Kind] == Now)
+        return false;
+    Last[Kind] = Now;
+    return true;
+}
+
 int DockBehavior::Update()
 {
     // 062c3b76-062c3b8a: `TEST byte ptr [ESI+0x28],1` -> result 2.
@@ -176,7 +198,7 @@ int DockBehavior::Update()
     // of exactly 8 -> result 3.
     void const* Watched = Watcher324.target();
     if (ThreatSourcePtr14 == nullptr || Watched == nullptr ||
-        reinterpret_cast<char const*>(Watched) - 8 == nullptr)
+        reinterpret_cast<char const*>(Watched) - FlWatchableOffset() == nullptr)
     {
         UpdateResult10 = 3;
         return 3;
@@ -215,6 +237,8 @@ int DockBehavior::Update()
         double const SpeedSq = (static_cast<double>(Velocity.x) * Velocity.x +
                                 static_cast<double>(Velocity.y) * Velocity.y) +
                                static_cast<double>(Velocity.z) * Velocity.z;
+        if (DockTraceOn() && Owner->is_player() && DockTraceThrottle(0))
+            fprintf(stderr, "[dock] update state %d target speed^2 %.3f\n", ModeState320, SpeedSq);
         if (SpeedSq > static_cast<double>(0.3f))
         {
             // 062c3c68-062c3c9b: the target is moving -- release both Ideas, result 1.
@@ -237,7 +261,16 @@ int DockBehavior::Update()
         ObjRwFromWatchable(const_cast<Watchable*>(Watcher324.target()))->get_position());
 
     // 062c3ce8-062c3cf4: FUN_062c4900 with `this`; its EAX is the return value.
-    return UpdateApproachTail();
+    int const Tail = UpdateApproachTail();
+    if (DockTraceOn() && Owner->is_player() && DockTraceThrottle(1))
+    {
+        Vector const& Pos = Owner->get_position();
+        fprintf(stderr, "[dock] tail %d state %d ship (%.0f %.0f %.0f) dest (%.0f %.0f %.0f) mount (%.0f %.0f %.0f) icpt (%.0f %.0f %.0f) sphere %d\n",
+                Tail, ModeState320, Pos.x, Pos.y, Pos.z, DestPoint3cc.x, DestPoint3cc.y, DestPoint3cc.z,
+                SavedPosition3fc.x, SavedPosition3fc.y, SavedPosition3fc.z, InterceptPoint39c.x,
+                InterceptPoint39c.y, InterceptPoint39c.z, Field43c);
+    }
+    return Tail;
 }
 
 // FUN_062c3590 (Common.dll.txt 188078-188095), all 13 instructions: ESI = this+0x2f4,
@@ -276,7 +309,7 @@ bool DockBehavior::OnResult(int Param1, int Param2, int Param3)
         // invalid" test.
         void const* Watched = Watcher324.target();
         bool const bInvalidBlock =
-            (Watched == nullptr) || (reinterpret_cast<char const*>(Watched) - 8 == nullptr);
+            (Watched == nullptr) || (reinterpret_cast<char const*>(Watched) - FlWatchableOffset() == nullptr);
 
         if (bInvalidBlock || Param3 == -1)
         {
@@ -460,7 +493,7 @@ void DockBehavior::RecomputeApproach()
 
     void const* Watched = Watcher324.target();
     bool const bInvalidBlock =
-        (Watched == nullptr) || (reinterpret_cast<char const*>(Watched) - 8 == nullptr);
+        (Watched == nullptr) || (reinterpret_cast<char const*>(Watched) - FlWatchableOffset() == nullptr);
     if (bInvalidBlock)
     {
         EnterState(0xd);                                             // 062c375b
@@ -491,7 +524,7 @@ void DockBehavior::RecomputeApproach()
         // 062c37bc-062c37e8: owner->get_lane_start(watched object, &TargetShipPtr388,
         // &DestPoint3cc, &Facing38c) (IObjInspect +0x138; the object is target - 8, or null).
         IObjInspect const* const WatchedObj = ObjInspectOf(Watched != nullptr
-            ? static_cast<void const*>(reinterpret_cast<char const*>(Watched) - 8)
+            ? static_cast<void const*>(reinterpret_cast<char const*>(Watched) - FlWatchableOffset())
             : nullptr);
         ObjInspectOf(ThreatSourcePtr14)->get_lane_start(
             WatchedObj, *static_cast<IObjInspect const**>(static_cast<void*>(&TargetShipPtr388)),
@@ -503,7 +536,7 @@ void DockBehavior::RecomputeApproach()
         // pointer (062c3829 XOR ECX,ECX / MOV EDX,[ECX]) -- reproduced literally.
         Watchable const* const Watched2 = Watcher324.target();
         void const* const Obj2 = Watched2 != nullptr
-            ? static_cast<void const*>(reinterpret_cast<char const*>(Watched2) - 8)
+            ? static_cast<void const*>(reinterpret_cast<char const*>(Watched2) - FlWatchableOffset())
             : nullptr;
         SubObjectA.PublishTargetId(ObjInspectOf(Obj2)->get_id());
     }
@@ -565,7 +598,7 @@ void DockBehavior::RecomputeApproach()
         // owner->get_position() first, then the object's (both IObjInspect slot 0).
         Watchable const* const Watched3 = Watcher324.target();
         void const* const Obj3 = Watched3 != nullptr
-            ? static_cast<void const*>(reinterpret_cast<char const*>(Watched3) - 8)
+            ? static_cast<void const*>(reinterpret_cast<char const*>(Watched3) - FlWatchableOffset())
             : nullptr;
         Vector const& ThreatPos = ThreatObject->get_position();
         Vector const& WatchedPos = ObjInspectOf(Obj3)->get_position();
@@ -576,7 +609,10 @@ void DockBehavior::RecomputeApproach()
         double const Dy = static_cast<double>(WatchedPos.y) - ThreatPos.y;
         double const Dz = static_cast<double>(WatchedPos.z) - ThreatPos.z;
         double const DistSq = Dx * Dx + Dy * Dy + Dz * Dz;
-        if (!(DistSq < kApproachRangeSq))                    // 062c38ac JNP: less -> 1
+        // HD: dock_any_distance — no 10 km limit on a dock request (Common.dll 0x062c38ac
+        // JNP -> JMP).
+        static const bool bHdDockAnyDistance = HdPlugins::Feature("dock_any_distance");
+        if (!bHdDockAnyDistance && !(DistSq < kApproachRangeSq)) // 062c38ac JNP: less -> 1
         {
             // 062c38ae-062c38bc: owner's IObjAffect (+4) slot 0x6c(0, 0), then PUSH 0xd.
             ObjAffectOf(ThreatSourcePtr14)->slot_6c(0, 0);
@@ -649,8 +685,7 @@ void DockBehavior::Disengage()
             CObject const* const Obj = ObjInspectOf(ThreatSourcePtr14)->cobject(); // +0x150
             CShip* Ship = nullptr;
             if (Obj != nullptr &&
-                (*reinterpret_cast<unsigned int const*>(reinterpret_cast<char const*>(Obj) + 0x4c) &
-                 0x503) == 0x503)
+                (static_cast<unsigned int>(Obj->ObjectClass) & 0x503) == 0x503) // retail +0x4c
                 Ship = const_cast<CShip*>(static_cast<CShip const*>(Obj));
             Ship->request_exit_tradelane();
         }
@@ -700,11 +735,11 @@ void DockBehavior::CancelOwnerRequest(int RequestType)
 {
     unsigned int Id = 0;
     Watchable const* const Watched = Watcher324.target();
-    if (Watched != nullptr && reinterpret_cast<char const*>(Watched) - 8 != nullptr)
+    if (Watched != nullptr && reinterpret_cast<char const*>(Watched) - FlWatchableOffset() != nullptr)
     {
         Watchable const* const Again = Watcher324.target();
         void const* const Obj = Again != nullptr
-            ? static_cast<void const*>(reinterpret_cast<char const*>(Again) - 8)
+            ? static_cast<void const*>(reinterpret_cast<char const*>(Again) - FlWatchableOffset())
             : nullptr;
         Id = ObjInspectOf(Obj)->get_id();
     }
@@ -815,7 +850,7 @@ void DockBehavior::SubmitGotoDirective(Vector const& ReferencePoint)
         Op.Field_0C = 0;
         Watchable const* const Watched = Watcher324.target();
         void const* const Obj = Watched != nullptr
-            ? static_cast<void const*>(reinterpret_cast<char const*>(Watched) - 8)
+            ? static_cast<void const*>(reinterpret_cast<char const*>(Watched) - FlWatchableOffset())
             : nullptr;
         Op.Field_1C = static_cast<int32_t>(ObjInspectOf(Obj)->get_id()); // 062c561f
     }
@@ -828,8 +863,9 @@ void DockBehavior::SubmitGotoDirective(Vector const& ReferencePoint)
 void DockBehavior::OnWatchedObjectDestroyed(void* Message)
 {
     int const TypeCode = *static_cast<int const*>(Message);              // 062c54b7
-    unsigned char const* const Payload =
-        *reinterpret_cast<unsigned char const* const*>(static_cast<char const*>(Message) + 4);
+    // Retail reads the payload pointer at +4; on LP64 FBehaviorManagerEvent::Data sits at +8.
+    unsigned char const* const Payload = static_cast<unsigned char const*>(
+        static_cast<FBehaviorManagerEvent const*>(Message)->Data);
 
     if (TypeCode == 4)
     {
@@ -843,7 +879,7 @@ void DockBehavior::OnWatchedObjectDestroyed(void* Message)
             return;
         Watchable const* const Watched = Watcher324.target();
         void const* const Obj = Watched != nullptr
-            ? static_cast<void const*>(reinterpret_cast<char const*>(Watched) - 8)
+            ? static_cast<void const*>(reinterpret_cast<char const*>(Watched) - FlWatchableOffset())
             : nullptr;
         if (ObjInspectOf(Obj)->get_id() != *reinterpret_cast<unsigned int const*>(Payload + 0x10))
             return;
@@ -914,6 +950,8 @@ void DockBehavior::EnterState(int NewState)
 
     // 062c3d71: .rdata:DAT_0639f47c == 0x447a0000 == 1000.0f, unconditional.
     MaxApproachSpeed46c = 1000.0f;
+    if (DockTraceOn() && ThreatSourcePtr14 != nullptr && static_cast<IObjRW*>(ThreatSourcePtr14)->is_player())
+        fprintf(stderr, "[dock] state %d -> %d\n", ModeState320, NewState);
     ModeState320 = NewState;
 
     switch (NewState)
@@ -1106,13 +1144,13 @@ void DockBehavior::EnterState(int NewState)
         MaxApproachSpeed46c = 18.0f;                   // .data:DAT_063ebdb8 == 0x41900000
         // FUN_062d5a80 copies three dwords into receiver+0x4c == MoveIdea::Offset4c
         // (.text:062d5a80-062d5a97); it is NOT one of the tagged target setters.
-        SubObjectA.Offset4c = *static_cast<Vector const*>(RawAt(0x430)); // 062c427f FUN_062d5a80
+        std::memcpy(&SubObjectA.Offset4c, Opaque430, sizeof(Vector)); // port: the +0x430 member, not a retail-offset reach // 062c427f FUN_062d5a80
         return;
     case 7:
         // caseD_7 at 062c4291.
         SetCruiseLock(0, 3);
         SubObjectA.SetField44(2);                           // 062c42a2 FUN_062d88b0
-        SubObjectA.Offset4c = *static_cast<Vector const*>(RawAt(0x430)); // 062c42b0 FUN_062d5a80
+        std::memcpy(&SubObjectA.Offset4c, Opaque430, sizeof(Vector)); // port: the +0x430 member, not a retail-offset reach // 062c42b0 FUN_062d5a80
         if (CombatFlag344 != 0)
         {
             SubObjectB.SetPosition(SavedPosition3fc);       // 062c42cc FUN_062d7560
@@ -1140,7 +1178,7 @@ void DockBehavior::EnterState(int NewState)
         // caseD_9 at 062c4370.
         SetCruiseLock(0, 3);
         SubObjectA.SetPosition(SavedPosition3fc);           // 062c4386 FUN_062d5840
-        SubObjectA.Offset4c = *static_cast<Vector const*>(RawAt(0x430)); // 062c4394 FUN_062d5a80
+        std::memcpy(&SubObjectA.Offset4c, Opaque430, sizeof(Vector)); // port: the +0x430 member, not a retail-offset reach // 062c4394 FUN_062d5a80
         // 062c4399-062c43a8: FLD float Field408, FMUL double DAT_0639f518 (0.6), FSTP dword as
         // the bind_to_dc argument -- one rounding of the double product (the old port
         // multiplied two floats).
@@ -1179,9 +1217,8 @@ void DockBehavior::EnterState(int NewState)
             SubObjectA.SetMode(0);                          // 062c4453 FUN_062d5980
             return;
         }
-        // LAB_062c4465. +0x40c's width is unproven, same as +0x3a8 -- raw reach,
-        // but FUN_062d75c0 copies nine dwords, so the span is a 3x3 Matrix.
-        SubObjectB.SetBasis(*static_cast<Matrix const*>(RawAt(0x40c))); // 062c446c FUN_062d75c0
+        // LAB_062c4465. FUN_062d75c0 copies nine dwords: the 3x3 Orient40c.
+        SubObjectB.SetBasis(Orient40c);                    // port: the +0x40c member (RawAt read LP64 garbage) // 062c446c FUN_062d75c0
         SubObjectA.SetMode(1);                              // 062c4474 FUN_062d5980
         MaxApproachSpeed46c = 18.0f;                   // .data:DAT_063ebdb8
         if ((StateFlags32c & 0x20) != 0)
@@ -1251,12 +1288,12 @@ void DockBehavior::RefreshApproachState()
     if (Field43c < -1)
         return;
     Watchable const* const Watched = Watcher324.target();
-    if (Watched == nullptr || reinterpret_cast<char const*>(Watched) - 8 == nullptr)
+    if (Watched == nullptr || reinterpret_cast<char const*>(Watched) - FlWatchableOffset() == nullptr)
         return;
 
     // 062c5112-062c5148: object->get_dock_hardpoints(Field43c, &SubStateValue440, &A, &B,
     // &C, &Field408) (IObjInspect +0xc8; the object is re-read as target - 8).
-    IObjInspect const* const Obj = ObjInspectOf(reinterpret_cast<char const*>(Watched) - 8);
+    IObjInspect const* const Obj = ObjInspectOf(reinterpret_cast<char const*>(Watched) - FlWatchableOffset());
     Transform XformA;   // [ESP+0x40] local_90 -- left uninitialised by retail
     Transform XformB;   // [ESP+0x70] local_60
     Transform XformC;   // [ESP+0xa0] local_30
@@ -1372,7 +1409,7 @@ int DockBehavior::UpdateApproachTail()
         // (vtable +0x1c); anything but 2 leaves through the default case. Retail tests
         // NavPilotPtr for null nowhere (the old port did, 2026-10-08).
         Behavior* const Pilot = static_cast<Behavior*>(GotoDirective.NavPilotPtr);
-        *reinterpret_cast<float*>(reinterpret_cast<char*>(Pilot) + 0x1c) = DeltaTime;
+        Pilot->SetTickDelta(DeltaTime); // retail +0x1c
         if (Pilot->Slot7() != 2)
             return UpdateResult10;
 
@@ -1404,7 +1441,7 @@ int DockBehavior::UpdateApproachTail()
         void* ProxWatched = const_cast<void*>(
             static_cast<void const*>(ProxWatcher450.Watcher.target()));
         if (bAborted ||
-            ((ProxWatched != nullptr) && (ProxWatched != reinterpret_cast<void*>(8)) &&
+            ((ProxWatched != nullptr) && (ProxWatched != reinterpret_cast<void*>(static_cast<uintptr_t>(FlWatchableOffset()))) &&
              ((ProxWatcher450.Flags14 & 2) == 0)))
         {
             // LAB_062c49b9: `LEA EDI,[ESI+0x30]` is the receiver for all three.

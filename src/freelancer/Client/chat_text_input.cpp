@@ -5,6 +5,11 @@
 // Author: Giperion.
 
 #include "chat_text_input.h"
+#include "hd_console.h"
+#include "common_misc.h"
+#include "hd_plugins.h"
+#include <string>
+#include <vector>
 
 #include "chat_init.h"             // FChatChannelTable, G_ChatChannelTable, chat ids, ChatSetInputOpen
 #include "effect_vertex_batch.h"   // FEffectVertexBatch (FUN_0046ebc0 / FUN_0046eab0 / FUN_0046e9c0)
@@ -23,6 +28,7 @@
 #include "common_server.h"         // IChatServer
 #include "dacom.h"                 // FDUMP, DACOM_CRC::GetCRC32
 #include "render/shading.h"        // ITextureLibrary2
+#include "hd_plugins.h"
 
 #include <string.h>
 
@@ -406,7 +412,10 @@ void ChatTextInputDisplay::SetTarget(CHAT_ID const& Id)
 
     // 0x0045ed51..0x0045edd2: TextNode(L"->", -1).
     {
-        TextNode const Node(kTargetArrow, -1);
+        // HD: jflp writes L"\x2013>" (en dash) into the shared DAT_005cef58.
+        static const wchar_t* const kArrow =
+            HdPlugins::Enabled("jflp.dll") ? L"\x2013>" : kTargetArrow;
+        TextNode const Node(kArrow, -1);
         AppendNodeClone(Prefix, Node);
     }
 
@@ -593,6 +602,77 @@ void ChatTextInputDisplay::Draw()
     RichTextEditWin::Draw();   // FUN_0057c440
 }
 
+namespace
+{
+    // HD: console.dll's chat history -- Enter stores the line (not one-character lines; blank
+    // ones only in single player), Up / Down step through it, Ctrl+Up / Ctrl+Down find the
+    // previous / next line that starts with the text before the caret. In multiplayer the keys
+    // keep choosing the chat target unless the line starts with '.' or '/' (or, with Ctrl, is
+    // blank).
+    std::vector<std::wstring> G_HdChatHistory;
+    size_t G_HdChatHistoryPos = 0;
+
+    std::wstring CurrentLine(ChatTextInputDisplay* Input)
+    {
+        int const Count = Input->GetText(nullptr, 0);
+        std::wstring Line(static_cast<size_t>(Count) + 1, L'\0');
+        Input->GetText(&Line[0], Count + 1);
+        Line.resize(static_cast<size_t>(Count));
+        return Line;
+    }
+
+    void HdChatHistoryStore(std::wstring const& Line)
+    {
+        if (Line.size() == 1)
+            return;
+        bool bBlank = Line.find_first_not_of(L" \t") == std::wstring::npos;
+        if (bBlank && !SinglePlayer())
+            return;
+        if (G_HdChatHistory.empty() || G_HdChatHistory.back() != Line)
+            G_HdChatHistory.push_back(Line);
+        G_HdChatHistoryPos = G_HdChatHistory.size();
+    }
+
+    bool HdChatHistoryStep(ChatTextInputDisplay* Input, bool bUp, bool bCtrl)
+    {
+        std::wstring const Line = CurrentLine(Input);
+        bool const bBlank = Line.find_first_not_of(L" \t") == std::wstring::npos;
+        if (!SinglePlayer() && !(Line.size() > 0 && (Line[0] == L'.' || Line[0] == L'/')) && !(bCtrl && bBlank))
+            return false;
+        size_t Pos = G_HdChatHistoryPos;
+        if (bCtrl)
+        {
+            std::wstring const Prefix = Line.substr(0, static_cast<size_t>(Input->Caret));
+            for (;;)
+            {
+                if (bUp ? Pos == 0 : Pos + 1 >= G_HdChatHistory.size())
+                    return true;
+                Pos = bUp ? Pos - 1 : Pos + 1;
+                if (G_HdChatHistory[Pos].compare(0, Prefix.size(), Prefix) == 0)
+                    break;
+            }
+        }
+        else if (bUp)
+        {
+            if (Pos == 0)
+                return true;
+            --Pos;
+        }
+        else
+        {
+            if (Pos >= G_HdChatHistory.size())
+                return true;
+            ++Pos;
+        }
+        G_HdChatHistoryPos = Pos;
+        std::wstring const Entry = Pos < G_HdChatHistory.size() ? G_HdChatHistory[Pos] : std::wstring();
+        Input->SetText(Entry.c_str(), nullptr);
+        Input->SetCaret(static_cast<int>(Entry.size()));
+        Input->RebuildDisplay();
+        return true;
+    }
+}
+
 bool ChatTextInputDisplay::OnKeyDown(FHudCmdRecord const* Record)
 {
     // FUN_0045f700 (RET 4): key-downs of an active line only; Enter, Escape, Up and Down through
@@ -606,6 +686,21 @@ bool ChatTextInputDisplay::OnKeyDown(FHudCmdRecord const* Record)
             // 0x0045f73a..0x0045f7d3: a non-empty line is serialised from the text list (+0x4e8)
             // and submitted from us to the target; the line is cleared either way, and a line
             // opened for one message closes.
+            // HD: console.dll stores the line in the chat history.
+            if (HdConsoleEnabled())
+                HdChatHistoryStore(CurrentLine(this));
+            // HD: console.dll -- in single player the line is a console command, not chat.
+            if (HdConsoleEnabled() && SinglePlayer())
+            {
+                HdConsoleExecute(CurrentLine(this).c_str());
+                ClearText();
+                if (bCloseAfterSend != 0)
+                {
+                    ChatSetInputOpen(false);
+                    bCloseAfterSend = 0;
+                }
+                return true;
+            }
             if (GetText(nullptr, 0) > 0)
             {
                 unsigned OutSize = 0;
@@ -633,11 +728,17 @@ bool ChatTextInputDisplay::OnKeyDown(FHudCmdRecord const* Record)
             ChatSetInputOpen(false);
             return true;
         case 0x26:
+            // HD: console.dll's history (0x0045f830).
+            if (HdConsoleEnabled() && HdChatHistoryStep(this, true, (Record->Modifiers & 4) != 0))
+                return true;
             // 0x0045f7ee
             PrevTarget();
             RebuildDisplay();
             return true;
         case 0x28:
+            // HD: console.dll's history (0x0045f834).
+            if (HdConsoleEnabled() && HdChatHistoryStep(this, false, (Record->Modifiers & 4) != 0))
+                return true;
             // 0x0045f803
             NextTarget();
             RebuildDisplay();

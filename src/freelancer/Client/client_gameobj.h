@@ -774,7 +774,7 @@ public:
     // the tradelane ring FX binders tradelane_fx.cpp reaches by offset (+0x164 / +0x174). The
     // earlier "0xdc-byte object at +0x17c" was the dtor's ESI-relative +0x17c misread: the Ship
     // dtor runs with ESI = this + 0xc, so that object is +0x188.
-    unsigned Field_0x160;              // +0x160
+    void* Field_0x160;                 // +0x160 FTradeLaneRingRuntime* (tradelane_fx.cpp)
     void* Field_0x164[4];              // +0x164 companion (arch, sound, particle, light)
     void* Field_0x174[4];              // +0x174 companion
     unsigned Field_0x184;              // +0x184 (tradelane_fx.cpp reads bytes +0x184/+0x185)
@@ -1072,3 +1072,10 @@ void GameobjWatchListAdd(IObjRW* Obj);
 void GameobjWatchListRemove(IObjRW* Obj);
 // Read access for the HUD walk: the list itself, in insertion order.
 std::list<BaseWatcher> const& GameobjWatchList();
+
+// Retail reads a client IObjRW's CObject at +0x10 (`[ObjRW+0xc]+4`, the FClientGameobj's
+// Object); on LP64 that is this member, reached through the class.
+inline CObject* ClientGameobjObject(void const* ObjRW)
+{
+    return static_cast<FClientGameobj const*>(static_cast<IObjRW const*>(ObjRW))->GetObject();
+}

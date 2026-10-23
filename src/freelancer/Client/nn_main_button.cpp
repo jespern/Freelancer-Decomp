@@ -5,6 +5,8 @@
 // Author: Giperion.
 
 #include "nn_main_button.h"
+#include "hd_client.h"
+#include "hd_hudless.h"
 #ifdef FREELANCER_WALK_MODE
 #include "base_walk.h"
 #endif
@@ -191,7 +193,9 @@ bool NN_MainButton::Create(Win3D* NewParent, void* Data)
     float const Zero338[3] = {0.0f, 0.0f, 0.0f};
     if (SinglePlayer())
     {
-        float const Position[3] = {NnFloatBits(0x3ece5604), NnFloatBits(0x3ebb645a),
+        // HD: HudShift.ini bases (0x0045b95d / 0x0045b965).
+        float const Position[3] = {HdHudShiftBase(0x0045b95d, NnFloatBits(0x3ece5604)),
+                                   HdHudShiftBase(0x0045b965, NnFloatBits(0x3ebb645a)),
                                    NnFloatBits(0xbf800000)};
         Background = CreateStaticControl("NNBackground", "Interface\\HUD\\HUD_nnbox5.cmp",
                                          Position, nullptr, Zero, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0,
@@ -199,7 +203,8 @@ bool NN_MainButton::Create(Win3D* NewParent, void* Data)
     }
     else
     {
-        float const Position[3] = {NnFloatBits(0x3eb95810), NnFloatBits(0x3ebb645a),
+        float const Position[3] = {HdHudShiftBase(0x0045b9b5, NnFloatBits(0x3eb95810)),
+                                   HdHudShiftBase(0x0045b9bd, NnFloatBits(0x3ebb645a)),
                                    NnFloatBits(0xbf800000)};
         Background = CreateStaticControl("NNBackground", "Interface\\HUD\\HUD_nnbox7.cmp",
                                          Position, nullptr, Zero, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0,
@@ -208,33 +213,33 @@ bool NN_MainButton::Create(Win3D* NewParent, void* Data)
 
     // 0x0045b9da..0x0045bfa0: the five common pairs, y 0.459, z -1.25, half size 0.018.
     NnMainButtonCreatePair(this, "NNNavmapButton", "NNNavmapButtonRoot",
-                           "interface\\NeuroNet\\icons\\NN_Map.3db", NnFloatBits(0x3ee978d6),
+                           "interface\\NeuroNet\\icons\\NN_Map.3db", HdHudShiftBase(0x0045ba2b, NnFloatBits(0x3ee978d6)),
                            0x3fc, 0x63, &NavmapButton, &NavmapRoot);
     NnMainButtonCreatePair(this, "NNInventoryButton", "NNInventoryButtonRoot",
                            "interface\\NeuroNet\\icons\\NN_Inventory.3db",
-                           NnFloatBits(0x3f010625), 0x3ed, 0x66, &InventoryButton,
+                           HdHudShiftBase(0x0045bb24, NnFloatBits(0x3f010625)), 0x3ed, 0x66, &InventoryButton,
                            &InventoryRoot);
     NnMainButtonCreatePair(this, "NNMissionLogButton", "NNMissionLogButtonRoot",
                            "interface\\NeuroNet\\icons\\NN_storystar.3db",
-                           NnFloatBits(0x3ed0e561), 0x421, 0x67, &MissionLogButton,
+                           HdHudShiftBase(0x0045bc56, NnFloatBits(0x3ed0e561)), 0x421, 0x67, &MissionLogButton,
                            &MissionLogRoot);
     NnMainButtonCreatePair(this, "NNPlayerInfoButton", "NNPlayerInfoButtonRoot",
                            "interface\\NeuroNet\\icons\\NN_PlayerStatus.3db",
-                           NnFloatBits(0x3f0d4fe0), 0x55f, 0x65, &PlayerInfoButton,
+                           HdHudShiftBase(0x0045bd93, NnFloatBits(0x3f0d4fe0)), 0x55f, 0x65, &PlayerInfoButton,
                            &PlayerInfoRoot);
     NnMainButtonCreatePair(this, "NNHelpButton", "NNHelpButtonRoot",
-                           "interface\\NeuroNet\\icons\\NN_info.3db", NnFloatBits(0x3f19999a),
+                           "interface\\NeuroNet\\icons\\NN_info.3db", HdHudShiftBase(0x0045bec5, NnFloatBits(0x3f19999a)),
                            0x570, 0x6a, &HelpButton, &HelpRoot);
 
     // 0x0045bfa0..0x0045c216: multiplayer adds chat and group; single player zeroes them.
     if (!SinglePlayer())
     {
         NnMainButtonCreatePair(this, "NNChatButton", "NNChatButtonRoot",
-                               "interface\\NeuroNet\\icons\\NN_Chat.3db", NnFloatBits(0x3eb851ec),
+                               "interface\\NeuroNet\\icons\\NN_Chat.3db", HdHudShiftBase(0x0045bff5, NnFloatBits(0x3eb851ec)),
                                0x435, 0x68, &ChatButton, &ChatRoot);
         NnMainButtonCreatePair(this, "NNGroupButton", "NNGroupButtonRoot",
                                "interface\\NeuroNet\\icons\\NN_request.3db",
-                               NnFloatBits(0x3e9fbe78), 0x560, 0x69, &GroupButton, &GroupRoot);
+                               HdHudShiftBase(0x0045c0f0, NnFloatBits(0x3e9fbe78)), 0x560, 0x69, &GroupButton, &GroupRoot);
     }
     else
     {
@@ -292,6 +297,17 @@ bool NN_MainButton::Create(Win3D* NewParent, void* Data)
     NnSetVector(BackgroundPosition[4], 0x00000000, 0x3d9ba5e3, 0xbfa4dd2f);
     NnSetVector(BackgroundPosition[5], 0x00000000, 0x3d6147ae, 0xbf800000); // (0, 0.055, -1)
     NnSetVector(BackgroundPosition[6], 0x00000000, 0x3d4ccccd, 0xbf800000); // (0, 0.05, -1)
+    // HD: HudShift.ini bases of the x of each table row (0x32 apart) and of the chat / attention
+    // panel y.
+    for (int Slot = 0; Slot < 7; ++Slot)
+    {
+        unsigned const Step = 0x32u * static_cast<unsigned>(Slot);
+        OpenTarget[Slot][0] = HdHudShiftBase(0x0045c32eu + Step, OpenTarget[Slot][0]);
+        PanelOrigin[Slot][0] = HdHudShiftBase(0x0045c48cu + Step, PanelOrigin[Slot][0]);
+        BackgroundPosition[Slot][0] = HdHudShiftBase(0x0045c5eau + Step, BackgroundPosition[Slot][0]);
+    }
+    PanelOrigin[5][1] = HdHudShiftBase(0x0045c598, PanelOrigin[5][1]);
+    PanelOrigin[6][1] = HdHudShiftBase(0x0045c5c0, PanelOrigin[6][1]);
     // 0x0045c744..0x0045c776: the background's collapsed scale per slot.
     PanelScale[0] = NnFloatBits(0x3da3d70a); // 0.08
     PanelScale[1] = NnFloatBits(0x3d4ccccd); // 0.05
@@ -422,6 +438,10 @@ bool NN_MainButton::OnEvent(unsigned MsgId)
     // FUN_0045cae0 (RET 4; this = the +0x32c face).
     if (MsgId == 0x67)
     {
+        // HD: HUDless (0x0045caee) -- with a modifier the log key cycles the hidden HUD, even
+        // on bases and over NN screens.
+        if (HdHudless::Toggle())
+            return true;
         // 0x0045caee..0x0045cb10: the mission log is refused only by the screen/cursor/pause
         // gates, not by the docked / no-ship half of FUN_0045a740.
         if (G_bNnScreenUp || GetClientMouseCursorDrawFlag() == 0 || IsClientServerTickPaused() ||
@@ -794,7 +814,9 @@ void NN_MainButton::MakeScaledBackground(float Scale)
     float const Zero338[3] = {0.0f, 0.0f, 0.0f};
     if (bInfoCardLayout != 0)
     {
-        float const Position[3] = {0.0f, NnFloatBits(0xbdb020c5), NnFloatBits(0xbfa4dd2f)};
+        // HD: HudShift.ini base of the dealer slide-in y (0x0045d868).
+        float const Position[3] = {0.0f, HdHudShiftBase(0x0045d868, NnFloatBits(0xbdb020c5)),
+                                   NnFloatBits(0xbfa4dd2f)};
         ScaledBackground = CreateStaticControl(
             "ScaledBackground", "Interface\\NeuroNet\\Inventory\\INV_biginforcard_center.cmp",
             Position, nullptr, HalfExtents, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, Zero338);

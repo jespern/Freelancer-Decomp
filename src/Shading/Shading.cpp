@@ -66,7 +66,7 @@ namespace
             if (Spec.Kind == KindMaterialAnimation)
             {
                 FMaterialAggregateDesc* AnimationDesc = (FMaterialAggregateDesc*)Desc;
-                if (AnimationDesc->Size != sizeof(FMaterialAggregateDesc) ||
+                if (!FL_DESC_SIZE_IS(AnimationDesc->Size, FMaterialAggregateDesc, 0x14) ||
                     std::strcmp(AnimationDesc->NameAt4, Spec.Name) != 0)
                 {
                     *Instance = nullptr;
@@ -89,7 +89,7 @@ namespace
             if (Spec.Kind == KindMaterialBatcher)
             {
                 FMaterialAggregateDesc* BatcherDesc = (FMaterialAggregateDesc*)Desc;
-                if (BatcherDesc->Size != sizeof(FMaterialAggregateDesc) ||
+                if (!FL_DESC_SIZE_IS(BatcherDesc->Size, FMaterialAggregateDesc, 0x14) ||
                     std::strcmp(BatcherDesc->NameAt4, Spec.Name) != 0)
                 {
                     *Instance = nullptr;
@@ -123,7 +123,7 @@ namespace
             if (Spec.Kind == KindMaterialLibrary)
             {
                 FMaterialAggregateDesc* LibraryDesc = (FMaterialAggregateDesc*)Desc;
-                if (LibraryDesc->Size != sizeof(FMaterialAggregateDesc) ||
+                if (!FL_DESC_SIZE_IS(LibraryDesc->Size, FMaterialAggregateDesc, 0x14) ||
                     std::strcmp(LibraryDesc->NameAt4, Spec.Name) != 0)
                 {
                     *Instance = nullptr;
@@ -156,7 +156,7 @@ namespace
             if (Spec.Kind == KindTextureLibrary)
             {
                 FSystemAggDesc* TextureDesc = (FSystemAggDesc*)Desc;
-                if (TextureDesc->Size != sizeof(FSystemAggDesc) ||
+                if (!FL_DESC_SIZE_IS(TextureDesc->Size, FSystemAggDesc, 0x14) ||
                     std::strcmp(TextureDesc->Name, Spec.Name) != 0)
                 {
                     *Instance = nullptr;
@@ -190,7 +190,7 @@ namespace
             if (Spec.Kind == KindMaterialType)
             {
                 FMaterialAggregateDesc* MaterialDesc = (FMaterialAggregateDesc*)Desc;
-                if (MaterialDesc->Size != sizeof(FMaterialAggregateDesc) ||
+                if (!FL_DESC_SIZE_IS(MaterialDesc->Size, FMaterialAggregateDesc, 0x14) ||
                     std::strcmp(MaterialDesc->NameAt4, Spec.Name) != 0)
                 {
                     *Instance = nullptr;
@@ -221,7 +221,7 @@ namespace
             if (Spec.Kind == KindBatchedMaterial)
             {
                 FMaterialAggregateDesc* BatchedDesc = (FMaterialAggregateDesc*)Desc;
-                if (BatchedDesc->Size != sizeof(FMaterialAggregateDesc) ||
+                if (!FL_DESC_SIZE_IS(BatchedDesc->Size, FMaterialAggregateDesc, 0x14) ||
                     std::strcmp(BatchedDesc->NameAt4, Spec.Name) != 0)
                 {
                     *Instance = nullptr;

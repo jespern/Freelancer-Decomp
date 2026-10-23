@@ -6,6 +6,7 @@
 
 #include "common_delaybehavior.h"
 #include "common_pathfind.h" // PathfindManager (IBehaviorManager+0x0C)
+#include "common_pub.h"      // pub::AI::DirectiveDelayOp (ApplyDirective)
 
 // DelayBehavior -- see common_delaybehavior.h for the full RTTI/layout
 // writeup this pass relied on. Ported from EXE/Disasm/Common.dll.txt (raw
@@ -130,7 +131,9 @@ int DelayBehavior::Update()
 // (LAB_062d0b40), 10 instructions.
 bool DelayBehavior::ApplyDirective(void const* Param)
 {
-    float Value = *reinterpret_cast<float const*>(static_cast<unsigned char const*>(Param) + 0x0c);
+    // Param is the pub::AI::DirectiveDelayOp; retail reads +0x0c, its DelaySeconds. Read
+    // through the field: on LP64 the op's vptr is 8 bytes and DelaySeconds sits at +0x10.
+    float Value = static_cast<pub::AI::DirectiveDelayOp const*>(Param)->DelaySeconds;
 
     Field40 = Value;
     Flags28 = static_cast<unsigned char>(Flags28 | 0x2);

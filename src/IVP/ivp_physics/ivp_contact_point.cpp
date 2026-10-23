@@ -64,6 +64,14 @@
 // ============================================================================
 namespace
 {
+    // ReactionFrame axis pointers: retail stores tangentDir0 / tangentDir1 / auxAxis in the
+    // block's first three dwords; natively they are pointer-wide, kept past the retail block.
+    const unsigned kReactionAxisSlots = 0x118;
+    template <typename T> T*& ReactionAxis(unsigned char* thisPtr, int RetailOffset)
+    {
+        return reinterpret_cast<T**>(thisPtr + kReactionAxisSlots)[RetailOffset / 4];
+    }
+
     // Common.dll.txt 06365ce0-06365d00 (FUN_06365ce0), thiscall (this; param_1),
     // RET 4: 4-component dot product. The sum is accumulated w, z, y, x on the
     // x87 stack -- ((t3*p3 + t2*p2) + t1*p1) + t0*p0 -- and returned unrounded
@@ -90,9 +98,12 @@ namespace
         param_1_00[3] = param_1[3] * param_2[3];
     }
 
-    inline float Ivp_ReactionFloatAt(const unsigned char* Base, int Offset)
+    // Core +0xf4..+0x11f (retail): MWorldFCore's three rows, read by retail byte offset.
+    inline float Ivp_ReactionFloatAt(const unsigned char* Core, int Offset)
     {
-        return *reinterpret_cast<const float*>(Base + Offset);
+        const unsigned char* const Rows =
+            reinterpret_cast<const unsigned char*>(&reinterpret_cast<const IVP_Core*>(Core)->MWorldFCore);
+        return *reinterpret_cast<const float*>(Rows + (Offset - 0xf4));
     }
 
     // FUN_0628be40 (thiscall this=A; B), RET 4: ((A.z*B.z + A.y*B.y) + A.x*B.x),
@@ -137,12 +148,12 @@ namespace
     ReactionFrameAccumulateCore(unsigned char* thisPtr, const float* posRef, unsigned char* structPtr,
                                 float* basis1, float* basis2, float sign) // formerly FUN_063658f0
     {
-        const float* TangentDir0 = *reinterpret_cast<const float* const*>(thisPtr + 0x00);
-        unsigned char* RotationBytes = structPtr + 0xf4;
+        const float* TangentDir0 = ReactionAxis<const float>(thisPtr, 0x00);
+        unsigned char* RotationBytes = reinterpret_cast<unsigned char*>(&reinterpret_cast<IVP_Core*>(structPtr)->MWorldFCore); // +0xf4
         *reinterpret_cast<unsigned char**>(thisPtr + 0x6c) = RotationBytes;                // 06365909
-        const float* Weight = reinterpret_cast<const float*>(structPtr + 0x34);             // 0636592c
-        const float* RotSpeed = reinterpret_cast<const float*>(structPtr + 0x94);           // 06365a00
-        const float* Speed = reinterpret_cast<const float*>(structPtr + 0xa4);              // 06365a06
+        const float* Weight = &reinterpret_cast<const IVP_Core*>(structPtr)->InvRotInertia.x; // +0x34             // 0636592c
+        const float* RotSpeed = &reinterpret_cast<const IVP_Core*>(structPtr)->RotSpeed.x; // +0x94           // 06365a00
+        const float* Speed = &reinterpret_cast<const IVP_Core*>(structPtr)->Speed.x; // +0xa4              // 06365a06
         float* const SumA00 = reinterpret_cast<float*>(thisPtr + 0xd4);
         float* const SumA01 = reinterpret_cast<float*>(thisPtr + 0xd8);
         float* const SumA02 = reinterpret_cast<float*>(thisPtr + 0xdc);
@@ -192,7 +203,7 @@ namespace
         }
 
         // 06365a95: TEST tangentDir1; JZ -> return.
-        const float* TangentDir1 = *reinterpret_cast<const float* const*>(thisPtr + 0x04);
+        const float* TangentDir1 = ReactionAxis<const float>(thisPtr, 0x04);
         if (TangentDir1 == nullptr)
             return;
 
@@ -227,7 +238,7 @@ namespace
 
             // 06365bbf-06365bff: rot_speed . row1 (z, y, x) + speed . tangent1 (z, y, x);
             // tangent1 is re-read from this+4.
-            const float* TangentDir1Reload = *reinterpret_cast<const float* const*>(thisPtr + 0x04);
+            const float* TangentDir1Reload = ReactionAxis<const float>(thisPtr, 0x04);
             const double AngularPart = ((double)(Basis1Row1[2]) * RotSpeed[2] +
                                         (double)(Basis1Row1[1]) * RotSpeed[1]) +
                                        (double)(Basis1Row1[0]) * RotSpeed[0];
@@ -238,7 +249,7 @@ namespace
         }
 
         // 06365bea/06365c05: TEST auxAxis; JZ -> return.
-        const float* AuxAxis = *reinterpret_cast<const float* const*>(thisPtr + 0x08);
+        const float* AuxAxis = ReactionAxis<const float>(thisPtr, 0x08);
         if (AuxAxis == nullptr)
             return;
 
@@ -277,9 +288,9 @@ namespace
     ReactionFrameInit(unsigned char* thisPtr, unsigned char* posA, unsigned char* posB, void* structShared,
                       const float* tangentDir0, const float* tangentDir1, const void* auxAxis) // formerly FUN_06365d50
     {
-        *reinterpret_cast<const float**>(thisPtr + 0x00) = tangentDir0;
-        *reinterpret_cast<const float**>(thisPtr + 0x04) = tangentDir1;
-        *reinterpret_cast<const void**>(thisPtr + 0x08) = auxAxis;
+        ReactionAxis<const float>(thisPtr, 0x00) = tangentDir0;
+        ReactionAxis<const float>(thisPtr, 0x04) = tangentDir1;
+        ReactionAxis<const void>(thisPtr, 0x08) = auxAxis;
 
         if (tangentDir1 != nullptr) {
             std::memset(thisPtr + 0xd4, 0, 0x30);   // this+0xd4 .. this+0x103 (12 dwords)
@@ -331,14 +342,14 @@ namespace
             const float InvMassA = *reinterpret_cast<const float*>(structA + 0x40);
             float* const SpeedA = reinterpret_cast<float*>(structA + 0xa4);
             float* const RotSpeedA = reinterpret_cast<float*>(structA + 0x94);
-            const float* TangentDir0 = *reinterpret_cast<const float* const*>(thisPtr + 0x00);
+            const float* TangentDir0 = ReactionAxis<const float>(thisPtr, 0x00);
 
             // 06365e05-06365e24: FUN_0628be60(this=speed; speed, tangent0, float(inv_mass*impulse[0])).
             const float Scale0 = (float)((double)(InvMassA) * impulse[0]);
             Ivp_ReactionAddScaled(SpeedA, TangentDir0, Scale0);
 
             // 06365e29-06365e56: inv_mass*impulse[1] kept extended; tangent1 has no null check.
-            const float* TangentDir1 = *reinterpret_cast<const float* const*>(thisPtr + 0x04);
+            const float* TangentDir1 = ReactionAxis<const float>(thisPtr, 0x04);
             Ivp_ReactionAddScaled(SpeedA, TangentDir1, (double)(InvMassA) * impulse[1]);
 
             // 06365e5a-06365ed9: rot_speed += impulse[0] * basis2 row 0, then impulse[1] * row 1.
@@ -354,9 +365,9 @@ namespace
             float* const RotSpeedB = reinterpret_cast<float*>(structB + 0x94);
 
             // 06365eeb-06365f2b: -(inv_mass*impulse[0]) kept extended (FCHS), times tangent0.
-            Ivp_ReactionAddScaled(SpeedB, *reinterpret_cast<const float* const*>(thisPtr + 0x00), -(InvMassB * impulse[0]));
+            Ivp_ReactionAddScaled(SpeedB, ReactionAxis<const float>(thisPtr, 0x00), -(InvMassB * impulse[0]));
             // 06365f31-06365f6d: -(inv_mass*impulse[1]), times tangent1.
-            Ivp_ReactionAddScaled(SpeedB, *reinterpret_cast<const float* const*>(thisPtr + 0x04), -(InvMassB * impulse[1]));
+            Ivp_ReactionAddScaled(SpeedB, ReactionAxis<const float>(thisPtr, 0x04), -(InvMassB * impulse[1]));
             // 06365f73-06365fff: rot_speed += -impulse[i] * basis2 row i of core1 (this+0xa4 / +0xb4).
             Ivp_ReactionAddScaled(RotSpeedB, reinterpret_cast<const float*>(thisPtr + 0xa4), -(double)(impulse[0]));
             Ivp_ReactionAddScaled(RotSpeedB, reinterpret_cast<const float*>(thisPtr + 0xb4), -(double)(impulse[1]));
@@ -376,7 +387,9 @@ namespace
     // back by the caller.
     struct IVP_Friction_Basis_Context
     {
-        uint32_t Raw[0x114 / 4];
+        // Retail 0x114 bytes; the three axis pointers (retail dwords +0/+4/+8) live past it
+        // natively, at kReactionAxisSlots (see ReactionAxis).
+        alignas(8) uint32_t Raw[(0x118 + 3 * 8) / 4];
 
         unsigned char* Bytes() { return reinterpret_cast<unsigned char*>(Raw); }
         float At(int ByteOffset) const
@@ -389,7 +402,7 @@ namespace
         float RelVel0() const { return At(0x104); }
         float RelVel1() const { return At(0x108); }
     };
-    static_assert(sizeof(IVP_Friction_Basis_Context) == 0x114, "friction-basis context size");
+    // Retail size 0x114; the native block adds the pointer slots past it (ReactionAxis).
 
     // Retail inlines its dot products with a fixed accumulation order that
     // is NOT x-then-y-then-z, and keeps the sum on the x87 stack. FUN_06354120
@@ -1725,7 +1738,7 @@ IVP_Contact_Point* IVP_Try_To_Generate_Managed_Friction(IVP_Ledge_Mindist* Mindi
         // 06356d15-06356d9f.
         Fs = Info0->FrictionSystem;
         Info1 = static_cast<IVP_Friction_Info_For_Core*>(
-            Core1->find_object_hash_entry(static_cast<unsigned>(reinterpret_cast<uintptr_t>(Fs)))); // FUN_06347c40
+            Core1->find_object_hash_entry(reinterpret_cast<uintptr_t>(Fs))); // FUN_06347c40
         if (Info1 == nullptr)
         {
             IVP_Friction_Info_For_Core* const Other =
@@ -2179,11 +2192,11 @@ IVP_Contact_Point::IVP_Contact_Point(IVP_Ledge_Mindist* Mindist)
     IVP_Real_Object* const Side1Obj = Side1Syn->l_obj;
     void* const OldHead1 = Side1Obj->mindist_list;
     Object1 = Side1Obj;
-    Delta1 = -0x08;
+    Delta1 = static_cast<int16_t>(-static_cast<int>(offsetof(IVP_Contact_Point, Next1))); // retail -0x08
     Next1 = OldHead1;
     Prev1 = nullptr;
     if (OldHead1 != nullptr)
-        *reinterpret_cast<void**>(static_cast<char*>(OldHead1) + 0x4) = &Next1; // OldHead1->Prev
+        static_cast<IVP_Contact_Point_Node*>(OldHead1)->Prev = &Next1; // OldHead1->Prev
     Side1Obj->mindist_list = &Next1;
     _hash1 = static_cast<uint16_t>((_hash1 & 0xff00u) | (static_cast<uint16_t>(Side1Syn->status) & 0xffu));
     Feature1 = Side1Syn->edge;
@@ -2192,11 +2205,11 @@ IVP_Contact_Point::IVP_Contact_Point(IVP_Ledge_Mindist* Mindist)
     IVP_Real_Object* const Side2Obj = Side2Syn->l_obj;
     void* const OldHead2 = Side2Obj->mindist_list;
     Object2 = Side2Obj;
-    Delta2 = -0x1C;
+    Delta2 = static_cast<int16_t>(-static_cast<int>(offsetof(IVP_Contact_Point, Next2))); // retail -0x1c
     Next2 = OldHead2;
     Prev2 = nullptr;
     if (OldHead2 != nullptr)
-        *reinterpret_cast<void**>(static_cast<char*>(OldHead2) + 0x4) = &Next2; // OldHead2->Prev
+        static_cast<IVP_Contact_Point_Node*>(OldHead2)->Prev = &Next2; // OldHead2->Prev
     Side2Obj->mindist_list = &Next2;
     _hash2 = static_cast<uint16_t>((_hash2 & 0xff00u) | (static_cast<uint16_t>(Side2Syn->status) & 0xffu));
     Feature2 = Side2Syn->edge;

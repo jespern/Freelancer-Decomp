@@ -409,7 +409,9 @@ bool FDestroyMission::Slot2(SMEventData const* Event, int const& State)
                 // 12 (CanSave, FUN_06f8a590) agrees.
                 if (RunningMachines.empty() || DmLookupMachine(RunningMachines[0])->CanSave())
                 {
-                    FILE* File = reinterpret_cast<FILE*>(static_cast<uintptr_t>(Parms[1]));
+                    // {player, FILE*}: the pointer follows the id.
+                    struct FSaveParms { unsigned int PlayerId; FILE* File; };
+                    FILE* File = static_cast<FSaveParms const*>(Controller->DataPtr)->File;
                     fprintf(File, "[RandomMission]\n");
                     fprintf(File, "type = %s\n", "DestroyMission");
                     MissionData->Save(File);

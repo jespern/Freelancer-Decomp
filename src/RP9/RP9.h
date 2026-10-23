@@ -145,7 +145,7 @@ struct FRp9Vb
     unsigned long Fvf;
     unsigned long Count;
     unsigned long Used;
-    unsigned long Locked;
+    void* Locked; // the locked data pointer (D3D Lock writes it), doubling as the lock flag
     FRp9Vb* Next;
     FRp9Vb* Prev;
     unsigned long Field1C;

@@ -1740,6 +1740,7 @@ void IClientImpl::SendCommonRequestPlayerStats(unsigned int /*ClientId*/, const 
 void IClientImpl::SendCommonPopUpDialog(unsigned int /*ClientId*/, const FmtStr& Title, const FmtStr& Text,
                                         unsigned int Buttons)
 {
+    FlScriptSignal("popup"); // port: input scripts (waitfor:popup)
     NnMissionMessagePopUp(&Title, &Text, Buttons);
 }
 

@@ -1296,7 +1296,7 @@ namespace
 // its orientation, the pipeline, the vertex-buffer manager, the puff table or a puff.
 void TexturePanelDrawClouds(FNebulaClouds* Clouds, void* Camera, void* ExclusionCtx)
 {
-    unsigned char* const B = Clouds->Raw;
+    FNebulaClouds::FRaw& B = Clouds->Raw;
     ICamera* const Cam = static_cast<ICamera*>(Camera);
 
     // 0x00551524..0x0055153c: camera byte +0xbc -> FUN_005513b0(arg2).
@@ -1482,7 +1482,7 @@ void TexturePanelDrawClouds(FNebulaClouds* Clouds, void* Camera, void* Exclusion
     float const InvNear = static_cast<float>(1.0f / (static_cast<double>(NearHi) - NearLo));
 
     FVertexMemoryLock Desc = {}; // [ESP+0xa0]: VB wrapper, FVF, start vertex, bits
-    unsigned char** const Table = *reinterpret_cast<unsigned char***>(B);
+    unsigned char** const Table = *reinterpret_cast<unsigned char***>(B + 0);
     // 0x00551b2e..0x00551b57 and 0x005522d8..0x005522f1: the count +0xc is re-read at every
     // iteration's test; the table pointer is read once and stepped.
     for (int I = 0; I < *reinterpret_cast<int*>(B + 0xc); ++I)
@@ -1626,8 +1626,9 @@ void TexturePanelDrawClouds(FNebulaClouds* Clouds, void* Camera, void* Exclusion
         }
 
         // 0x00552014..0x00552021: shape +0x28[puff +0x1c]; a null shape skips the puff.
-        FTexShape const* const Shape =
-            *reinterpret_cast<FTexShape**>(B + 0x28 + *reinterpret_cast<int*>(Puff + 0x1c) * 4);
+        // The shape table is FNebulaClouds::PuffShapes (pointers, wider than retail's dwords on
+        // LP64): indexed by member, not as retail +0x28 + index * 4.
+        FTexShape const* const Shape = Clouds->PuffShapes[*reinterpret_cast<int*>(Puff + 0x1c)];
         if (Shape == nullptr)
             continue;
 
@@ -1716,7 +1717,8 @@ void NebulaDrawCloudsPanels(FNebulaEffect* Nebula, void* Camera)
     // 0x005091a6: byte +0x2c0.
     if (Nebula->FlagLoaded == 0)
         return;
-    unsigned char* const B = reinterpret_cast<unsigned char*>(Nebula);
+    // Retail offsets through FNebulaBytes (cli_nebula.h): the object's own layout differs on LP64.
+    FNebulaBytes const B{Nebula};
 
     // 0x005091b4..0x00509220: MaterialBatcher +0x20 (1, -1); RS 0x89 = 0; FUN_004101e0 (every
     // registered light off); RS 0x8b saved into a zeroed local, then -1; FUN_00422190(0).
@@ -1755,9 +1757,9 @@ void NebulaDrawCloudsPanels(FNebulaEffect* Nebula, void* Camera)
     // (slot +0x48).
     if (G_NebulaCloudsLockBackBuffer != 0)
     {
-        unsigned long LockDesc[5];
-        LockDesc[4] = static_cast<unsigned long>(PixelFormatFromD3D(0));
-        DALib::Pipeline->LockBuffer(LockDesc);
+        FRpLockedSurface LockDesc;
+        LockDesc.Format = static_cast<unsigned long>(PixelFormatFromD3D(0));
+        DALib::Pipeline->LockBuffer(&LockDesc);
         DALib::Pipeline->UnlockBuffer();
     }
 }

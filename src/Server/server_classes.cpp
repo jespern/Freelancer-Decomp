@@ -5,6 +5,7 @@
 // Author: Giperion.
 
 #include "../include/common_server.h"
+#include "../include/hd_plugins.h"
 #include "../include/common_net.h"
 #include "../include/common_physys.h"
 #include "../include/common_ivp_real_object.h" // IVP_Real_Object +0x1c/+0xa4 (StarSystem_MpCollisionFilter)
@@ -31,6 +32,7 @@
 #include "../include/rpc_iclient.h"
 #include "../include/rpc_iclient_args.h" // FServerSetReputationInfo / FPayloadServerActivateObject (add_player MP walk)
 #include "../include/md5hash.h"      // MD5HASH_API: Server exports its implicit members like retail
+#include "../include/hd_plugins.h"
 #include <windows.h>
 #include <mmsystem.h>
 #include <cstdlib>
@@ -982,6 +984,28 @@ namespace {
     // layout and `It->second.Type` is the `enum TransactionType` this reads.
     // The transaction-type filter here (0 or 2) is the same "the base sells
     // it" test pub::Market::GetCommoditiesForSale applies at .text:06d12ec4.
+    // HD: FLSharp ship_buy_kick_fix (cheat_detection.cpp) -- a ship package the base sells
+    // (transaction 0 or 2) whose addon lists hold GoodId (FLSharp compares the addon's archId
+    // with the good id, as equipment goods share their archetype's nickname hash).
+    bool BaseSellsShipPackageWith(BaseData const& Data, unsigned int GoodId) {
+        for (std::map<unsigned int, MarketGoodInfo>::const_iterator It = Data.Market.begin();
+             It != Data.Market.end(); ++It) {
+            if (It->second.Type != TransactionBuyAndSell && It->second.Type != TransactionSaleOnly)
+                continue;
+            GoodInfo const* const Good = GoodList::find_by_id(It->second.GoodId);
+            if (Good == nullptr || Good->Category != (unsigned)GoodCategoryShip)
+                continue;
+            std::vector<EquipDesc> const* const Lists[3] = {&Good->AddonLow, &Good->AddonMid,
+                                                            &Good->AddonHigh};
+            for (int List = 0; List < 3; ++List)
+                for (std::vector<EquipDesc>::const_iterator D = Lists[List]->begin();
+                     D != Lists[List]->end(); ++D)
+                    if (D->ArchId == GoodId)
+                        return true;
+        }
+        return false;
+    }
+
     bool PlayerData_EquipmentNotSoldOnBase(PlayerData const& Slot) {
         // .text:06d4fd3d / .text:06d4fd57 / .text:06d4fd73 -- all three bail with AL=0.
         if (Slot.current_base == 0)
@@ -1056,6 +1080,13 @@ namespace {
                      It->second.Type == TransactionSaleOnly)) {
                     continue; // .text:06d4ffc8 -- sold here, nothing to explain.
                 }
+                // HD: FLSharp ship_buy_kick_fix — not sold here, but part of a ship package the
+                // base sells while the ship is unchanged: re-buying the same ship is no cheat
+                // (0x06d4feeb GetSoldGood hooked).
+                static const bool bShipBuyFix = HdPlugins::FlSharp("ship_buy_kick_fix");
+                if (bShipBuyFix && It == Data.Market.end() && Slot.ship_archetype != 0 &&
+                    bShipUnchanged && BaseSellsShipPackageWith(Data, GoodId))
+                    continue;
             }
 
             // .text:06d4ff08 .. .text:06d4ff6e -- how much the snapshot accounted
@@ -2156,7 +2187,7 @@ static void PlayerDB_LeaveSystem(PlayerData& Slot, unsigned int SessionId) {
     // system id (from IBase::SystemId, the base's `system` key in universe.ini)
     // has no SysMap entry -- check universe.ini data. See THE MISS ARM above;
     // retail faults at .text:06d0874c. Do not fix: user decision 2026-09-24.
-    StarSystem& System = It._Ptr->_Myval.second; // KNOWN CRASH on SysMap miss, see above
+    StarSystem& System = It->second; // KNOWN CRASH on SysMap miss, see above
 
     System.remove_player(SessionId);                               // FUN_06d08740
 
@@ -5674,6 +5705,10 @@ void FSrvAsteroidField::set_field(CmnAsteroid::CAsteroidField* InField) {
 void FSrvAsteroidField::load(char const* Path) {
     int FillDist = 0;
     int EmptyFreq = 0;
+    // HD: empty_cube_fix — the value is kept as a float (Server.dll 0x06d0426b: the _ftol
+    // call -> nop, `mov [esp+0xc],eax` -> `fstp dword`; 0x06d042bb fild -> fld).
+    static const bool bHdEmptyCubeFix = HdPlugins::Feature("empty_cube_fix");
+    float EmptyFreqFloat = 0.0f;
     INI_Reader Reader;
     char FullPath[0x100];
     GetFileSysPath(FullPath, Path, DALib::Data);
@@ -5692,8 +5727,12 @@ void FSrvAsteroidField::load(char const* Path) {
                 CubeSize = (int)(long long)Reader.get_value_float(0);
             else if (Reader.is_value("fill_dist"))
                 FillDist = (int)(long long)Reader.get_value_float(0);
-            else if (Reader.is_value("empty_cube_frequency"))
-                EmptyFreq = (int)(long long)Reader.get_value_float(0);
+            else if (Reader.is_value("empty_cube_frequency")) {
+                if (bHdEmptyCubeFix)
+                    EmptyFreqFloat = Reader.get_value_float(0);
+                else
+                    EmptyFreq = (int)(long long)Reader.get_value_float(0);
+            }
         }
     }
 
@@ -5701,7 +5740,7 @@ void FSrvAsteroidField::load(char const* Path) {
         Reader.set_state(Start);
         Field->load(Reader, CubeSize);
         Field->FillDist = FillDist;
-        Field->EmptyFreq = static_cast<float>(EmptyFreq);
+        Field->EmptyFreq = bHdEmptyCubeFix ? EmptyFreqFloat : static_cast<float>(EmptyFreq);
     }
 }
 

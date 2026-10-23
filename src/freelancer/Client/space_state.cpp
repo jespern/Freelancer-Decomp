@@ -5,6 +5,8 @@
 // Author: Giperion.
 
 #include "space_state.h"
+#include "hd_console.h"
+#include "hd_client.h"
 #include "space_app.h"
 
 #include "character_info.h"         // ResetCharacterScripts (FUN_00435630)
@@ -48,6 +50,7 @@
 #include "sound_config.h"
 #include "space_camera.h"
 #include "space_camera_game.h"
+#include "space_camera_third.h"     // ThirdPersonCameraTrackTarget (HD: FLSharp camera_switch_fix)
 #include "space_letterbox.h"        // IsLetterboxVisible / SetLetterboxTarget (FUN_0041a3e0 / 0041a0f0)
 #include "space_scene_obj_draw.h"   // LightGridRebuild (FUN_00537c30), SpaceDrawQueueRelease (FUN_0051fbc0)
 #include "star_sphere.h"
@@ -100,7 +103,7 @@ namespace
         if (ObjRW == nullptr || ObjRW == reinterpret_cast<void*>(-0xc))
             return nullptr;
         CEqObj* const EqObj =
-            *reinterpret_cast<CEqObj**>(static_cast<unsigned char*>(ObjRW) + 0x10);
+            static_cast<CEqObj*>(ClientGameobjObject(ObjRW));
         if (EqObj == nullptr ||
             (static_cast<unsigned>(EqObj->ObjectClass) & 0x503u) != 0x503u)
             return nullptr;
@@ -143,7 +146,7 @@ namespace
             FGameCamera* const Cam = reinterpret_cast<FGameCamera*>(GetActiveSpaceCamera());
             Watchable const* const Watched = Cam->Watched.target();
             void const* const WatchedObjRW =
-                Watched != nullptr ? reinterpret_cast<unsigned char const*>(Watched) - 8
+                Watched != nullptr ? reinterpret_cast<unsigned char const*>(Watched) - FlWatchableOffset()
                                    : nullptr;
             // 0x0054b2e1..0x0054b325: the player's ship CEqObj (the chain above) -- and the
             // camera must be watching exactly that object.
@@ -463,6 +466,9 @@ bool FSpaceAppEventFace::OnEvent(unsigned MsgId)
         if (HudIsMousePickBlocked())
             return false;
         Status = GetHudStatus();
+        // HD: TurretZoom (0x0054a880) keeps the turret camera across the toggle.
+        if (HdTurretZoomEnabled())
+            HdTurretZoomToggle(&App->Turret, Status->bTurretView == 0);
         Status->bTurretView = Status->bTurretView == 0 ? 1 : 0;
         if (GetHudStatus()->bTurretView != 0)
         {
@@ -683,7 +689,7 @@ void SpaceAppArmDeathCamera()
     if (PlayerRW != nullptr && PlayerRW != reinterpret_cast<void*>(-0xc))
     {
         CEqObj* const EqObj =
-            *reinterpret_cast<CEqObj**>(static_cast<unsigned char*>(PlayerRW) + 0x10);
+            static_cast<CEqObj*>(ClientGameobjObject(PlayerRW));
         if (EqObj != nullptr &&
             (static_cast<unsigned>(EqObj->ObjectClass) & 0x103u) == 0x103u &&
             !EqObj->is_control_excluded(3u))
@@ -1009,7 +1015,7 @@ bool InitSpaceState(SpaceApp* State, int Param)
     // 0x0054ae5d..0x0054ae78: next state 0, and outside single player (the next state being 0,
     // which it now always is) FUN_0046a4a0(1) shows the chat window.
     G_SpaceNextState = 0;
-    if (!SinglePlayer() && G_SpaceNextState == 0)
+    if ((!SinglePlayer() || HdConsoleEnabled()) && G_SpaceNextState == 0) // HD: console 0x0054ae68
         ChatShowMsgWin(true);
 
     // 0x0054ae7b..0x0054ae8b: RefreshLoadingProgress, the answer (next state == 0), then +0x0b = 0
@@ -1085,7 +1091,12 @@ int UpdateSpaceState(SpaceApp* State, float DeltaSeconds)
         // 0x0054b092..0x0054b09f: the active camera's slot 0x6c (Dt), re-read and tested.
         FSpaceCamera* const Cam = GetActiveSpaceCamera();
         if (Cam != nullptr)
+        {
+            // HD: FLSharp camera_switch_fix — the target's last two positions, for every camera.
+            if (ThirdPersonCameraSwitchFix())
+                ThirdPersonCameraTrackTarget(Cam);
             ((FGameCamera*)Cam)->Update(DeltaSeconds);
+        }
 
         // 0x0054b0a3: FUN_00554eb0(Dt).
         StarSysUpdate(DeltaSeconds);
@@ -1259,7 +1270,7 @@ void DestroySpaceState(SpaceApp* State)
     if (ObjRW != nullptr && ObjRW != reinterpret_cast<void*>(-0xc))
     {
         CEqObj* const EqObj =
-            *reinterpret_cast<CEqObj**>(static_cast<unsigned char*>(ObjRW) + 0x10);
+            static_cast<CEqObj*>(ClientGameobjObject(ObjRW));
         if (EqObj != nullptr &&
             (static_cast<unsigned>(EqObj->ObjectClass) & 0x503u) == 0x503u &&
             EqObj->is_control_excluded(7u))

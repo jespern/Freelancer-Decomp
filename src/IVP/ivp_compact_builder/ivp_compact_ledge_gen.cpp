@@ -132,7 +132,8 @@ int32_t IVP_Compact_Ledge_Generator::prepare_compact_ledge(IVP_U_Vector<IVP_Tria
     }
 
     n_edges = 0;
-    edge_hash = new IVP_Hash(HashSize * 4, 4, 0xffffffffu);
+    // Retail key length 4: one edge pointer (wider on LP64).
+    edge_hash = new IVP_Hash(HashSize * 4, sizeof(IVP_Tri_Edge*), 0xffffffffu);
     for (int32_t I = 0; I < n_triangles; ++I)
     {
         IVP_Triangle* const Triangle = Triangles->elems[I];
@@ -161,7 +162,7 @@ int32_t IVP_Compact_Ledge_Generator::prepare_compact_ledge(IVP_U_Vector<IVP_Tria
             Data ^= (static_cast<uint32_t>(Edge->start_point->compact_index) ^ Data) & 0xffffu;
             CompactTriangle->CEdge[K].Data = Data;
             IVP_Tri_Edge* const Key = Edge;
-            edge_hash->Add(&Key, static_cast<unsigned>(Unit));
+            edge_hash->Add(&Key, static_cast<uintptr_t>(Unit));
             ++n_edges;
             Edge = Edge->next;
             ++Unit;

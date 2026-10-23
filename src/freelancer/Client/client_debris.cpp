@@ -425,7 +425,7 @@ void FClientDebrisGameobj::Init(FDebrisArch const* Arch)
     // +0x3c (FUN_005553b0, no hint).
     FNebulaEffect* const Nebula =
         StarSysFindNebula(&get_position(), reinterpret_cast<float*>(&DrawStateB), nullptr);
-    DrawStateA = static_cast<unsigned>(reinterpret_cast<uintptr_t>(Nebula));
+    DrawStateA = FL_PTR_TO_U32(Nebula); // a token on LP64 (Slot18c hands it on)
 }
 
 FClientDebrisGameobj* CreateDebrisGameobjForObject(CObject* Object, FDebrisArch const* Arch)

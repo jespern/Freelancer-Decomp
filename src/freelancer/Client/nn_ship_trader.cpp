@@ -5,6 +5,7 @@
 // Author: Giperion.
 
 #include "nn_ship_trader.h"
+#include "hd_client.h"
 
 #include "character_select_equip.h" // GetPlayerShipArchetypeIdRetail, GetPlayerCreditsRetail,
                                     // GetPlayerEquipDescListRetail, GetPlayerRankLevelRetail
@@ -28,6 +29,7 @@
 #include "win3d.h"                  // Win3DFindByName, Win3DDeleteTree, Win3DGetMouseRay
 #include "win_factory.h"
 #include "wire_controls.h"          // WireControlsJoinColumn (FUN_005a4b50)
+#include "hd_plugins.h"
 
 #include "common_archetype.h"
 #include "common_goods.h"
@@ -203,7 +205,7 @@ bool NnShipTrader::Create(Win3D* NewParent, void* Data)
             {
                 sprintf(Name, "ShipTraderShipMesh%d", Row);
                 float const Position[3] = {
-                    0.277f,
+                    HdHudShiftBase(0x004b77f4, 0.277f), // HD: HudShift.ini base
                     static_cast<float>(0.13f - static_cast<double>(Row) * 0.068f), // DAT_005d0434 / 005d4958
                     -1.288f};
                 float const Half[3] = {0.036f, 0.041f, 0.0f};
@@ -274,7 +276,7 @@ bool NnShipTrader::Create(Win3D* NewParent, void* Data)
     // 004b7add..004b7bca: the 3D view.
     {
         float const RotSpeed[3] = {0.0f, 0.0f, 0.0f};
-        float const ViewOffset[3] = {0.005f, 0.078f, -1.288f};
+        float const ViewOffset[3] = {HdHudShiftBase(0x004b7b64, 0.005f), 0.078f, -1.288f}; // HD
         float const Ypr[3] = {0.0f, 0.0f, 0.0f};
         float const ViewSize[3] = {0.18f, -0.162f, 0.0f};
         unsigned const RectColor = 0xffffdc0cu; // bytes 0c dc ff ff
@@ -311,15 +313,15 @@ bool NnShipTrader::Create(Win3D* NewParent, void* Data)
 
     // 004b7cdd..004b7da2: the three info panes.
     {
-        float const Offset[3] = {-0.42f, -0.164f, -1.0f};
+        float const Offset[3] = {HdHudShiftBase(0x004b7cff, -0.42f), -0.164f, -1.0f}; // HD
         InfoFacts = CreateRichTextWin("ShipInfoCard_Facts", 0.4f, 0.2f, Offset, true);
     }
     {
-        float const Offset[3] = {0.01f, -0.164f, -1.0f};
+        float const Offset[3] = {HdHudShiftBase(0x004b7d3a, 0.01f), -0.164f, -1.0f}; // HD
         InfoStats = CreateRichTextWin("ShipInfoCard_Stats", 0.24f, 0.2f, Offset, true);
     }
     {
-        float const Offset[3] = {0.27f, -0.164f, -1.0f};
+        float const Offset[3] = {HdHudShiftBase(0x004b7d75, 0.27f), -0.164f, -1.0f}; // HD
         InfoValues = CreateRichTextWin("ShipInfoCard_Values", 0.14f, 0.2f, Offset, true);
     }
 
@@ -361,7 +363,7 @@ bool NnShipTrader::Create(Win3D* NewParent, void* Data)
                 GoodInfo const* const ShipGood = Goods->find_by_ship_arch(PlayerShipArchId);
                 if (ShipGood != nullptr)
                 {
-                    float const Position[3] = {-0.557f, 0.13f, -1.288f};
+                    float const Position[3] = {HdHudShiftBase(0x004b7f51, -0.557f), 0.13f, -1.288f}; // HD
                     float const Half[3] = {0.035f, 0.041f, 0.0f};
                     float const Zero[3] = {0.0f, 0.0f, 0.0f};
                     CurrentShipMesh = CreateStaticControl("ShipTraderCurrentShipMesh",
@@ -488,7 +490,7 @@ bool NnShipTrader::Create(Win3D* NewParent, void* Data)
 
     // 004b84b5..004b84f7: the draw layer, the offset (slot 31) and the position (slot 5).
     DrawLayer = 100;
-    SetOffset(-0.64f, 0.33f, -1.288f);
+    SetOffset(HdHudShiftBase(0x004b84b9, -0.64f), 0.33f, -1.288f); // HD: HudShift.ini base
     SetPosition(Position);
 
     // 004b84fa..004b8516
@@ -510,6 +512,7 @@ void NnShipTrader::RefreshRows()
     FClientMarket const* const Market = GetClientLocationBaseMarket(GetClientLocationCurrentBase());
 
     // 004b941f..004b94b6: every row's status.
+    static const bool bHdNoLevelReqs = HdPlugins::Feature("no_level_requirements");
     for (int Row = 0; Row < RowCount; ++Row)
     {
         unsigned const GoodId = RowGoodIds[Row];
@@ -518,11 +521,16 @@ void NnShipTrader::RefreshRows()
         float const MinLevel = ClientMarketGetMinLevel(Market, GoodId); // FUN_00438160
         float const MinRep = ClientMarketGetMinRep(Market, GoodId);     // FUN_004381c0
         RowRequiredLevels[Row] = static_cast<int>(MinLevel);
+        RowRepPercentages[Row] = static_cast<int>(MinRep * 100.0f); // HD: 0x004b9462
 
         // 004b9465..004b9495: a known level (0..0x3e6) below the requirement (FILD / FCOMP,
         // TEST AH,5 / JP: no jump is "below") -- in single player the row is locked by rank, and
         // the reputation test is skipped.
-        if (Level >= 0 && Level < 0x3e7 && static_cast<double>(Level) < static_cast<double>(MinLevel))
+        // HD: no_level_requirements — an under-rank row is never locked (0x004b948d JE -> JMP).
+        // HD's jump also skips the reputation test below (to 0x004b94aa), which makes such ships
+        // buyable on bad terms; the port keeps that test.
+        if (!bHdNoLevelReqs && Level >= 0 && Level < 0x3e7 &&
+            static_cast<double>(Level) < static_cast<double>(MinLevel))
         {
             if (SinglePlayer())
                 RowStatus[Row] = 1;
@@ -571,6 +579,9 @@ void NnShipTrader::RefreshRows()
             int const IndexTemp = RowIndices[Row];
             RowIndices[Row] = RowIndices[Row + 1];
             RowIndices[Row + 1] = IndexTemp;
+            int const RepTemp = RowRepPercentages[Row]; // HD: 0x004b9545
+            RowRepPercentages[Row] = RowRepPercentages[Row + 1];
+            RowRepPercentages[Row + 1] = RepTemp;
             bSorted = false;
         }
     }
@@ -901,7 +912,17 @@ void NnShipTrader::SelectRow(int Row)
     else if (Status == 2)
     {
         // 004b900a..004b904d: reputation (ids 0x61c).
-        ErrorHelp->SetProperty(0x1e, 0x61c, 0);
+        // HD: FLSharp print_rep_requirements — the ids (HD's rep_requirement_ids one, 0x004b9011)
+        // as a format of the row's required reputation (0x004b9010).
+        if (NnPrintRepRequirements() && Selected >= 0 && Selected < 3)
+        {
+            GetIdsStringWWithRawFallback(NnRepRequirementIds(), G_NnTextScratchA,
+                                         G_NnTextScratchCapacity);
+            swprintf(G_NnTextScratchB, 0x1000, G_NnTextScratchA, RowRepPercentages[Selected]);
+            ErrorHelp->SetProperty(0x1d, PointerArg(G_NnTextScratchB), 0);
+        }
+        else
+            ErrorHelp->SetProperty(0x1e, NnRepRequirementIds(), 0);
         ErrorHelp->SetProperty(1, 0, 0);
         BuyButton->SetProperty(1, 1, 0);
         BuyText->SetProperty(1, 1, 0);

@@ -5,6 +5,8 @@
 // Author: Giperion.
 
 #include "page_server_select.h"
+#include "hd_client.h"
+#include "hd_plugins.h"
 
 #include "chat_init.h"         // ChatAppendRdlCopy (the FUN_0046c800 / FUN_005754b0 clone loop)
 #include "connect_flow.h"      // ConnectToServer (FUN_005a8770)
@@ -30,6 +32,7 @@
 #include "ui_text_msg_button.h"
 #include "win3d_immediate.h"   // Win3DVec3Add (FUN_00423b30)
 #include "win_factory.h"       // WinFactoryCreate (FUN_0059db20)
+#include "hd_plugins.h"
 
 #include "common_text.h"
 
@@ -429,17 +432,23 @@ bool PageServerSelect::Create(Win3D* NewParent, void* /*Payload*/)
     // (0.32, -0.35, -1), 0.25 wide, the font's line height (slot 6, unsigned) * 0.002 high;
     // the IDS 0x4f7 format with the version word's high then low byte (DAT_0067ecba) as its
     // text (slot 42, property 0x1d); hidden.
-    Version = WinFactoryCreate("Version", "TextControl", this, nullptr);
+    Version = WinFactoryCreate("Version", HdVersionTextClass(), this, nullptr); // HD: VersionText
     if (Version != nullptr)
     {
         NnTextControl* const VersionText = static_cast<NnTextControl*>(Version);
         IFont* const NormalFont = FindMenuFontImp("Normal");
-        float const Height =
-            static_cast<float>(static_cast<unsigned>(NormalFont->GetLineHeight())) * 0.002f;
-        float const Position[3] = {0.319999993f, -0.349999994f, -1.0f};
-        VersionText->Init("Normal", Position, nullptr, 0.25f, Height, 1.0f, 0u, 1, 0, 0);
+        float const Height = HdVersionTextHeight( // HD: VersionText 0x0056dd8d
+            static_cast<float>(static_cast<unsigned>(NormalFont->GetLineHeight())) * 0.002f);
+        // HD: HudShift.ini bases (0x0056dda5 / 0x0056ddad).
+        float const Position[3] = {HdHudShiftBase(0x0056dda5, 0.319999993f),
+                                   HdHudShiftBase(0x0056ddad, -0.349999994f), -1.0f};
+        // HD: hd_version_text — width 0.15 (0x0056ddbb) and IDS 0x70017 (458775) for 0x4f7
+        // (0x0056ddec).
+        static const bool bHdVersion = HdPlugins::Feature("hd_version_text");
+        VersionText->Init("Normal", Position, nullptr, bHdVersion ? 0.15f : 0.25f, Height, 1.0f, 0u,
+                          1, 0, 0);
         wchar_t Format[0x100];
-        GetIdsStringWWithRawFallback(0x4f7u, Format, 0x100);
+        GetIdsStringWWithRawFallback(bHdVersion ? 0x70017u : 0x4f7u, Format, 0x100);
         unsigned const VersionWord =
             (static_cast<unsigned>(g_client.packed_version) >> 16) & 0xffffu;
         wchar_t Text[0x100];
@@ -936,17 +945,20 @@ void PageServerSelect::FillRow(unsigned Row, FServerInfo const* Server)
     // payload a fresh ServerRowData (FUN_00571280) taken by FUN_00575520, the creation
     // reference dropped (FUN_00599980). No null test on the row, as retail.
     FUiFastTableRow* const RowRecord = ServerTable->GetRow(Row);
-    RowRecord->bSelectable = bVersionMatch ? 1 : 0;
-    RowRecord->bHoverable = bVersionMatch ? 1 : 0;
+    // HD: jflp makes every row selectable, to read another version's server info (0x005711a1
+    // `mov al,[esp+0x2b]` -> `mov al,1`); connecting stays blocked (Update, 0xf002).
+    static const bool bJflpAnyVersion = HdPlugins::Enabled("jflp.dll");
+    RowRecord->bSelectable = (bVersionMatch || bJflpAnyVersion) ? 1 : 0;
+    RowRecord->bHoverable = (bVersionMatch || bJflpAnyVersion) ? 1 : 0;
     ServerRowData* const Data = new ServerRowData(*Server);
     RowRecord->Payload.Assign(Data);
     Data->Release();
 }
 
-bool PageServerSelect::Slot23(unsigned Msg, unsigned A, unsigned B)
+bool PageServerSelect::Slot23(unsigned Msg, uintptr_t A, uintptr_t B)
 {
     // FUN_005714d0.
-    unsigned const TableId = static_cast<unsigned>(reinterpret_cast<uintptr_t>(ServerTable));
+    uintptr_t const TableId = reinterpret_cast<uintptr_t>(ServerTable);
     if (Msg == 0x3004)
     {
         PlayOrRewindUiSoundSlot(0); // FUN_005645c0(0)
@@ -964,6 +976,10 @@ bool PageServerSelect::Slot23(unsigned Msg, unsigned A, unsigned B)
             SetToolTipsEnabled(false);
             if (!ServerFilterDialogRun(this, &Filter))
                 exit(0);
+            // HD: FLSharp server_filter_crash_fix — a page torn down meanwhile has no table:
+            // skip the re-enable and the rebuild (0x00571592 to 0x00571600).
+            if (ServerTable == nullptr && HdPlugins::FlSharp("server_filter_crash_fix"))
+                return false;
             SetToolTipsEnabled(true);
             RebuildTable();
             return false;
@@ -1062,6 +1078,10 @@ bool PageServerSelect::Slot23(unsigned Msg, unsigned A, unsigned B)
             return false;
         FServerInfo const* const Server = GetSelectedServer();
         if (Server == nullptr)
+            return true;
+        // HD: jflp ConnectDbl_Hook (0x00571aea): no connect to another version's server.
+        static const bool bJflpAnyVersion = HdPlugins::Enabled("jflp.dll");
+        if (bJflpAnyVersion && Server->Version != static_cast<unsigned>(g_client.packed_version))
             return true;
         if (!ConnectToServer(Server))
             return true;
@@ -1287,7 +1307,19 @@ void PageServerSelect::Update()
             RefreshListStatus();
         }
         unsigned SelectedRow = 0;
-        if (!ServerTable->GetSelectedRow(&SelectedRow) && SelectedServerId == 0xffffffffu)
+        bool const bRowSelected = ServerTable->GetSelectedRow(&SelectedRow);
+        // HD: jflp Connect_Hook (0x0056f778): a selected row of another version also leaves
+        // Connect off.
+        static const bool bJflpAnyVersion = HdPlugins::Enabled("jflp.dll");
+        bool bOtherVersion = false;
+        if (bJflpAnyVersion && bRowSelected)
+        {
+            ServerRowData* const Data =
+                static_cast<ServerRowData*>(ServerTable->GetRow(SelectedRow)->Payload.Object);
+            bOtherVersion = Data != nullptr &&
+                            Data->Info.Version != static_cast<unsigned>(g_client.packed_version);
+        }
+        if ((!bRowSelected && SelectedServerId == 0xffffffffu) || bOtherVersion)
         {
             Connect->Flags = static_cast<unsigned char>(Connect->Flags & 0xfe);
             Connect->bInteractive = 0;
@@ -1373,9 +1405,14 @@ void PageServerSelect::Update()
         SlideT = SlideT - GetClientFrameTimeCapped() * 1.5;
         float Right[3] = {static_cast<float>(SlideT), 0.0f, 0.0f};
         float Left[3] = {static_cast<float>(-SlideT), 0.0f, 0.0f};
+        // HD: FLSharp slide_ui_anim_fix — the text hidden before it slides out (ui_anim.cpp).
+        UiTextMsgButtonHideSlidingText(MainMenu);
         MainMenu->SetProperty(6, reinterpret_cast<uintptr_t>(Right), 0);
+        UiTextMsgButtonHideSlidingText(SetFilter);
         SetFilter->SetProperty(6, reinterpret_cast<uintptr_t>(Right), 0);
+        UiTextMsgButtonHideSlidingText(Connect);
         Connect->SetProperty(6, reinterpret_cast<uintptr_t>(Left), 0);
+        UiTextMsgButtonHideSlidingText(Refresh);
         Refresh->SetProperty(6, reinterpret_cast<uintptr_t>(Left), 0);
         float BoxPosition[3];
         Win3DVec3Add(BoxPosition, InfoBoxHome, Left);

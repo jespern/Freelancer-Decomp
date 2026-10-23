@@ -36,6 +36,7 @@
 #include "common_universe.h"
 #include "DALib.h"                  // DALib::Engine / Data
 #include "engine/engbase.h"         // IEngine
+#include "hd_plugins.h"
 
 #include <io.h>                     // _access
 #include <math.h>
@@ -100,6 +101,15 @@ namespace
     float const kNavMapSwitchSeconds = 0.4000000059604645f; // 0x3ecccccd
     // DAT_005d3e40 -- the group-position poll period.
     float const kNavMapGroupPollSeconds = 30.0f;
+
+    // HD: navmap_group_refresh — the group positions poll every second (0x00496325 /
+    // 0x00496338: DAT_005d3e40 30.0f -> DAT_005d2ecc 1.0f).
+    float NavMapGroupPollSeconds()
+    {
+        static const float Seconds =
+            HdPlugins::Feature("navmap_group_refresh") ? 1.0f : kNavMapGroupPollSeconds;
+        return Seconds;
+    }
     // 0x41000000 -- NoBestPathText's time on screen.
     float const kNavMapNoBestPathSeconds = 8.0f;
 
@@ -557,11 +567,17 @@ void NavMapSetGroupPositions(void const* Data)
     // 0x0048d8d9..0x0048d8e1: EBP = Data + 4 and it is never advanced inside the loop (the
     // only ADD EBP, 0x0048da9d, is on the grow path's scratch copy, and 0x0048dae8 reloads the
     // original). Retail therefore stores the FIRST record Count times -- kept as retail does.
-    FNavMapGroupMember const* const Record = reinterpret_cast<FNavMapGroupMember const*>(
+    FNavMapGroupMember const* const Records = reinterpret_cast<FNavMapGroupMember const*>(
         static_cast<unsigned char const*>(Data) + sizeof(int));
+    static_assert(sizeof(FNavMapGroupMember) == 0x18, "group record stride 0x18");
+    // HD: navmap_group_members — the record pointer advances by 0x18 per member, on every path
+    // (the cave `add ebp,0x18; jmp 0x0048d8f0` at 0x0048d89b, the loop-back at 0x0048d997
+    // re-targeted to it).
+    static const bool bHdAllMembers = HdPlugins::Feature("navmap_group_members");
     double const kNearOrigin = 128.0; // DAT_005d2ee0 (double)
     for (int Index = 0; Index < Count; ++Index)
     {
+        FNavMapGroupMember const* const Record = bHdAllMembers ? Records + Index : Records;
         FNavMapGroupMember Member;
         if (Record->BaseId != 0)
         {
@@ -1894,10 +1910,10 @@ void NeuroNetNavMap::Update()
     {
         double const Poll = GetClientFrameTimeCapped() + static_cast<double>(GroupPollTimer);
         GroupPollTimer = static_cast<float>(Poll);
-        if (Poll > static_cast<double>(kNavMapGroupPollSeconds))
+        if (Poll > static_cast<double>(NavMapGroupPollSeconds()))
         {
             GroupPollTimer =
-                static_cast<float>(Poll - static_cast<double>(kNavMapGroupPollSeconds));
+                static_cast<float>(Poll - static_cast<double>(NavMapGroupPollSeconds()));
             if (!SinglePlayer())
             {
                 unsigned Zero = 0;

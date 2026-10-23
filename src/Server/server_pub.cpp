@@ -2249,6 +2249,16 @@ std::list<ServerPhantom*>::iterator FindPhantom(void* Handle)
 // entered id -> FUN_06d43650(0x2d, {id, phantom, phantom->SystemId}), then
 // FUN_06cf7720 (list::erase(begin, end)) on Entered; each left id -> the same with 0x2e,
 // then Left is emptied node by node. The latch is cleared at the end.
+// The {object, phantom, system} parms retail packs into three dwords. Content reads them as
+// FGcsPhantomTouch and compares the phantom against the pointers it registered, so on LP64
+// the phantom travels as a native pointer.
+struct FPhantomEvent
+{
+    unsigned int Object;
+    void* Phantom;
+    unsigned int System;
+};
+
 void Server_PumpPhantomEvents()
 {
     GbPhantomPumpBusy = true;                                            // .text:06cffdc9
@@ -2256,20 +2266,20 @@ void Server_PumpPhantomEvents()
         ServerPhantom* const Ph = *It;                                   // .text:06cffde0
         for (std::list<unsigned int>::iterator Id = Ph->Entered.begin();
              Id != Ph->Entered.end(); ++Id) {
-            unsigned int Event[3];
-            Event[0] = *Id;                                              // .text:06cffdf7
-            Event[1] = static_cast<unsigned int>(reinterpret_cast<uintptr_t>(Ph)); // .text:06cffdf3
-            Event[2] = Ph->SystemId;                                     // .text:06cffe05
-            Server_ControllerDispatch(0, pub::Controller::EMessage::PhantomEnter, Event); // .text:06cffe09
+            FPhantomEvent Event;
+            Event.Object = *Id;                                          // .text:06cffdf7
+            Event.Phantom = Ph;                                          // .text:06cffdf3
+            Event.System = Ph->SystemId;                                 // .text:06cffe05
+            Server_ControllerDispatch(0, pub::Controller::EMessage::PhantomEnter, &Event); // .text:06cffe09
         }
         Ph->Entered.clear();                                             // .text:06cffe2f
         for (std::list<unsigned int>::iterator Id = Ph->Left.begin();
              Id != Ph->Left.end(); ++Id) {
-            unsigned int Event[3];
-            Event[0] = *Id;                                              // .text:06cffe47
-            Event[1] = static_cast<unsigned int>(reinterpret_cast<uintptr_t>(Ph)); // .text:06cffe43
-            Event[2] = Ph->SystemId;                                     // .text:06cffe55
-            Server_ControllerDispatch(0, pub::Controller::EMessage::PhantomExit, Event); // .text:06cffe59
+            FPhantomEvent Event;
+            Event.Object = *Id;                                          // .text:06cffe47
+            Event.Phantom = Ph;                                          // .text:06cffe43
+            Event.System = Ph->SystemId;                                 // .text:06cffe55
+            Server_ControllerDispatch(0, pub::Controller::EMessage::PhantomExit, &Event); // .text:06cffe59
         }
         Ph->Left.clear();                                                // .text:06cffe6d .. 06cffea5
     }

@@ -5,6 +5,7 @@
 // Author: Giperion.
 
 #include "alchemy_ramp.h"
+#include "hd_plugins.h"
 
 #include "alchemy_common.h"
 #include "alchemy_appearances.h"
@@ -936,8 +937,12 @@ namespace AlchemyImpl
         if (OuterTime >= Keys_.At(Last).Time)
             return TTraits::EvalChild(Keys_.At(Last).Value, InnerTime);
 
+        // HD: FLSharp alchemy_crash_fix — the scan stops at Last - 1 (0x06206fdd, 0x0620778d):
+        // an unordered OuterTime (NaN) otherwise reaches Last and reads key Last + 1.
+        static const bool bBoundScan = HdPlugins::FlSharp("alchemy_crash_fix");
+        const int ScanEnd = bBoundScan ? Last - 1 : Last;
         int Index = 0;
-        while (Index < Last && !(OuterTime < Keys_.At(Index + 1).Time))
+        while (Index < ScanEnd && !(OuterTime < Keys_.At(Index + 1).Time))
             ++Index;
 
         if (Mode_ == 0)

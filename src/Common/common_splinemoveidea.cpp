@@ -7,6 +7,8 @@
 // Common.dll SplineMoveIdea (ctor 0x062d9bf0, Update LAB_062d9d00). See
 // src/include/common_idea.h.
 
+#include <cstdlib>
+#include <cstdio>
 #include "common_idea.h"
 #include "common_idea_internal.h"
 #include "common_aisteer.h"   // BearingAngleToPoint, GetIfacePositionOrZero
@@ -85,7 +87,7 @@ bool SplineMoveIdea::SetContext(void* InObject, void* InHandle, void* InContext)
     // through Context -- the SAME `*(Context+0xc) + 0x64` idiom MoveIdea::
     // Commit() and this class's own Commit() below use (common_idea.h). Context is
     // dereferenced unguarded, as retail does.
-    *reinterpret_cast<int*>(SlotArrayOf(Context) + 0x64) = 0;
+    *reinterpret_cast<int*>(SlotArrayOf(Context) + PathfindSlot(0x64)) = 0;
 
     PersistedT = 0.0f; // 062d9cda
     return true;       // 062d9c9b sets AL=1 and 062d9ce0 reloads it
@@ -97,7 +99,7 @@ void SplineMoveIdea::Commit()
 {
     // 062da316-062da31c: `*(*(Context+0xc)) + 0x64 = 0` -- same publish idiom
     // as SetContext above.
-    *reinterpret_cast<int*>(SlotArrayOf(Context) + 0x64) = 0;
+    *reinterpret_cast<int*>(SlotArrayOf(Context) + PathfindSlot(0x64)) = 0;
 
     // 062da329 / 062da338: both embedded members' OWN vtable slot 4 (0x10),
     // zero arguments -- i.e. Commit() on each, confirming the slot-4 identity
@@ -190,6 +192,7 @@ void SplineMoveIdea::SetSpline(ICRSplineSegment* NewSpline)
     Move.ArrivalRange = ExtrapolateBase;
 
     Spline = NewSpline;   // 062da39b, [ESI+0x14c]
+    TraceUpdates = 8;     // port dev aid (FLWIN_SPLINE_TRACE): log the next updates
     Move.StopStyle = 2;     // 062da3a1, [ESI+0x58] == 0x14 + 0x44
     Move.bKillEngineOffBearing = 0;     // 062da3a8, [ESI+0x6d] == 0x14 + 0x59
 
@@ -388,6 +391,22 @@ int SplineMoveIdea::Update(float Dt)
     }
     // 062da209-062da20c: Face's Update(Dt), result discarded.
     (void)Face.Update(Dt);
+    {
+        static bool const bTrace = getenv("FLWIN_SPLINE_TRACE") != nullptr;
+        if (bTrace && TraceUpdates > 0)
+        {
+            --TraceUpdates;
+            Vector const Vel = ObjInspectOf(Object)->get_velocity();
+            fprintf(stderr,
+                    "[spline] P0(%.1f %.1f %.1f) P1(%.1f %.1f %.1f) P2(%.1f %.1f %.1f) P3(%.1f %.1f %.1f) len %.2f look %.2f "
+                    "T1 %.3f T2 %.3f T3 %.3f far(%.1f %.1f %.1f) dirA(%.2f %.2f %.2f) elem(%.1f %.1f %.1f) vel(%.2f %.2f %.2f) "
+                    "throttle %.3f move %d face %d\n",
+                    Spline->P0.x, Spline->P0.y, Spline->P0.z, Spline->P1.x, Spline->P1.y, Spline->P1.z, Spline->P2.x,
+                    Spline->P2.y, Spline->P2.z, Spline->P3.x, Spline->P3.y, Spline->P3.z, SpeedNorm, LookaheadScale, T1,
+                    T2, T3, FarPoint.x, FarPoint.y, FarPoint.z, DirA.x, DirA.y, DirA.z, ElemPos.x, ElemPos.y, ElemPos.z,
+                    Vel.x, Vel.y, Vel.z, Move.Throttle, MoveResult, Face.TargetKind);
+        }
+    }
 
     // 062da210-062da226: probe only when Move returned 1, or else when T1 (E+8) > the
     // double 1.0 (TEST AH,0x41 / JNZ returns 0 on less, equal and NaN).

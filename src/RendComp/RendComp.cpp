@@ -129,11 +129,11 @@ int FileOpenByName(void* File, const char* ChildName)
         const char* DataPath;
         unsigned long Field10;
         unsigned long Field14;
-        unsigned long Field18;
+        void* Field18; // pointer slot (FFileSystemDesc)
         unsigned long Field1C;
         unsigned long Field20;
-        unsigned long Field24;
-        unsigned long Field28;
+        void* Field24; // pointer slot (FFileSystemDesc)
+        void* Field28; // pointer slot (FFileSystemDesc)
         unsigned long Field2C;
         unsigned long Field30;
     };
@@ -280,7 +280,7 @@ float* TransformPoint3(float* Dest3, const float* Matrix12, const float* Vec3)
 GENRESULT DACOM_API PluginFactoryCreate(FDacomFactory* This, AGGDESC* Desc, void** Out)
 {
     FRenderPluginDesc* Extended = (FRenderPluginDesc*)Desc;
-    if (Extended->Size != 0x10 || std::strcmp(Extended->Name, This->Name) != 0)
+    if (!FL_DESC_SIZE_IS(Extended->Size, decltype(*Extended), 0x10) || std::strcmp(Extended->Name, This->Name) != 0)
     {
         *Out = nullptr;
         return GR_INTERFACE_UNSUPPORTED;

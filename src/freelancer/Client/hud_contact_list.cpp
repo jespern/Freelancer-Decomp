@@ -5,6 +5,7 @@
 // Author: Giperion.
 
 #include "hud_contact_list.h"
+#include "hd_plugins.h"
 
 #include "best_path.h"               // BestPath* (FUN_004c4fb0 / 004c4ff0 / 004c5110 / 004c52d0)
 #include "character_select_equip.h"  // GetPlayerStarSystemIdRetail (FUN_004c4830), character name
@@ -49,13 +50,17 @@
 #include "common_universe.h"         // Universe::get_system, SpatialFill
 
 #include "dacom.h"                   // FDUMP
+#include "hd_plugins.h"
 
+#include <ctype.h>
+#include <dlfcn.h>
 #include <math.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <string>
+#include <vector>
 #include <wchar.h>
 
 unsigned char G_bHudContactListRefreshRequested = 0;
@@ -109,6 +114,22 @@ namespace
     float const kSpatialQueryRadius = 14000.0f;     // 0x465ac000 stored inline (0x004d1749)
     float const kNearRangeSq = 196000000.0f;        // DAT_005d7968 = 14000^2
     float const kRebuildSeconds = 3.0f;             // DAT_005d7964
+
+    // HD: fast_contact_list — DAT_005d7964 (.rdata 0x1d7964) 3.0 -> 1.5; its three readers
+    // (0x004cf4f5, 0x004d260b, 0x004d2622) are all here.
+    float RebuildSeconds()
+    {
+        static const float Seconds = HdPlugins::Feature("fast_contact_list") ? 1.5f : kRebuildSeconds;
+        return Seconds;
+    }
+
+    // HD: contact_list_far_distance — "NNNK" up to 999 km before "Far" (0x004d2c94 cmp ecx,
+    // 99999 -> 999999).
+    int FarMetres()
+    {
+        static const int Metres = HdPlugins::Feature("contact_list_far_distance") ? 999999 : 99999;
+        return Metres;
+    }
     float const kNameRefreshSeconds = 30.0f;        // DAT_005d3e40
     float const kLabelWidthScale = 125.0f;          // .data DAT_00612430
     float const kLabelWidthFactor = 0.00125f;       // DAT_005c8d30
@@ -127,7 +148,7 @@ namespace
         {
             return nullptr;
         }
-        return reinterpret_cast<Watchable const*>(reinterpret_cast<unsigned char const*>(Obj) + 8);
+        return reinterpret_cast<Watchable const*>(reinterpret_cast<unsigned char const*>(Obj) + FlWatchableOffset());
     }
 
     // The chain retail inlines on the player object: IObjRW + 0xc (the IObjInspectImpl CBase),
@@ -185,7 +206,7 @@ namespace
     unsigned ShipGroupId(CObject const* Ship)
     {
         unsigned Value = 0;
-        memcpy(&Value, reinterpret_cast<unsigned char const*>(Ship) + 0x1b4, sizeof(Value));
+        Value = static_cast<CShip const*>(Ship)->GroupId; // CShip +0x1b4
         return Value;
     }
 
@@ -291,6 +312,137 @@ namespace
         unsigned Type = 0;
         Gameobj->get_type(Type);
         return (Type & 0x80u) == 0;
+    }
+
+    void SendSelectTarget(unsigned ObjectId);
+
+    // Lower-case ASCII copy of a contact's built row label (empty when it has none).
+    void ContactLabelLower(IObjRW* Obj, char* Out, size_t Size)
+    {
+        Out[0] = '\0';
+        FFontString const* const Label = static_cast<FClientGameobj*>(Obj)->GetFontString48();
+        if (Label == nullptr || Label->Text == nullptr)
+            return;
+        size_t Length = 0;
+        for (; Label->Text[Length] != 0 && Length + 1 < Size; ++Length)
+        {
+            wchar_t const C = Label->Text[Length];
+            Out[Length] = (C < 0x80) ? static_cast<char>(tolower(static_cast<int>(C))) : '?';
+        }
+        Out[Length] = '\0';
+    }
+
+    // Port test aid: an input script's kill:TEXT step destroys (DESTROY_TYPE1, explode) every
+    // listed object whose row label contains the text, through the in-process server's
+    // pub::SpaceObj::Destroy, so mission Cnd_Destroyed conditions see ordinary kills.
+    void ScriptKillContacts(std::list<FHudContactEntry>& Contacts)
+    {
+        char const* const Want = FlScriptPendingKill();
+        if (Want == nullptr)
+            return;
+        using FDestroyFn = int (*)(unsigned int, int);
+        static FDestroyFn const Destroy = reinterpret_cast<FDestroyFn>(
+            dlsym(RTLD_DEFAULT, "_ZN3pub8SpaceObj7DestroyEj11DestroyType"));
+        IObjRW* const Player = static_cast<IObjRW*>(GetPlayerObjRW());
+        std::vector<unsigned> Ids;
+        for (std::list<FHudContactEntry>::iterator It = Contacts.begin(); It != Contacts.end(); ++It)
+        {
+            IObjRW* const Obj = It->Object();
+            if (Obj == nullptr || It->Kind == 3 || It->Kind == 4)
+                continue;
+            if (Player != nullptr && Player->get_id() == It->Id)
+                continue;
+            char Lower[0x100];
+            ContactLabelLower(Obj, Lower, sizeof(Lower));
+            if (strstr(Lower, Want) != nullptr)
+                Ids.push_back(It->Id);
+        }
+        // Destroyed from the script pump, not here: destroying the player's target tears down
+        // HUD windows while Win3DDrawAll is still walking the tree.
+        static std::vector<unsigned> Pending;
+        Pending = Ids;
+        FlScriptSetPumpHook([] {
+            using FDestroyFn = int (*)(unsigned int, int);
+            static FDestroyFn const DestroyFn = reinterpret_cast<FDestroyFn>(
+                dlsym(RTLD_DEFAULT, "_ZN3pub8SpaceObj7DestroyEj11DestroyType"));
+            int Done = 0;
+            for (unsigned const Id : Pending)
+                if (DestroyFn != nullptr && DestroyFn(Id, 1) == 0)
+                    ++Done;
+            Pending.clear();
+            FlScriptSetPumpHook(nullptr);
+            FlScriptKillDone(Done);
+        });
+        (void)Destroy;
+    }
+
+    // Port dev aid: an input script's select:TEXT step targets the first listed object whose
+    // row label contains the text, as a click on its row would (objects with a built label
+    // only; the player and waypoints are skipped).
+    void ScriptSelectContact(std::list<FHudContactEntry>& Contacts)
+    {
+        char const* const Want = FlScriptPendingSelect();
+        if (Want == nullptr)
+            return;
+        // select:#Nickname -- the object whose id is the nickname's CreateID (solars: lane rings,
+        // gates, bases), whether or not its row label has been built.
+        if (Want[0] == '#')
+        {
+            unsigned const WantId = CreateID(Want + 1);
+            for (std::list<FHudContactEntry>::iterator It = Contacts.begin(); It != Contacts.end(); ++It)
+            {
+                if (It->Object() == nullptr || It->Id != WantId)
+                    continue;
+                SendSelectTarget(It->Id);
+                FlScriptSelectDone();
+                return;
+            }
+            return;
+        }
+        // select:@waypoint -- the player's mission waypoint row, as clicking it would (its
+        // object becomes the target; F3 then docks with a waypoint lane ring or gate).
+        if (strcmp(Want, "@waypoint") == 0)
+        {
+            for (std::list<FHudContactEntry>::iterator It = Contacts.begin(); It != Contacts.end(); ++It)
+            {
+                if (It->Kind == 4)
+                    HudWaypointSelectPlayerWaypoint(It->Index);
+                else if (It->Kind == 3)
+                    HudWaypointSelectBestPath(It->Index);
+                else
+                    continue;
+                FlScriptSelectDone();
+                return;
+            }
+            static bool const bTrace = getenv("FLWIN_SELECT_TRACE") != nullptr;
+            if (bTrace)
+                for (std::list<FHudContactEntry>::iterator It = Contacts.begin(); It != Contacts.end(); ++It)
+                    fprintf(stderr, "[select] @waypoint: entry kind %d index %d id %u\n", It->Kind, It->Index, It->Id);
+            return;
+        }
+        IObjRW* const Player = static_cast<IObjRW*>(GetPlayerObjRW());
+        for (std::list<FHudContactEntry>::iterator It = Contacts.begin(); It != Contacts.end(); ++It)
+        {
+            IObjRW* const Obj = It->Object();
+            if (Obj == nullptr || It->Kind == 3 || It->Kind == 4)
+                continue;
+            if (Player != nullptr && Player->get_id() == It->Id)
+                continue;
+            char Lower[0x100];
+            ContactLabelLower(Obj, Lower, sizeof(Lower));
+            static bool const bTrace = getenv("FLWIN_SELECT_TRACE") != nullptr;
+            if (bTrace)
+            {
+                FFontString const* const Label = static_cast<FClientGameobj*>(Obj)->GetFontString48();
+                fprintf(stderr, "[select] want '%s' kind %d label '%s' (first wchar %#x)\n", Want, It->Kind, Lower,
+                        (Label != nullptr && Label->Text != nullptr) ? static_cast<unsigned>(Label->Text[0]) : 0u);
+            }
+            if (strstr(Lower, Want) == nullptr)
+                continue;
+            SendSelectTarget(It->Id);
+            FlScriptSelectDone();
+            return;
+        }
     }
 
     // The zeroed command record, id 0x1c "select target", sent through FUN_0054bcb0
@@ -571,7 +723,7 @@ HUD_ContactList::HUD_ContactList(INI_Reader& /*Reader*/)
 
     // 0x004cf4e6..0x004cf517.
     ScrollPos = 0;
-    RebuildTimer = kRebuildSeconds;
+    RebuildTimer = RebuildSeconds();
     FilterMode = 0;
     bDirty = 0;
     LastPanelMode = -1;
@@ -836,7 +988,9 @@ intptr_t HUD_ContactList::SetProperty(int Msg, uintptr_t A, uintptr_t B)
                 A == reinterpret_cast<uintptr_t>(NameTexts[Row]))
             {
                 SelectEntry(static_cast<int>(ScrollPos) + Row);
-                static_cast<HudTarget*>(G_HudTargetPanel)->SetMode(1); // FUN_004e5460
+                // HD: HudTarget keeps the list up on a double click (0x004cfe75: push 0).
+                static const bool bAdvTarget = HdPlugins::Enabled("HudTarget.dll");
+                static_cast<HudTarget*>(G_HudTargetPanel)->SetMode(bAdvTarget ? 0 : 1); // FUN_004e5460
                 PlayOrRewindUiSoundSlot(0);
                 return 1;
             }
@@ -1278,7 +1432,10 @@ void HUD_ContactList::RebuildContacts()
                 if (Ship->bIsPlayer != 0)
                 {
                     // 0x004d093a..0x004d0a3b: other players, with "important" / "all" only.
-                    if (FilterMode != 0 && FilterMode != 4)
+                    // HD: contact_list_player_ships — and with "ships" (0x004d094b
+                    // `jne skip` -> `je include; dec al; jne skip`).
+                    static const bool bHdPlayerShips = HdPlugins::Feature("contact_list_player_ships");
+                    if (FilterMode != 0 && FilterMode != 4 && !(bHdPlayerShips && FilterMode == 1))
                     {
                         continue;
                     }
@@ -1760,6 +1917,8 @@ void HUD_ContactList::RebuildContacts()
 
 void HUD_ContactList::Draw()
 {
+    ScriptSelectContact(Contacts); // port: input scripts (select:TEXT)
+    ScriptKillContacts(Contacts);  // port: input scripts (kill:TEXT, test-only)
     // LAB_004d24b0 (this = the WinControl face).
     if (GetGameOption(kGameOptInterfaceGroup) == 0 || GetGameOption(kGameOptHud) == 0 ||
         GetClientMouseCursorDrawFlag() == 0 || GetPlayerObjRW() == nullptr || IsLetterboxVisible())
@@ -1792,9 +1951,9 @@ void HUD_ContactList::Draw()
     bool bRebuilt = false;
     double const Timer = GetClientFrameTimeCapped() + RebuildTimer;
     RebuildTimer = static_cast<float>(Timer);
-    if (Timer >= kRebuildSeconds || bDirty != 0)
+    if (Timer >= RebuildSeconds() || bDirty != 0)
     {
-        double const Left = Timer - kRebuildSeconds;
+        double const Left = Timer - RebuildSeconds();
         RebuildTimer = static_cast<float>(Left);
         if (Left < 0.0)
         {
@@ -1990,7 +2149,7 @@ void HUD_ContactList::Draw()
             _snprintf(RangeText, 0x2000, "%d.%dK", Metres / 1000, (Metres % 1000) / 100);
             RangeControl->SetNumberText(RangeText);      // FUN_0058a580 (0x004d2c87)
         }
-        else if (Metres < 99999)
+        else if (Metres < FarMetres())
         {
             _snprintf(RangeText, 0x2000, "%dK", Metres / 1000);
             RangeControl->SetNumberText(RangeText);      // FUN_0058a580 (0x004d2c26)

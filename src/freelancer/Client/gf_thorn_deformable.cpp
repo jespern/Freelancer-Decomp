@@ -114,7 +114,7 @@ GENRESULT DACOM_API FThornDeformable::StartMotion(void* DescArg)
 
     GENRESULT const PlayResult = DALib::Deform->Play(
         Character->Lod.Instance, &Motions[Slot].Handle, AnimScript,
-        const_cast<char*>(Desc->Animation), AsOpaqueDword(Desc->StartTime),
+        const_cast<char*>(Desc->Animation.Get()), AsOpaqueDword(Desc->StartTime),
         AsOpaqueDword(Desc->TransTime), AsOpaqueDword(Desc->TimeScale),
         AsOpaqueDword(Desc->Weight), AsOpaqueDword(Desc->Common.EventFlags),
         AsOpaqueDword(Desc->Heading), nullptr);

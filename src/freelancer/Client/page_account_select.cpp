@@ -255,7 +255,10 @@ void PageAccountSelect::Update()
         float const T = static_cast<float>(SlideT);
         float BackOffset[3] = {T, 0.0f, 0.0f};
         float ServerOffset[3] = {static_cast<float>(-SlideT), 0.0f, 0.0f};
+        // HD: FLSharp slide_ui_anim_fix — the text hidden before it slides out (ui_anim.cpp).
+        UiTextMsgButtonHideSlidingText(Back);
         Back->SetProperty(6, reinterpret_cast<uintptr_t>(BackOffset), 0);
+        UiTextMsgButtonHideSlidingText(SelectServer);
         SelectServer->SetProperty(6, reinterpret_cast<uintptr_t>(ServerOffset), 0);
         // 0x00572f3f..0x00572f71: FUN_00422b80(home.x, t + home.y, home.z) through slot 5.
         float BoxPosition[3] = {BoxHome[0], T + BoxHome[1], BoxHome[2]};
@@ -281,7 +284,7 @@ void PageAccountSelect::Update()
     Win3D::Update();
 }
 
-bool PageAccountSelect::Slot23(unsigned Msg, unsigned A, unsigned /*B*/)
+bool PageAccountSelect::Slot23(unsigned Msg, uintptr_t A, uintptr_t /*B*/)
 {
     // FUN_00573010.
     if (Msg == 0x3004)

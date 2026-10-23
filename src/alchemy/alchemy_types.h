@@ -172,6 +172,8 @@ namespace AlchemyImpl
 
     static_assert(sizeof(FPooledParticle) == 0x30,
                   "FPooledParticle must match Basic/Rect stride 0x30");
+    // Appearances keep per-particle data right after the shared record (retail +0x30).
+    static const unsigned long kPooledParticleTail = sizeof(FPooledParticle);
 
     struct IAnimatedTransform;
     struct INestedSingleRamp;
@@ -1361,6 +1363,7 @@ namespace AlchemyImpl
         virtual GENRESULT DACOM_API Slot0x30(unsigned long Arg) = 0;
     };
 
-    struct IFxEffect;
+    // IFxEffect is ::IFxEffect via the using-declaration above; a forward declaration here
+    // would declare a second, distinct AlchemyImpl::IFxEffect (MSVC ignores it, clang not).
 
 } // namespace AlchemyImpl

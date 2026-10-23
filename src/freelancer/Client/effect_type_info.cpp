@@ -9,6 +9,7 @@
 #include "common_ini.h"
 #include "common_misc.h" // ICamera
 #include "dacom.h"
+#include "hd_plugins.h"
 #include "perf_options.h" // GetPerfGenericEffectPerf (DAT_006129c8)
 
 #include <string.h>
@@ -207,8 +208,10 @@ bool LoadEffectTypeSection(INI_Reader* Reader)
             {
                 // 0x004fd83d: FST far, FCOMP near, TEST AH,5 / JP -- warns only when far is
                 // strictly below near.
-                Current->PbubbleNear = Reader->get_value_float(0);
-                Current->PbubbleFar = Reader->get_value_float(1);
+                // HD: flplusplus pbubble_scale multiplies both ranges (0x004fd82c / 0x004fd839).
+                static const float PbubbleScale = HdPlugins::FlppScale("pbubble_scale", 1000000.0f);
+                Current->PbubbleNear = Reader->get_value_float(0) * PbubbleScale;
+                Current->PbubbleFar = Reader->get_value_float(1) * PbubbleScale;
                 if (Current->PbubbleFar < Current->PbubbleNear)
                 {
                     FDUMP(0x100002, "%s(%d) : WARNING:General:%s", kSourceFile, 0xc1,

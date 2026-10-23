@@ -7,6 +7,7 @@
 // Retail ServerFilterDialog -- the server browser's filter box. See server_filter_dialog.h.
 
 #include "server_filter_dialog.h"
+#include "hd_plugins.h"
 #include "msvcrt_compat.h" // MsvcrtWtoi: retail MSVCRT.DLL wraps mod 2^32, the UCRT saturates
 
 #include "client_state.h"     // CallClientStateUpdateSlot (DAT_0067ecac vftable[14])
@@ -352,7 +353,7 @@ bool ServerFilterDialog::KeyEvent(unsigned Key, unsigned char* Modifiers)
     return true;
 }
 
-bool ServerFilterDialog::Slot23(unsigned Msg, unsigned A, unsigned B)
+bool ServerFilterDialog::Slot23(unsigned Msg, uintptr_t A, uintptr_t B)
 {
     // FUN_00563630.
     if (Msg == 0xf004)
@@ -420,10 +421,15 @@ bool ServerFilterDialogRun(Win3D* Parent, ServerFilter* Filter)
 
     // 0x00563813..0x00563875: pump while a ServerFilterDialog is registered.
     int ExitCode = 0;
+    // HD: FLSharp server_filter_speed_fix — the frame time is updated in the modal loop too
+    // (FLSharp: FUN_005b2360 in the dialog's slot 13), so the delta does not freeze.
+    static const bool bTimingFix = HdPlugins::FlSharp("server_filter_speed_fix");
     while (Win3DFindByClassName(kServerFilterDialogClass) != nullptr)
     {
         if (!PumpMessages(&ExitCode))
             return false;
+        if (bTimingFix)
+            UpdateClientTiming(); // FUN_005b2360
         double const Delta = GetClientFrameTimeCapped(); // FUN_0042d680
         Win3DUpdateAll(Delta);                           // FUN_0059e080
         CallClientStateUpdateSlot(static_cast<float>(Delta));

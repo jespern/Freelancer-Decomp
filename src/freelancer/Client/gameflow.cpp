@@ -8,6 +8,7 @@
 // functions it drives (0x00558850..0x005592aa). See gameflow.h.
 
 #include "gameflow.h"
+#include "hd_console.h"
 #ifdef FREELANCER_WALK_MODE
 #include "base_walk.h"
 #endif
@@ -45,6 +46,7 @@
 #include "common_misc.h"            // SinglePlayer
 #include "dacom.h"                  // FDUMP
 #include "DALib.h"                  // DALib::Engine (IEngine::ReleaseHandle, G_InvalidEngineHandle)
+#include "hd_plugins.h"
 
 #include <math.h>
 #include <stddef.h>
@@ -575,7 +577,8 @@ namespace
                 EnterGameflowBase(Base, Location, State->bFromIntro != 0);
             RefreshLoadingProgress();
             State->bBaseEntered = 1;
-            if (!SinglePlayer() && !ClientQuitRequested())
+            // HD: console.dll shows the chat window in single player too (0x00437375).
+            if ((!SinglePlayer() || HdConsoleEnabled()) && !ClientQuitRequested())
             {
                 // 0x0043737f: FUN_0046a4a0(1) -- DAT_0066da88 = 1 and the chat window
                 // DAT_0066da80's +0x6c |= 3.
@@ -757,7 +760,11 @@ bool EnterGameflowBase(unsigned BaseId, unsigned LocationId, bool bFromIntro)
         NnArrivalTextShowBase(DelaySeconds);  // FUN_0045b2d0
     }
     RefreshLoadingProgress();
-    SetClientFpsCap(RtcSlider::get_fps_cap()); // DAT_00610a0c
+    // HD: no_cutscene_fps_cap — the normal cap, not the RTC slider's low one (0x00558a10
+    // call [0x5c6bbc] get_fps_cap -> [0x5c6bc0] get_default_fps_cap).
+    static const bool bHdNoCutsceneFpsCap = HdPlugins::Feature("no_cutscene_fps_cap");
+    SetClientFpsCap(bHdNoCutsceneFpsCap ? RtcSlider::get_default_fps_cap()
+                                        : RtcSlider::get_fps_cap()); // DAT_00610a0c
     return true;
 }
 

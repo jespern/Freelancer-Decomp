@@ -24,6 +24,7 @@
 #include "common_universe.h"
 #include "DALib.h"
 #include "dacom.h"
+#include "hd_plugins.h"
 #include "../IVP/ivp_physics/ivp_real_object.h"
 #include "../IVP/ivp_physics/ivp_controller.h"  // IVP_Event_Sim (do_simulation_controller)
 
@@ -463,13 +464,62 @@ StrafeDir CStrafeEngine::GetStrafe() const
     return CurrentStrafe;
 }
 
+namespace
+{
+    // HD: jflp.dll's strafe options: 8-way strafing unless "no8way" or "no4way"; "no4way" also
+    // drops up/down strafing (0x062bb9a8 cmp eax,3 -> cmp eax,1).
+    bool Jflp8WayStrafe()
+    {
+        static const bool b8Way = HdPlugins::Enabled("jflp.dll") &&
+                                  !HdPlugins::Flag("jflp.dll", "no8way") &&
+                                  !HdPlugins::Flag("jflp.dll", "no4way");
+        return b8Way;
+    }
+
+    bool JflpNo4WayStrafe()
+    {
+        static const bool bNo4Way =
+            HdPlugins::Enabled("jflp.dll") && HdPlugins::Flag("jflp.dll", "no4way");
+        return bNo4Way;
+    }
+}
+
 void CStrafeEngine::SetStrafe(StrafeDir Dir)
 {
     // Ghidra @ 0x5b940
     if (Dir != CurrentStrafe)
     {
-        CurrentStrafe = Dir;
-        if (Dir != StrafeNone)
+        int New = Dir;
+        // HD: jflp SetStrafe (0x062bb949 `test eax,eax; mov [ecx+18],eax` -> call): a vertical
+        // key while a horizontal one is held (or the reverse) gives the diagonal 5..8; a
+        // diagonal, or no strafe, is replaced as retail does. jflp's wakeup test reads the flags
+        // its code leaves (Left held + Right skips the wakeup); the port tests the new value.
+        if (New != StrafeNone && Jflp8WayStrafe())
+        {
+            switch (CurrentStrafe)
+            {
+            case StrafeLeft:
+                if (New > StrafeRight)
+                    New += 2;           // Up 5, Down 6
+                break;
+            case StrafeRight:
+                if (New > StrafeRight)
+                    New += 4;           // Up 7, Down 8
+                break;
+            case StrafeUp:
+                if (New < StrafeUp)
+                    New = New * 2 + 3;  // Left 5, Right 7
+                break;
+            case StrafeDown:
+                if (New < StrafeUp)
+                    New = New * 2 + 4;  // Left 6, Right 8
+                break;
+            default:
+                break;
+            }
+        }
+        CurrentStrafe = static_cast<StrafeDir>(New);
+        if (New != StrafeNone)
         {
             wakeup();
         }
@@ -511,8 +561,29 @@ void CStrafeEngine::do_simulation_controller(IVP_Event_Sim* EventSim, IVP_U_Vect
     OwnerShip->ThrustPower = (float)(Pool - Cost);
 
     Matrix const& Ori = OwnerShip->Orientation;
+    float const StrafeForce = OwnerShip->shiparch()->StrafeForce;
+    int Horizontal = CurrentStrafe;
+    if (CurrentStrafe >= StrafeLeftUp && CurrentStrafe <= StrafeRightDown)
+    {
+        // HD: jflp's jump table (0x062bb9a8 cmp eax,7; 8 entries): a diagonal pushes its vertical
+        // direction first (up / down), then takes the horizontal case below, each at the full
+        // strafe force; the power was drained once above.
+        bool const bUp = CurrentStrafe == StrafeLeftUp || CurrentStrafe == StrafeRightUp;
+        float const Sign = bUp ? 1.0f : -1.0f;
+        Vector Vertical;
+        Vertical.x = Sign * Ori.E[0][1] * StrafeForce;
+        Vertical.y = Sign * Ori.E[1][1] * StrafeForce;
+        Vertical.z = Sign * Ori.E[2][1] * StrafeForce;
+        push(Vertical, EventSim->delta_time);
+        Horizontal = (CurrentStrafe <= StrafeLeftDown) ? StrafeLeft : StrafeRight;
+    }
+    else if (JflpNo4WayStrafe() && (CurrentStrafe == StrafeUp || CurrentStrafe == StrafeDown))
+    {
+        // HD: jflp "no4way" (cmp eax,1): up / down reach the "No strafe direction!" default.
+        Horizontal = StrafeNone;
+    }
     Vector Dir;
-    switch (CurrentStrafe)
+    switch (Horizontal)
     {
     case StrafeLeft:
         Dir.x = -Ori.E[0][0];
@@ -541,7 +612,6 @@ void CStrafeEngine::do_simulation_controller(IVP_Event_Sim* EventSim, IVP_U_Vect
         return;
     }
 
-    float const StrafeForce = OwnerShip->shiparch()->StrafeForce;
     Vector Force;
     Force.x = Dir.x * StrafeForce;
     Force.y = Dir.y * StrafeForce;

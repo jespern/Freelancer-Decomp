@@ -11,6 +11,8 @@
 // 0x64 (0x0051a640) and 0x6c (0x0051a730) with the view solver they share (FUN_0051a7d0).
 
 #include "space_camera_turret.h"
+#include "hd_client.h"
+#include "client_gameobj.h"
 #include "space_scene_obj_draw.h"
 
 #include "space_camera_first.h"   // G_FirstPersonMathEngine (DAT_00675220)
@@ -119,12 +121,12 @@ bool TurretCameraComputeView(FTurretCamera* Cam, float* Out12, float DeltaSecond
     {
         const unsigned char* const Held =
             reinterpret_cast<const unsigned char*>(Hud->Watched.target());
-        if (Held == nullptr || Held - 8 == nullptr)
+        if (Held == nullptr || Held - FlWatchableOffset() == nullptr)
             return true;
-        const unsigned char* const Plus0c = Held - 8 + 0xc;
+        const unsigned char* const Plus0c = Held - FlWatchableOffset() + 0xc;
         if (Plus0c == nullptr)
             return true;
-        CEqObj* const EqObj = *reinterpret_cast<CEqObj* const*>(Plus0c + 4);
+        CEqObj* const EqObj = static_cast<CEqObj*>(ClientGameobjObject(Plus0c - 0xc));
         if (EqObj == nullptr ||
             (static_cast<unsigned>(EqObj->ObjectClass) & 0x503u) != 0x503u)
             return true;
@@ -306,6 +308,9 @@ void TurretCameraUpdate(FTurretCamera* Cam, float DeltaSeconds)
 {
     // FUN_0051a730 (slot 0x6c, thiscall RET 4): FUN_0051a7d0(&view, dt, 0) on an identity 3x4,
     // copied to the world transform, view dirty, then HUDCamera's update (FUN_0051d070).
+    // HD: TurretZoom hooks this slot (0x005dbd30) to ease the tether first.
+    if (HdTurretZoomEnabled())
+        HdTurretZoomEase(Cam, DeltaSeconds);
     float View[12];
     MakeIdentityView(View);
     TurretCameraComputeView(Cam, View, DeltaSeconds, false);

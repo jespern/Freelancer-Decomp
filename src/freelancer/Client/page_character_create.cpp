@@ -480,7 +480,7 @@ void PageCharacterCreate::Confirm()
     BeginLeave();
 }
 
-bool PageCharacterCreate::Slot23(unsigned Msg, unsigned A, unsigned /*B*/)
+bool PageCharacterCreate::Slot23(unsigned Msg, uintptr_t A, uintptr_t /*B*/)
 {
     // LAB_00561630 (RET 0xc).
     bool bBack = false;
@@ -649,8 +649,11 @@ void PageCharacterCreate::Update()
 
         // 0x00561a02..0x00561a5a: Back by {SlideT, 0, 0}, SelectShip by {-SlideT, 0, 0}.
         float const BackOffset[3] = {Slide, 0.0f, 0.0f};
+        // HD: FLSharp slide_ui_anim_fix — the text hidden before it slides out (ui_anim.cpp).
+        UiTextMsgButtonHideSlidingText(Back);
         SetButtonOffset(Back, BackOffset);
         float const ShipOffset[3] = {static_cast<float>(-SlideT), 0.0f, 0.0f};
+        UiTextMsgButtonHideSlidingText(SelectShip);
         SetButtonOffset(SelectShip, ShipOffset);
 
         // 0x00561a60..0x00561a8f: DataFrame at {home x, SlideT + home y, home z} (slot 5).

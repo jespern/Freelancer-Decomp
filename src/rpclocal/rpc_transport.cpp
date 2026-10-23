@@ -90,7 +90,8 @@ void FPacketBase::AddRef() {
 // inside the class's own size.
 void RpcPacketStoreField(FPacketBase* Packet, unsigned int Offset, unsigned int Width,
                          unsigned int Value) {
-    unsigned char* Bytes = reinterpret_cast<unsigned char*>(Packet) + Offset;
+    // Offset is retail's packet-relative one; the payload begins after the native base.
+    unsigned char* Bytes = Packet->Payload() + (Offset - 0x20u);
     switch (Width) {
         case 1:
             *Bytes = (unsigned char)(Value & 0xffu);

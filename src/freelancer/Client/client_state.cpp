@@ -35,6 +35,7 @@
 #include "nav_bar.h"                // NavBarDestroy (FUN_00442130)
 #include "sound_config.h"           // SetClientAudioMode (FUN_00428030)
 #include "win3d.h"                  // Win3DFindByName (FUN_0059da10)
+#include "hd_plugins.h"
 
 #include "common_universe.h"        // Universe::get_base_id
 
@@ -50,6 +51,40 @@
 
 namespace
 {
+    // HD: MultiIntro (MultiIntro.ini [Options]): one of Intro1_Base .. IntroN_Base at random,
+    // N = intro_amount or, at 0, every IntroN_Base the universe defines; a new pick on each menu
+    // visit with random_intro_on_menu_visit, else one per session.
+    unsigned MultiIntroBaseId()
+    {
+        static int Count = -1;
+        static unsigned SessionPick = 0;
+        if (Count < 0)
+        {
+            Count = (int)HdPlugins::ConfigFloat("MultiIntro.ini", "Options", "intro_amount", 0.0f);
+            if (Count <= 0)
+            {
+                Count = 0;
+                char Nickname[32];
+                for (;;)
+                {
+                    snprintf(Nickname, sizeof(Nickname), "Intro%d_Base", Count + 1);
+                    if (Universe::get_base(Universe::get_base_id(Nickname)) == nullptr)
+                        break;
+                    ++Count;
+                }
+            }
+            if (Count <= 0)
+                Count = 1;
+        }
+        const bool bEachVisit =
+            HdPlugins::ConfigBool("MultiIntro.ini", "Options", "random_intro_on_menu_visit", true);
+        if (SessionPick == 0 || bEachVisit)
+            SessionPick = 1 + (unsigned)(rand() % Count);
+        char Nickname[32];
+        snprintf(Nickname, sizeof(Nickname), "Intro%u_Base", SessionPick);
+        return Universe::get_base_id(Nickname);
+    }
+
     // Retail IntroFocus (DAT_0067a598), RTTI .?AUIntroFocus@@ (COL 0x005f04a0): the vftable
     // pointer, then FMenuNavState (menu_enter_state.h). Vftable 0x005e3034, fifteen slots (raw
     // PE dwords; the next dword is string data):
@@ -202,7 +237,11 @@ namespace
                     BaseNickname = "Intro2_Base";
                 else if (Pick == 2)
                     BaseNickname = "Intro3_Base";
-                unsigned const BaseId = Universe::get_base_id(BaseNickname);
+                unsigned BaseId = Universe::get_base_id(BaseNickname);
+                // HD: MultiIntro replaces the pick (0x00573920) with one of Intro1_Base ..
+                // IntroN_Base: HD's fourth intro, and a new pick on every menu visit.
+                if (HdPlugins::Enabled("MultiIntro.dll"))
+                    BaseId = MultiIntroBaseId();
 
                 MouseSetCursor("Arrow", true);   // FUN_0041dde0("Arrow", 1) (0x00573947)
                 SetClientMouseCursorDrawFlag(1); // FUN_0041dda0(1) (0x0057394e)
@@ -454,6 +493,12 @@ IEnvironment* EnterClientState(int StateId, IEnvironment* PreviousState)
     // FUN_005b2a30 (cdecl). 0x005b2a3c: RefreshLoadingProgress on entry, and again on every
     // way out (each case's tail and LAB_005b2c23).
     RefreshLoadingProgress();
+
+    // Port: input scripts can wait for the state (waitfor:base / space / menu / ...).
+    static char const* const kStateSignals[] = {"state0", "quit", "ingame", "base", "gf",
+                                                "space", "menu", "loadgame", "briefing"};
+    if (StateId >= 0 && StateId < 9)
+        FlScriptSignal(kStateSignals[StateId]);
 
     IEnvironment* Result = PreviousState;
     switch (StateId)

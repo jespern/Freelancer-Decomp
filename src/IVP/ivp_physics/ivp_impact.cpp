@@ -514,7 +514,7 @@ int32_t IVP_Impact_System::test_loop_all_pairs()
 void IVP_Impact_System::clear_processed_state_of_core_dists(IVP_Core* Core)
 {
     IVP_Friction_Info_For_Core* const Info = static_cast<IVP_Friction_Info_For_Core*>(
-        Core->find_object_hash_entry(static_cast<unsigned>(reinterpret_cast<uintptr_t>(AssociatedFs))));
+        Core->find_object_hash_entry(reinterpret_cast<uintptr_t>(AssociatedFs)));
     for (int32_t Index = static_cast<int32_t>(Info->FrDists.n_elems) - 1; Index >= 0; --Index)
     {
         Info->FrDists.elems[Index]->Owner->StateProcessed = 0;

@@ -12,6 +12,7 @@
 #include "font_atlas.h"
 #include "font_string.h"
 #include "globals.h"
+#include "hd_plugins.h"
 #include "widescreen.h"   // port-only (FREELANCER_WIDESCREEN_SUPPORT)
 #include "screen_quad_state.h"
 
@@ -587,6 +588,30 @@ int LoadFonts(char const* Path, IFileSystem* Filesys)
     char FullPath[MAX_PATH];
     int Count = 0;
     GetFileSysPath(FullPath, Path, Filesys);
+    // HD: flplusplus registers the font files of fonts.ini [FontFiles] (path = FONTS/x.ttf,
+    // relative to DATA) before any font is created; HD's fonts.ini names Agency FB and Arial
+    // Unicode MS from its own DATA/FONTS.
+    if (HdPlugins::Enabled("flplusplus.dll"))
+    {
+        INI_Reader FontFiles;
+        if (FontFiles.open(FullPath, false))
+        {
+            while (FontFiles.read_header())
+            {
+                if (!FontFiles.is_header("FontFiles"))
+                    continue;
+                while (FontFiles.read_value())
+                {
+                    if (!FontFiles.is_value("path") || FontFiles.get_value_string(0) == nullptr)
+                        continue;
+                    char FontPath[MAX_PATH];
+                    GetFileSysPath(FontPath, FontFiles.get_value_string(0), Filesys);
+                    if (AddFontResourceExA(FontPath, FR_PRIVATE, nullptr) == 0)
+                        FDUMP(0x100002, "flplusplus: cannot add font %s\n", FontPath);
+                }
+            }
+        }
+    }
     INI_Reader Reader;
     if (Reader.open(FullPath, false) && Reader.read_header())
     {

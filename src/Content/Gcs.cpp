@@ -15,6 +15,7 @@
 // FUN_06eec4e0 / FUN_06eec680 / FUN_06eec860) are the std containers of Gcs.h.
 
 #include "Gcs.h"
+#include "hd_plugins.h"
 
 #include "BaseDB.h"             // FindContentBaseInfo (FUN_06eac0c0)
 #include "BehaviorCmds.h"       // FContentShipBase
@@ -34,6 +35,7 @@
 #include "Voices.h"             // FindVoiceLineDuration (FUN_06f67780)
 #include "common_server.h"
 #include "common_server_controller.h"   // pub::SetTimer, pub::Controller
+#include "hd_plugins.h"
 
 #include <algorithm>
 #include <cmath>
@@ -46,6 +48,58 @@
 
 // TU25's static initializers run in this order after the 16 ids of ContentStaticIds.h
 // (06ed5a70-06ed5c50); the atexit destructors run in reverse.
+namespace
+{
+    // HD: callsign.dll (single player), as the profile's "callsign=<faction>,<formation>,<a>-<b>"
+    // word of the HDEdition.dll line: the player's faction (gcs_refer_faction_<faction>, which
+    // the plugin writes over the shared "player" string, so factionless ships share it), its
+    // formation designation, the two numbers, and no dash at all when "-" is missing.
+    struct FHdCallsign
+    {
+        bool bSet = false;
+        char Faction[16] = "player";
+        int Formation = 1;
+        int First = 1;
+        int Second = 1;
+        bool bDash = true;
+    };
+
+    FHdCallsign const& HdCallsign()
+    {
+        static FHdCallsign Callsign;
+        static bool bParsed = false;
+        if (bParsed)
+            return Callsign;
+        bParsed = true;
+        char const* const Value = HdPlugins::FindOption("HDEdition.dll", "callsign");
+        if (Value == nullptr || *Value == '\0')
+            return Callsign;
+        char Faction[16] = {0};
+        int Formation = 1;
+        char Numbers[32] = {0};
+        if (sscanf(Value, "%15[^,],%d,%31[^ ]", Faction, &Formation, Numbers) < 2)
+            return Callsign;
+        strcpy(Callsign.Faction, Faction);
+        Callsign.Formation = Formation;
+        Callsign.bDash = strchr(Numbers, '-') != nullptr;
+        if (sscanf(Numbers, "%d-%d", &Callsign.First, &Callsign.Second) < 1)
+            Callsign.First = 1;
+        Callsign.bSet = true;
+        return Callsign;
+    }
+
+    bool HdCallsignActive()
+    {
+        return HdCallsign().bSet && SinglePlayer();
+    }
+
+    // HD: callsign without a dash empties the shared gcs_misc_dash (content 0x06fb6314).
+    bool HdSkipDash()
+    {
+        return HdCallsignActive() && !HdCallsign().bDash;
+    }
+}
+
 namespace
 {
     // 06ed5c70: DAT_06fcf158, recent comms per category (ctor FUN_06eec6b0, atexit 06ed5ca0:
@@ -243,6 +297,12 @@ TString<0x40> __cdecl MakeObjectReferenceName(int Kind, FContentSpaceObj* Object
             FormatTString64(&Result, "gcs_refer_formationdesig_%02d", Value - 0x304af);
             return Result;
         }
+        // HD: callsign's formation (content 0x06fb753d).
+        if (HdCallsignActive())
+        {
+            FormatTString64(&Result, "gcs_refer_formationdesig_%02d", HdCallsign().Formation);
+            return Result;
+        }
         Result = "gcs_refer_formationdesig_01";
         return Result;
     }
@@ -265,7 +325,9 @@ TString<0x40> __cdecl MakeObjectReferenceName(int Kind, FContentSpaceObj* Object
         // not null-tested.
         unsigned int ShipId = Object->SpaceObjId;
         FContentPlayerState* const Player = FindContentPlayerStateByShip(&ShipId);
-        FormatTString64(&Result, "gcs_misc_number_%d", (Player->PlayerId - 1) % 20 + 1);
+        // HD: callsign's first number (content 0x06eeb49b).
+        FormatTString64(&Result, "gcs_misc_number_%d",
+                        HdCallsignActive() ? HdCallsign().First : (Player->PlayerId - 1) % 20 + 1);
         return Result;
     }
     case 3:
@@ -281,7 +343,8 @@ TString<0x40> __cdecl MakeObjectReferenceName(int Kind, FContentSpaceObj* Object
         }
         unsigned int ShipId = Object->SpaceObjId;
         FindContentPlayerStateByShip(&ShipId);
-        FormatTString64(&Result, "gcs_misc_number_%d-", 1);
+        // HD: callsign's second number (content 0x06eeb524).
+        FormatTString64(&Result, "gcs_misc_number_%d-", HdCallsignActive() ? HdCallsign().Second : 1);
         return Result;
     }
     default:
@@ -673,7 +736,11 @@ namespace
         Name.Length = 0;
         Name.Data[0] = '\0';
         if (GetFactionMsgIdPrefix(Ship->ReputationHandle->GetAffiliation(), &Name) != 0)
-            Name = "gcs_refer_faction_player";
+        {
+            // HD: callsign's faction over the shared "player" string (content 0x06fb633e).
+            Name = "gcs_refer_faction_";
+            AppendTString64(&Name, HdCallsignActive() ? HdCallsign().Faction : "player");
+        }
         AppendTString64(&Name, "_short");
         return Name;
     }
@@ -739,7 +806,7 @@ FGcsLineLaunchClearance::FGcsLineLaunchClearance(FSystemInfo* InSystem, unsigned
     // 06ed94dd-06ed95f9: designation, number, dash, number-, "this is".
     PushText(MakeObjectReferenceName(1, Ship, nullptr).Data);
     PushText(MakeObjectReferenceName(2, Ship, nullptr).Data);
-    PushText("gcs_misc_dash");
+    if (!HdSkipDash()) PushText("gcs_misc_dash"); // HD: callsign
     PushText(MakeObjectReferenceName(3, Ship, nullptr).Data);
     PushText("gcs_misc_thisis+");
 
@@ -807,9 +874,11 @@ FGcsLineDockRequest::FGcsLineDockRequest(FSystemInfo* InSystem, unsigned int InS
     PushText(MakeShortFactionName(Ship).Data);
     PushText(MakeObjectReferenceName(1, Ship, nullptr).Data);
     PushText(MakeObjectReferenceName(2, Ship, nullptr).Data);
-    PushText("gcs_misc_dash");
+    if (!HdSkipDash()) PushText("gcs_misc_dash"); // HD: callsign
     // 06ed705d-06ed709b: kind 2 again (not 3).
-    PushText(MakeObjectReferenceName(2, Ship, nullptr).Data);
+    // HD: npc_callsign_fix — kind 3, the rolled number (Content.dll 0x06ed7068 push 2 -> 3).
+    static const bool bHdCallsignFix = HdPlugins::Feature("npc_callsign_fix");
+    PushText(MakeObjectReferenceName(bHdCallsignFix ? 3 : 2, Ship, nullptr).Data);
     PushText("gcs_misc_to");
     // 06ed70c9-06ed7183: the dock's place (the FUN_06eeb730 body inlined).
     PushText(MakeObjectLocationName(Listener).Data);
@@ -941,7 +1010,7 @@ FGcsLineDockNowCleared::FGcsLineDockNowCleared(FSystemInfo* InSystem, unsigned i
     PushText(MakeShortFactionName(Ship).Data);
     PushText(MakeObjectReferenceName(1, Ship, nullptr).Data);
     PushText(MakeObjectReferenceName(2, Ship, nullptr).Data);
-    PushText("gcs_misc_dash");
+    if (!HdSkipDash()) PushText("gcs_misc_dash"); // HD: callsign
     PushText(MakeObjectReferenceName(3, Ship, nullptr).Data);
     PushText(MakeVoiceLineName("gcs_dockrequest_nowcleared", "+", VoiceId).Data);
     AddText(MakeDockApproachName(DockType, "-"));
@@ -1405,7 +1474,7 @@ FGcsLineCombatTakingLead::FGcsLineCombatTakingLead(FSystemInfo* InSystem, unsign
     PushText("gcs_misc_thisis+");
     PushText(MakeObjectReferenceName(1, Ship, nullptr).Data);
     PushText(MakeObjectReferenceName(2, Ship, nullptr).Data);
-    PushText("gcs_misc_dash");
+    if (!HdSkipDash()) PushText("gcs_misc_dash"); // HD: callsign
     PushText(MakeObjectReferenceName(3, Ship, nullptr).Data);
     // 06edbecc-06edbf2e: the name copied (FUN_06ead640), FUN_06eeaf10 with "-".
     PushText(MakeVoiceLineName(MakeTString64("gcs_combat_takinglead").Data, "-", VoiceId).Data);
@@ -1902,7 +1971,7 @@ FGcsLineScanAnnounce::FGcsLineScanAnnounce(FSystemInfo* InSystem, unsigned int I
     PushText(MakeShortFactionName(ListenerShip).Data);
     PushText(MakeObjectReferenceName(1, ListenerShip, nullptr).Data);
     PushText(MakeObjectReferenceName(2, ListenerShip, nullptr).Data);
-    PushText("gcs_misc_dash");
+    if (!HdSkipDash()) PushText("gcs_misc_dash"); // HD: callsign
     PushText(MakeObjectReferenceName(3, ListenerShip, nullptr).Data);
     // 06ee5fed-06ee605d: the name copied (FUN_06ead640) with "-", FUN_06f937c0.
     PushText(MakeVoiceLineName(MakeTString64("gcs_scan_announce").Data, "-", VoiceId).Data);
@@ -2036,7 +2105,7 @@ FGcsLineFidgetStatusQuery::FGcsLineFidgetStatusQuery(FSystemInfo* InSystem,
     // 06ee0210-06ee02ee.
     PushText(MakeObjectReferenceName(1, Ship, nullptr).Data);
     PushText(MakeObjectReferenceName(2, Ship, nullptr).Data);
-    PushText("gcs_misc_dash");
+    if (!HdSkipDash()) PushText("gcs_misc_dash"); // HD: callsign
     PushText(MakeObjectReferenceName(3, Ship, nullptr).Data);
     // 06ee02f3-06ee0363.
     PushText(MakeVoiceLineName(MakeTString64("gcs_fidget_whatstatus").Data, "-", VoiceId).Data);
@@ -2061,7 +2130,7 @@ FGcsLineFidgetStatusReport::FGcsLineFidgetStatusReport(FSystemInfo* InSystem,
     PushText("gcs_misc_thisis+");
     PushText(MakeObjectReferenceName(1, Ship, nullptr).Data);
     PushText(MakeObjectReferenceName(2, Ship, nullptr).Data);
-    PushText("gcs_misc_dash");
+    if (!HdSkipDash()) PushText("gcs_misc_dash"); // HD: callsign
     PushText(MakeObjectReferenceName(3, Ship, nullptr).Data);
     // 06ee05e6-06ee05fe: the ship's relative health (status not tested) into the local that
     // held the ship pointer ([ESP+0x10]), so a failing call leaves the pointer's bits.
@@ -2124,7 +2193,7 @@ FGcsLineFidgetWaypointQuery::FGcsLineFidgetWaypointQuery(FSystemInfo* InSystem,
     PushText(MakeShortFactionName(Ship).Data);
     PushText(MakeObjectReferenceName(1, Ship, nullptr).Data);
     PushText(MakeObjectReferenceName(2, Ship, nullptr).Data);
-    PushText("gcs_misc_dash");
+    if (!HdSkipDash()) PushText("gcs_misc_dash"); // HD: callsign
     PushText(MakeObjectReferenceName(3, Ship, nullptr).Data);
     // 06ee0d7a-06ee0de8.
     PushText(MakeVoiceLineName(MakeTString64("gcs_fidget_patrol_wpremainquery").Data, "-",

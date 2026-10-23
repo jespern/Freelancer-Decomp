@@ -7,6 +7,7 @@
 // The MissionBriefing client state (DAT_00668774, vftable 0x005cb094). See mission_briefing.h.
 
 #include "mission_briefing.h"
+#include "hd_client.h"
 
 #include "best_path.h"              // BestPathGetWaypointCount (FUN_004c4fb0), G_BestPaths (DAT_00672950)
 #include "character_select_equip.h" // SetPlayerBaseIdRetail (FUN_004c4910), GetPlayerStarSystemIdRetail
@@ -194,7 +195,8 @@ namespace
             ->Init(kBriefingWindowMesh, Offset, nullptr, HalfExtents, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0,
                    StartYpr);
         // 0x0043d22e..0x0043d249: slot 5 SetPosition({-0.62f, 0.3f, -1.25f}).
-        float const Position[3] = {-0.62f, 0.3f, -1.25f}; // 0xbf1eb852 / 0x3e99999a / 0xbfa00000
+        // HD: HudShift.ini base (0x0043d232).
+        float const Position[3] = {HdHudShiftBase(0x0043d232, -0.62f), 0.3f, -1.25f}; // 0xbf1eb852 / 0x3e99999a / 0xbfa00000
         State->ParentWindow->SetPosition(Position);
         // 0x0043d24f: hidden until the first frame.
         State->ParentWindow->Flags = static_cast<unsigned char>(State->ParentWindow->Flags & 0xfc);

@@ -27,8 +27,11 @@
 #include "common_csys.h"      // Acquire3DMathEngine (FUN_005b73e0)
 #include "common_ini.h"
 #include "x86math.h"
+#include "hd_plugins.h"
+#include "nn_ui_pulse.h"
 
 #include <math.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <wchar.h>
@@ -532,6 +535,19 @@ void NnTextControl::Update()
     // 0058b2cb..0058b352: the colour blink.
     if (bBlink == 0)
         return;
+    // HD: loadsave_buttons — the blink becomes the menu buttons' pulse (0x0058b2d5:
+    // FUN_00561f20(&+0x35e, [+0x385]), then JMP 0x0058b352), on every blinking control.
+    static const bool bHdPulse = HdPlugins::Feature("loadsave_buttons");
+    if (bHdPulse)
+    {
+        uint32_t Base = 0;
+        memcpy(&Base, BlinkColourOff, sizeof(Base));
+        unsigned long Out = 0;
+        NnUiPulseBlendFromArgb(&Out, Base);
+        uint32_t const Out32 = static_cast<uint32_t>(Out);
+        memcpy(OverrideColour, &Out32, sizeof(OverrideColour));
+        return;
+    }
     // 0058b2d5..0058b2f1: FADD float +0x37c onto the frame time; FST float back; the sum stays
     // on the x87 stack. FCOM 1.0f (DAT_005c75dc), TEST AH,0x41, JNZ -- not greater skips.
     double Sum = GetClientFrameTimeCapped() + static_cast<double>(BlinkElapsed);

@@ -47,7 +47,7 @@ unsigned NumberPackColor(unsigned char Alpha, unsigned Source);
 // (SETC at 0046d6f7, JNC at 00432263), value at +0x10. Built by XC thunk LAB_00413610
 // (FUN_004c5a10) and torn down by its atexit thunk LAB_00413640, which frees the tree nodes
 // only -- a face still referenced at exit is not deleted.
-std::map<unsigned, FNumberFace*> G_NumberFaceMap;
+std::map<uintptr_t, FNumberFace*> G_NumberFaceMap;
 
 wchar_t* AllocWideBytes(unsigned ByteCount)
 {
@@ -1953,8 +1953,8 @@ FNumberFace* NumberFaceGetOrCreate(IFont* FontKey)
     // FUN_0046d6d0: insert (key, null) or land on the existing node; the value slot is node+0x10.
     FNumberFace*& Slot =
         G_NumberFaceMap
-            .insert(std::map<unsigned, FNumberFace*>::value_type(
-                static_cast<unsigned>(reinterpret_cast<uintptr_t>(FontKey)), nullptr))
+            .insert(std::map<uintptr_t, FNumberFace*>::value_type(
+                reinterpret_cast<uintptr_t>(FontKey), nullptr))
             .first->second;
     if (Slot != nullptr)
     {
@@ -1982,8 +1982,8 @@ void NumberFaceRelease(FNumberFace* Face)
     // (00415524..00415588) both inline: find by +0x15c (FUN_00432240), drop +0x160, clear and
     // delete the face at zero (FUN_00415050 + operator delete), then erase the node
     // (FUN_0046c8c0) when it was found and the count reached zero. Callers test the face first.
-    std::map<unsigned, FNumberFace*>::iterator Found =
-        G_NumberFaceMap.find(static_cast<unsigned>(reinterpret_cast<uintptr_t>(Face->FontKey)));
+    std::map<uintptr_t, FNumberFace*>::iterator Found =
+        G_NumberFaceMap.find(reinterpret_cast<uintptr_t>(Face->FontKey));
     int const Remaining = --Face->RefCount;
     if (Remaining <= 0)
     {
@@ -2006,7 +2006,7 @@ void NumberFaceResetAll()
 {
     // FUN_004180c0 004180d3..00418116: in-order walk from begin() (FUN_0052afa0 is ++it); a
     // null value is skipped, otherwise FUN_00415050 inline.
-    std::map<unsigned, FNumberFace*>::iterator It = G_NumberFaceMap.begin();
+    std::map<uintptr_t, FNumberFace*>::iterator It = G_NumberFaceMap.begin();
     for (; It != G_NumberFaceMap.end(); ++It)
     {
         FNumberFace* const Face = It->second;

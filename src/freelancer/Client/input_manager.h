@@ -98,6 +98,9 @@ bool ClientInputIsActive();
 // DAT_00616840 / DAT_00616844 / DAT_00616848.
 void GetClientSoftwareCursor(int* OutX, int* OutY, int* OutZ);
 void SetClientSoftwareCursor(int X, int Y);
+// HD: FLSharp more_cursor_colors -- the current friendly / neutral / hostile (or fire_*) cursor
+// becomes its group-member (Kind 1) or trade-request (Kind 2) tinted copy, when there is one.
+void MouseApplyTargetCursorTint(int Kind);
 // DAT_0061684c -- the wheel delta of the last FUN_0041f150; read by FUN_0059d140 (event 4) and
 // 0x004d8354.
 int GetClientMouseWheel();

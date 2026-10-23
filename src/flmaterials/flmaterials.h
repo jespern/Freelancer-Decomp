@@ -213,7 +213,7 @@ private:
     // Stage texture handle resolved by BindEnvMap and reused by Submit.
     unsigned long EnvMapResolvedHandle_;
     // EnvMap record remains separate from Shadow layer count / record / resolved texture.
-    unsigned long ShadowHandle_; // EnvMap retained texture record (retail +0x68).
+    void* ShadowHandle_; // EnvMap retained texture record (retail +0x68, a dword).
     ITextureLibrary2* ShadowTextureLibrary_; // borrowed Shadow +0x6c
     void* ShadowTextureRecord_;              // retained Shadow +0x74
     unsigned long ShadowResolvedHandle_;    // Shadow +0x70 pipeline texture

@@ -25,6 +25,7 @@
 #include <windows.h>
 #include <cstdio>
 #include <deque>
+#include <type_traits>
 #include <iosfwd>
 #include <map>
 #include <string>
@@ -69,6 +70,34 @@ void RpcPacketBuildListSentinel(FPacketBase* Packet, unsigned int Offset,
 //     06d9d227..06d9d238  free(Head) ; Head = 0 ; Size = 0
 // The node values are NOT touched; a destructor that owns them frees them first.
 void RpcPacketDestroyEmbeddedList(FPacketBase* Packet, unsigned int Offset);
+
+// The same two operations on a typed list header (Allocator, Head, Size), whose node type
+// gives the sentinel size: the retail byte offsets and node sizes are 32-bit layout.
+template <typename TList> void RpcPacketBuildListSentinel(TList* List) {
+    using TNode = typename std::remove_pointer<decltype(List->Head)>::type;
+    List->Allocator = 0;
+    TNode* Sentinel = static_cast<TNode*>(::operator new(sizeof(TNode)));
+    Sentinel->Next = Sentinel;
+    Sentinel->Prev = Sentinel;
+    List->Size = 0;
+    List->Head = Sentinel;
+}
+template <typename TList> void RpcPacketDestroyEmbeddedList(TList* List) {
+    using TNode = typename std::remove_pointer<decltype(List->Head)>::type;
+    TNode* Sentinel = List->Head;
+    TNode* Node = Sentinel->Next;
+    while (Node != Sentinel) {
+        TNode* Erased = Node;
+        Node = Node->Next;
+        Erased->Prev->Next = Erased->Next;
+        Erased->Next->Prev = Erased->Prev;
+        ::operator delete(Erased);
+        --List->Size;
+    }
+    ::operator delete(List->Head);
+    List->Head = nullptr;
+    List->Size = 0;
+}
 
 // ===========================================================================
 // FRpcMarshalStream -- the cursor the packet codec slots run on.

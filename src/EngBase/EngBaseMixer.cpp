@@ -725,7 +725,8 @@ void MixerBlendAttach(FAnimationObject* Animation, FTypedChannel* Typed, float D
     if (Inner == nullptr)                                        // 066160a8: retail tests it
         return;
 
-    FAnimBindOut* Desc = TypedBindDesc(Typed);
+    const FAnimBindOut DescValue = TypedBindDesc(Typed);
+    const FAnimBindOut* Desc = &DescValue;
     FMixerDescMap::iterator Entry = Inner->find(*Desc);          // 066160b0..bb FUN_06618fa0
     if (Entry == Inner->end())                                   // 066160c4..c9
     {
@@ -847,7 +848,7 @@ void MixerUnbindTyped(FAnimationObject* Animation, FTypedChannel* Typed)
     FMixerDescMap* Inner = MixerFindKey(Animation, TypedMixerKey(Typed)); // 06615ec7..d8
     if (Inner == nullptr)
         return;
-    FMixerDescMap::iterator Entry = Inner->find(*TypedBindDesc(Typed));  // 06615ede..f7
+    FMixerDescMap::iterator Entry = Inner->find(TypedBindDesc(Typed));  // 06615ede..f7
     if (Entry == Inner->end())
         return;
     FMixerList* List = &Entry->second;
@@ -906,7 +907,7 @@ unsigned char MixerHasLeaf(FAnimationObject* Animation, FTypedChannel* Typed)
     FMixerDescMap* Inner = MixerFindKey(Animation, TypedMixerKey(Typed));
     if (Inner == nullptr)
         return 0;
-    FMixerDescMap::iterator Entry = Inner->find(*TypedBindDesc(Typed)); // 06616941..81
+    FMixerDescMap::iterator Entry = Inner->find(TypedBindDesc(Typed)); // 06616941..81
     if (Entry == Inner->end())
         return 0;
     FMixerNode* Node = Entry->second.Head;                       // 06616983..9b
@@ -1000,7 +1001,7 @@ void PlaybackWriteOverlayPos(FAnimPlayback* Playback, const float* Pos, FMixerDe
         Typed->SetOverlayPos(Pos);          // 06612a91..96
         if (Typed->Kind == 1)                                    // 06612a99..a2
         {
-            FMixerDescMap::iterator Entry = Inner->find(*TypedBindDesc(Typed)); // 06612aa4..de
+            FMixerDescMap::iterator Entry = Inner->find(TypedBindDesc(Typed)); // 06612aa4..de
             if (Entry != Inner->end())
             {
                 FMixerNode* Node = Entry->second.Head;           // 06612ae0..03
@@ -1036,7 +1037,7 @@ void PlaybackWriteOverlayOrient(FAnimPlayback* Playback, const float* Matrix, FM
         Typed->SetOverlayExtra(Matrix);       // 06612bc0..cb
         if (Typed->Kind == 1)
         {
-            FMixerDescMap::iterator Entry = Inner->find(*TypedBindDesc(Typed));
+            FMixerDescMap::iterator Entry = Inner->find(TypedBindDesc(Typed));
             if (Entry != Inner->end())
             {
                 FMixerNode* Node = Entry->second.Head;           // 06612c0f..3d
@@ -1068,7 +1069,7 @@ void PlaybackAddOverlayPos(FAnimPlayback* Playback, const float* Delta, FMixerDe
         Typed->AddOverlayPos(Delta);        // 06612c80..85
         if (Typed->Kind == 1)
         {
-            FMixerDescMap::iterator Entry = Inner->find(*TypedBindDesc(Typed));
+            FMixerDescMap::iterator Entry = Inner->find(TypedBindDesc(Typed));
             if (Entry != Inner->end())
             {
                 FMixerNode* Node = Entry->second.Head;           // 06612ccd..f9

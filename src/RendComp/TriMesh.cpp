@@ -2253,7 +2253,7 @@ int FTriMeshArch::PrivatizeCursorGroup()
 int FTriMeshArch::ShareGroupVertices(bool bAll)
 {
     const size_t Size = (Groups.data() == nullptr) ? 0 : Groups.size();
-    FTriMeshGroup** Shared = (FTriMeshGroup**)new unsigned char[Size * 4];
+    FTriMeshGroup** Shared = (FTriMeshGroup**)new unsigned char[Size * sizeof(FTriMeshGroup*)]; // retail Size * 4
     int SharedCount = 0;
     for (size_t Index = 0; Index < Groups.size(); ++Index)
     {

@@ -46,6 +46,27 @@ Runtime selection: `bin/DACOM.INI` — `RP9.dll` in `[Libraries]` (commented out
 - D3DX9 has no `D3DXGetErrorStringA` — the error text comes from `DXGetErrorStringA` (DxErr.lib,
   which needs `legacy_stdio_definitions.lib`).
 
+## macOS
+
+`./setup-macos.sh --rp9` builds into `build-rp9/` (CMake `FL_FreelancerRp9=1`) and assembles
+`game-rp9/` with RP9 selected in `DACOM.INI`; `./run-macos.sh --rp9` runs it. The pieces:
+
+- Direct3D 9 is DXVK's native D3D9 (the library DXVK's D3D8 already sits on) behind `fld3d9`
+  (`platform/directx/d3d9_shim.cpp` in the macOS port, https://github.com/jespern/freelancer-mac), which translates window handles as `fld3d8` does for RP8.
+  The headers are DXVK's MinGW `d3d9.h` / `d3dx9*.h`, behind `platform/directx/d3d9/`, whose
+  wrappers supply the MinGW names they expect (`WINBOOL`, `LUID`, ...) and a `DxErr.h`.
+- The D3DX9 texture helpers share their implementation with D3DX8 (`d3dx_impl.inc`).
+- `D3DXCompileShader` is vkd3d-shader (a pinned release built as an ExternalProject,
+  `platform/directx/vkd3d/`). It compiles to the same SM3 bytecode, with two differences: the
+  macro `RPEX_VKD3D` is defined (`nebula_volume.hlsl` leaves out `[fastopt]`, which vkd3d does not
+  take), and no constant table is produced (RP9 sets constants by register). vkd3d's register
+  allocator is less frugal than Microsoft's: the ray-march pixel shader uses 62 temps where
+  ps_3_0 allows 32, so the build patches vkd3d to allow more for shader model 3 -- DXVK, the only
+  consumer, has no such limit.
+- RP9 carries RP8's LP64 fixes: texture handles as 32-bit tokens, `-1` handles compared as a
+  dword, lock results through `FRpLockedSurface`, `FRp9Vb::Locked` and the texture map's view as
+  pointers, the light map kept past static destruction.
+
 ## The object and the data it hands out
 
 - The object layout is not retail: there are no `0x230C` static_asserts, RP8's raw offsets became

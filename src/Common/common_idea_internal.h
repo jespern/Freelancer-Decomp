@@ -17,6 +17,9 @@
 #include "common_goods.h"   // BaseWatcher
 #include "common_iface.h"   // IObjInspect, IObjRW, ObjRwFromWatchable
 #include "common_aisteer.h" // GetInterceptClearanceOfIface
+#include "common_pathfind.h" // PathfindManager (PathfindSlot)
+
+#include <cstddef>
 
 #include <cstring>
 
@@ -44,9 +47,21 @@ namespace CmnIdea
     //
     // Context is the IBehaviorManager and its +0x0c the owned PathfindManager; retail
     // dereferences both levels unguarded (e.g. 062d584e/062d5865), and so does this.
+    // Context is the IBehaviorManager; [+0xc] is its PathfindManager, whose fields the ideas
+    // then address by retail offset -- mapped to the members by PathfindSlot below.
     inline unsigned char* SlotArrayOf(void* Context)
     {
-        return *reinterpret_cast<unsigned char**>(static_cast<unsigned char*>(Context) + 0x0c);
+        return reinterpret_cast<unsigned char*>(static_cast<IBehaviorManager*>(Context)->Pathfind);
+    }
+    inline size_t PathfindSlot(unsigned RetailOffset)
+    {
+        switch (RetailOffset)
+        {
+        case 0x064: return offsetof(PathfindManager, Field_064);
+        case 0x200: return offsetof(PathfindManager, CachedTargetPosition);
+        case 0x214: return offsetof(PathfindManager, Field_214);
+        default: return RetailOffset; // unreachable: only these three are addressed
+        }
     }
 
     // BaseIdea::Handle is the owning SystemManager: retail reaches its SelfTarget as

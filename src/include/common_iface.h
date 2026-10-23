@@ -569,6 +569,13 @@ inline IObjInspect const* ObjInspectOf(void const* Object)
     return static_cast<IObjInspect const*>(Object);
 }
 
+// Retail's `- 8` from a Watchable to its IObjRW, taken from the hierarchy (+0x10 on LP64).
+inline int FlWatchableOffset()
+{
+    static int const Offset = FlFacetOffset<IObjRW, Watchable>();
+    return Offset;
+}
+
 // `Watchable` is IObjRW's third base and sits at +8, so the `- 8` the AI state machines
 // do on a watcher target is a downcast to the whole object. The AI TUs (common_aisteer.cpp,
 // common_behaviormanager.cpp, common_targetmanager.cpp, ...) all spell it out by hand; this names it.
@@ -576,7 +583,7 @@ inline IObjRW* ObjRwFromWatchable(void* WatchableSubObject)
 {
     if (WatchableSubObject == nullptr)
         return nullptr;
-    return reinterpret_cast<IObjRW*>(static_cast<char*>(WatchableSubObject) - 8);
+    return reinterpret_cast<IObjRW*>(static_cast<char*>(WatchableSubObject) - FlWatchableOffset());
 }
 
 // IObjAffect abstract interface — mutation methods.
@@ -789,16 +796,25 @@ struct IObjAffect
 // offset the CompleteObjectLocator at .rdata:063a8b9c fixes. Spelled as a cast here because
 // every caller still holds the object as a void*; once they hold a real IObjRW*, a plain
 // `static_cast<IObjAffect*>` does the same adjustment and this helper can go.
+// IObjRW's IObjAffect base offset (retail +4, +8 on LP64); defined after IObjRW below.
+inline int FlObjAffectOffset();
+
 inline IObjAffect* ObjAffectOf(void* ObjRw)
 {
     if (ObjRw == nullptr)
         return nullptr;
-    return reinterpret_cast<IObjAffect*>(static_cast<char*>(ObjRw) + 4);
+    return reinterpret_cast<IObjAffect*>(static_cast<char*>(ObjRw) + FlObjAffectOffset());
 }
 
 struct IObjRW : IObjInspect, IObjAffect, Watchable
 {
 };
+
+inline int FlObjAffectOffset()
+{
+    static int const Offset = FlFacetOffset<IObjRW, IObjAffect>();
+    return Offset;
+}
 
 static_assert(sizeof(IObjRW) == 0x0C, "IObjRW is two vtable pointers plus Watchable");
 
@@ -1427,7 +1443,7 @@ public:
     // with the owner's CSimple+0xAC ObjectDb (or 0 on disconnect).
     IObjDB* ObjectDb;                   // +0xEC
     void* WatchablePtr;                 // +0xF0
-    unsigned char OpaqueF4[4];          // +0xF4 .. +0xF7
+    void* WatcherNext;                  // +0xF4 BaseWatcher::Next (+0xF0 is a BaseWatcher)
     // Reconciled "content-callback active" style flag (Common.dll.txt
     // 212042-212072, d309:common-port 2026-09-11): recomputed every tick as
     // (Sys+0x1434 [SystemManager::Targeting.AttackState, TargetManager+0x08,

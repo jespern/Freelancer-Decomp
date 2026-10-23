@@ -171,47 +171,47 @@ int GuideBehavior::Slot5(float Value)
 }
 
 // Slot 10, LAB_062cfc70 (.text:062cfc70-062cfe15, RET 4). The argument is a
-// pub::AI::DirectiveGuideOp; the FollowParams fields it reads (+0x8c/+0x90..+0x98) and the
-// GotoParams fields (+0x68/+0x6c/+0x70) are taken by raw offset off the op.
+// pub::AI::DirectiveGuideOp. Retail takes the GotoParams fields at +0x68/+0x6c/+0x70
+// (Field_5C/60/64) and the FollowParams fields at +0x8c/+0x90..+0x98 (FollowDistance,
+// Field_14..1C) by raw offset; here they are read by member, since on LP64 both embedded ops
+// carry an 8-byte vptr and the raw offsets land on other fields.
 bool GuideBehavior::Slot10(void* DirectiveOp)
 {
     pub::AI::DirectiveGuideOp const* const Op = static_cast<pub::AI::DirectiveGuideOp const*>(DirectiveOp);
-    unsigned char const* const OpBytes = static_cast<unsigned char const*>(DirectiveOp);
     CachedPtr60 = BehaviorMgrPtr20->BehaviorDispatchTable[2];       // 062cfc83
     CachedPtr64 = BehaviorMgrPtr20->BehaviorDispatchTable[17];      // 062cfc8d
     // 062cfc90-062cfcab: REP MOVSD of 0x1c and 9 dwords -- whole-object copies, vptr included.
     std::memcpy(static_cast<void*>(&GotoOp), &Op->GotoParams, sizeof(GotoOp));
     std::memcpy(static_cast<void*>(&FollowOp), &Op->FollowParams, sizeof(FollowOp));
     bool bResult = true;                                            // 062cfcba
-    // 062cfcad-062cfcda: WatcherB = the object GotoOp+0x1c names (FUN_062e74a0).
+    // 062cfcad-062cfcda: WatcherB = the object GotoOp+0x1c names (FUN_062e74a0; retail this+0x84).
     IObjRW* const GotoTarget = NavHelperPtr24->Timers.FindVerifiedObject(
-        (unsigned const*)((unsigned char*)this + 0x84));
+        reinterpret_cast<unsigned const*>(&GotoOp.Field_1C));
     WatcherB.set(GotoTarget != nullptr ? static_cast<Watchable const*>(GotoTarget) : nullptr);
     Field104 = Op->Field_A4;                                        // 062cfce5
     AngleThreshold11c = Op->Field_A8;                               // 062cfcf1
     Field110 = static_cast<float>(Op->Field_AC);                    // 062cfcf7 FILD
     FieldHigh118 = Op->Field_B0;                                    // 062cfd09
     FieldLow114 = Op->Field_B4;                                     // 062cfd18
-    if (*reinterpret_cast<int const*>(OpBytes + 0x68) != 0)         // 062cfd1e
+    if (Op->GotoParams.Field_5C != 0)                               // 062cfd1e (+0x68)
     {
-        IObjRW* const Escort = NavHelperPtr24->Timers.FindVerifiedObject(
-            (unsigned const*)(OpBytes + 0x68));
+        IObjRW* const Escort = NavHelperPtr24->Timers.FindVerifiedObject(&Op->GotoParams.Field_5C);
         WatcherA.set(Escort != nullptr ? static_cast<Watchable const*>(Escort) : nullptr);
         if (ObjRwFromWatchable(const_cast<Watchable*>(WatcherA.target())) != nullptr)
         {
-            Field3c = *reinterpret_cast<float const*>(OpBytes + 0x6c);         // 062cfd65
-            Field40 = *reinterpret_cast<unsigned const*>(OpBytes + 0x70);      // 062cfd6b
+            Field3c = Op->GotoParams.Field_60;                                  // 062cfd65 (+0x6c)
+            std::memcpy(&Field40, &Op->GotoParams.Field_64, sizeof(Field40));   // 062cfd6b (+0x70, a dword move)
             // 062cfd6e-062cfdab: |op+0x90..+0x98| on the x87 stack ((x*x + y*y) + z*z); not
             // greater than 0.0f (TEST AH,0x41 JNZ) -> +0x44 = op+0x8c, else len + 100.0f
             // (DAT_0639fb58), one rounding.
-            float const* const V = reinterpret_cast<float const*>(OpBytes + 0x90);
-            double const Len = std::sqrt((static_cast<double>(V[0]) * V[0]
-                                          + static_cast<double>(V[1]) * V[1])
-                                         + static_cast<double>(V[2]) * V[2]);
+            pub::AI::DirectiveFollowOp const& Follow = Op->FollowParams;
+            double const Len = std::sqrt((static_cast<double>(Follow.Field_14) * Follow.Field_14
+                                          + static_cast<double>(Follow.Field_18) * Follow.Field_18)
+                                         + static_cast<double>(Follow.Field_1C) * Follow.Field_1C);
             if (Len > 0.0)
                 Field44 = static_cast<float>(Len + 100.0);
             else
-                Field44 = *reinterpret_cast<float const*>(OpBytes + 0x8c);
+                Field44 = Follow.FollowDistance;                                // +0x8c
             if (!CachedPtr60->Slot10(&GotoOp))                      // 062cfdc4
                 bResult = false;
             if (!CachedPtr64->Slot10(&FollowOp))                    // 062cfddb
@@ -522,7 +522,7 @@ int GuideBehavior::Update()
         {
             // Still following: keep ticking CachedPtr64. Retail discards the slot-7 result here
             // (unlike the mirror-image branch below, which tests it against 2).
-            *reinterpret_cast<float*>(reinterpret_cast<unsigned char*>(CachedPtr64) + 0x1c) = DeltaTime1c;
+            CachedPtr64->SetTickDelta(DeltaTime1c); // retail +0x1c
             CachedPtr64->Slot7();
         }
         else
@@ -593,7 +593,7 @@ int GuideBehavior::Update()
         else
         {
             // Still leading: tick CachedPtr60. A result of 2 skips the radial termination test.
-            *reinterpret_cast<float*>(reinterpret_cast<unsigned char*>(CachedPtr60) + 0x1c) = DeltaTime1c;
+            CachedPtr60->SetTickDelta(DeltaTime1c); // retail +0x1c
             if (CachedPtr60->Slot7() == 2)
                 bSkipRadialTermination = true;
         }

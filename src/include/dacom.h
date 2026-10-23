@@ -132,4 +132,7 @@ extern "C"
     GENRESULT __cdecl DACOM_GetVersion(unsigned int* major, unsigned int* minor,
                                        unsigned int* build);
     DACOM_LINK extern void(__cdecl* FDUMP)(int flags, const char* fmt, ...);
+    // HD: options of a Freelancer: HD Edition plugin the game folder's [Libraries] enables
+    // ("" without options), null when it does not (hd_plugins.h).
+    const char* __cdecl DACOM_HdPlugin(const char* name);
 }

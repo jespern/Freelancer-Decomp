@@ -116,7 +116,7 @@ static unsigned int RpcCh3WideLength(const wchar_t* Text) {
 
 // payload+0x00 = Args[Index], by value.
 template<unsigned int Index>
-static bool MarshalCh3DwordAt(FPacketBase* Packet, const unsigned int* Args, unsigned int ArgCount) {
+static bool MarshalCh3DwordAt(FPacketBase* Packet, const FRpcArg* Args, unsigned int ArgCount) {
     FPayloadClientDword Wire;
     Wire.Field_0x00 = Args[Index];
     return RpcPayloadWrite(Packet, 0, Wire);
@@ -125,7 +125,7 @@ static bool MarshalCh3DwordAt(FPacketBase* Packet, const unsigned int* Args, uns
 // payload+0x00 = *(dword*)Args[Index]. Used where the method takes `uint const&`
 // (Dock's first argument). Retail: MOV EAX,[ECX]; MOV [packet+0x20],EAX.
 template<unsigned int Index>
-static bool MarshalCh3DwordByRefAt(FPacketBase* Packet, const unsigned int* Args, unsigned int ArgCount) {
+static bool MarshalCh3DwordByRefAt(FPacketBase* Packet, const FRpcArg* Args, unsigned int ArgCount) {
     FPayloadClientDword Wire;
     Wire.Field_0x00 = *reinterpret_cast<const unsigned int*>(Args[Index]);
     return RpcPayloadWrite(Packet, 0, Wire);
@@ -133,13 +133,13 @@ static bool MarshalCh3DwordByRefAt(FPacketBase* Packet, const unsigned int* Args
 
 // Nothing is serialized at all. ch3 0x05, 0x10, 0x38, 0x42 -- the whole call is the
 // opcode plus the implicit session.
-static bool MarshalCh3Empty(FPacketBase*, const unsigned int*, unsigned int) {
+static bool MarshalCh3Empty(FPacketBase*, const FRpcArg*, unsigned int) {
     return true;
 }
 
 // The first N dwords of the struct Args[0] points at, copied straight through.
 template<unsigned int DwordCount>
-static bool MarshalCh3StructHead(FPacketBase* Packet, const unsigned int* Args, unsigned int ArgCount) {
+static bool MarshalCh3StructHead(FPacketBase* Packet, const FRpcArg* Args, unsigned int ArgCount) {
     const unsigned int* Src = reinterpret_cast<const unsigned int*>(Args[0]);
     for (unsigned int i = 0; i < DwordCount; ++i) {
         RpcPayloadWrite(Packet, i * 4u, Src[i]);
@@ -169,7 +169,7 @@ static const unsigned int kLoginPasswordOffset = 0xa0;  // cap 0x10 wide chars
 static const unsigned int kLoginFlagOffset = 0xc0;
 static unsigned char GStaticLoginInfo[sizeof(SLoginInfo)];   // retail .data:0x06dbba38
 
-static bool MarshalLogin(FPacketBase* Packet, const unsigned int* Args, unsigned int ArgCount) {
+static bool MarshalLogin(FPacketBase* Packet, const FRpcArg* Args, unsigned int ArgCount) {
     const unsigned char* Info = reinterpret_cast<const unsigned char*>(Args[0]);
     // IServerImpl::Login 0x06d8cc70: two UNBOUNDED wcscpy calls into a 0x404-byte stack
     // window (06d8cca3 from SLoginInfo+0, 06d8ccb4 from SLoginInfo+0xa0 to window+0x200),
@@ -215,7 +215,7 @@ static bool DeliverLogin(const FPacketBase* Packet, IServer* Server, unsigned in
 // IServer slot 53 (+0xd4) SPMunitionCollision(SSPMunitionCollisionInfo const&, uint).
 // Identity mapping; the only narrow field is the word at +0x0c on both sides.
 // ===========================================================================
-static bool MarshalMunCollision(FPacketBase* Packet, const unsigned int* Args, unsigned int ArgCount) {
+static bool MarshalMunCollision(FPacketBase* Packet, const FRpcArg* Args, unsigned int ArgCount) {
     const SSPMunitionCollisionInfo* Info = reinterpret_cast<const SSPMunitionCollisionInfo*>(Args[0]);
     FPayloadClientMunCollision Wire;
     Wire.Field_0x00 = Info->Field_0x00;
@@ -355,7 +355,7 @@ static bool DeliverCharacterSkipAutosave(const FPacketBase*, IServer* Server, un
 // Common.lib (see rpc_containers.cpp, which already calls this operator), so the retail
 // call is used as is.
 // ===========================================================================
-static bool MarshalCharacterId(FPacketBase* Packet, const unsigned int* Args, unsigned int ArgCount) {
+static bool MarshalCharacterId(FPacketBase* Packet, const FRpcArg* Args, unsigned int ArgCount) {
     CHARACTER_ID* Dst = reinterpret_cast<CHARACTER_ID*>(Packet->Payload());
     *Dst = *reinterpret_cast<const CHARACTER_ID*>(Args[0]);
     return true;
@@ -375,7 +375,7 @@ static bool DeliverDestroyCharacter(const FPacketBase* Packet, IServer* Server, 
 // ch3 0x08 REQUESTBASEINFO / 0x09 REQUESTLOCATIONINFO -- sender 0x06d8d500 / 0x06d8d550.
 // IServer slots 39 (+0x9c) and 40 (+0xa0), both (uint, uint, bool).
 // ===========================================================================
-static bool MarshalInfoRequest(FPacketBase* Packet, const unsigned int* Args, unsigned int ArgCount) {
+static bool MarshalInfoRequest(FPacketBase* Packet, const FRpcArg* Args, unsigned int ArgCount) {
     FPayloadClientInfoRequest Wire;
     Wire.Id = Args[0];
     Wire.bFull = (unsigned char)(Args[2] & 0xffu);
@@ -401,7 +401,7 @@ static bool DeliverLocationInfoRequest(const FPacketBase* Packet, IServer* Serve
 // ch3 0x0c OBJCOLLISION -- sender 0x06d8d7b0, receiver caseD_c. The halves of
 // SSPObjCollisionInfo are swapped on the wire and swapped back on arrival.
 // ===========================================================================
-static bool MarshalObjCollision(FPacketBase* Packet, const unsigned int* Args, unsigned int ArgCount) {
+static bool MarshalObjCollision(FPacketBase* Packet, const FRpcArg* Args, unsigned int ArgCount) {
     const SSPObjCollisionInfo* Info = reinterpret_cast<const SSPObjCollisionInfo*>(Args[0]);
     FPayloadClientObjCollision Wire;
     Wire.ObjectId = Info->ObjectId;
@@ -432,7 +432,7 @@ static bool DeliverObjCollision(const FPacketBase* Packet, IServer* Server, unsi
 // ch3 0x3d BADLANDSOBJCOLLISION -- sender 0x06d8d760, receiver caseD_3d. Same idea,
 // a three-field rotation.
 // ===========================================================================
-static bool MarshalBadLandsObjCollision(FPacketBase* Packet, const unsigned int* Args, unsigned int ArgCount) {
+static bool MarshalBadLandsObjCollision(FPacketBase* Packet, const FRpcArg* Args, unsigned int ArgCount) {
     const SSPBadLandsObjCollisionInfo* Info =
         reinterpret_cast<const SSPBadLandsObjCollisionInfo*>(Args[0]);
     FPayloadClientBadLandsObjCollision Wire;
@@ -496,7 +496,7 @@ static bool DeliverGFGoodBuy(const FPacketBase* Packet, IServer* Server, unsigne
 // ===========================================================================
 // ch3 0x14 MISSIONRESPONSE -- sender 0x06d8da80, IServer slot 43 (+0xac).
 // ===========================================================================
-static bool MarshalMissionResponse(FPacketBase* Packet, const unsigned int* Args, unsigned int ArgCount) {
+static bool MarshalMissionResponse(FPacketBase* Packet, const FRpcArg* Args, unsigned int ArgCount) {
     FPayloadClientMissionResponse Wire;
     Wire.Field_0x00 = Args[0];
     Wire.MissionId = Args[1];
@@ -519,7 +519,7 @@ static bool DeliverMissionResponse(const FPacketBase* Packet, IServer* Server, u
 // string writers FUN_06d9a160 / FUN_06d9a5f0. IServer slots 30 (+0x78) and 32 (+0x80).
 // The packet owns the hardpoint copy, so both are self-contained and get a destructor.
 // ===========================================================================
-static bool MarshalReqAddItem(FPacketBase* Packet, const unsigned int* Args, unsigned int ArgCount) {
+static bool MarshalReqAddItem(FPacketBase* Packet, const FRpcArg* Args, unsigned int ArgCount) {
     const char* Hardpoint = reinterpret_cast<const char*>(Args[1]);
     const unsigned int Length = RpcCh3StringLength(Hardpoint) + 1u;
     FPayloadClientReqAddItem Wire;
@@ -548,7 +548,7 @@ static bool DeliverReqAddItem(const FPacketBase* Packet, IServer* Server, unsign
     return true;
 }
 
-static bool MarshalReqModifyItem(FPacketBase* Packet, const unsigned int* Args, unsigned int ArgCount) {
+static bool MarshalReqModifyItem(FPacketBase* Packet, const FRpcArg* Args, unsigned int ArgCount) {
     const char* Hardpoint = reinterpret_cast<const char*>(Args[1]);
     const unsigned int Length = RpcCh3StringLength(Hardpoint) + 1u;
     FPayloadClientReqModifyItem Wire;
@@ -583,7 +583,7 @@ static bool DeliverReqModifyItem(const FPacketBase* Packet, IServer* Server, uns
 // The sender zero-extends the ushort into a full dword; the receiver reads it back
 // as a word (MOVZX). Both halves reproduced.
 // ===========================================================================
-static bool MarshalReqRemoveItem(FPacketBase* Packet, const unsigned int* Args, unsigned int ArgCount) {
+static bool MarshalReqRemoveItem(FPacketBase* Packet, const FRpcArg* Args, unsigned int ArgCount) {
     FPayloadClientDwordPair Wire;
     Wire.Field_0x00 = Args[0] & 0xffffu;
     Wire.Field_0x04 = Args[1];
@@ -600,7 +600,7 @@ static bool DeliverReqRemoveItem(const FPacketBase* Packet, IServer* Server, uns
 // ch3 0x1e SAVEGAME -- sender 0x06d8db10 plus the wide-string writer FUN_06d9aab0.
 // IServer slot 58 (+0xe8). The packet owns the description copy.
 // ===========================================================================
-static bool MarshalSaveGame(FPacketBase* Packet, const unsigned int* Args, unsigned int ArgCount) {
+static bool MarshalSaveGame(FPacketBase* Packet, const FRpcArg* Args, unsigned int ArgCount) {
     // 06d8db36: CHARACTER_ID::operator= into packet+0x20, no size test in front.
     MarshalCharacterId(Packet, Args, ArgCount);
     // 06d8db41 wcslen (no pointer test) / 06d8db4e INC EAX / 06d8db51 FUN_06d9aab0.
@@ -614,8 +614,9 @@ static bool MarshalSaveGame(FPacketBase* Packet, const unsigned int* Args, unsig
         Block = static_cast<wchar_t*>(RpcCh3CopyBlock(Description, Count * 2u));
         StoredCount = Count;
     }
+    // Retail: the block at +0x200, its count at +0x204. The count follows the pointer.
     RpcPayloadWrite(Packet, 0x200, Block);
-    return RpcPayloadWrite(Packet, 0x204, StoredCount);
+    return RpcPayloadWrite(Packet, 0x200 + (unsigned int)sizeof(Block), StoredCount);
 }
 
 static bool DeliverSaveGame(const FPacketBase* Packet, IServer* Server, unsigned int SessionId) {
@@ -628,7 +629,7 @@ static bool DeliverSaveGame(const FPacketBase* Packet, IServer* Server, unsigned
 // ch3 0x20 MINEASTEROID -- sender 0x06d8dcf0, IServer slot 62 (+0xf8). The receiver
 // rebuilds the Vector on its own stack between the first and the last three dwords.
 // ===========================================================================
-static bool MarshalMineAsteroid(FPacketBase* Packet, const unsigned int* Args, unsigned int ArgCount) {
+static bool MarshalMineAsteroid(FPacketBase* Packet, const FRpcArg* Args, unsigned int ArgCount) {
     const Vector* Position = reinterpret_cast<const Vector*>(Args[1]);
     FPayloadClientMineAsteroid Wire;
     Wire.SystemId = Args[0];
@@ -666,7 +667,7 @@ static bool DeliverDock(const FPacketBase* Packet, IServer* Server, unsigned int
 // ch3 0x27 TRADERESPONSE -- sender 0x06d8dad0 via FUN_06d97b00 (length first, block
 // second). IServer slot 44 (+0xb0) TradeResponse(uchar const*, int, uint).
 // ===========================================================================
-static bool MarshalTradeResponse(FPacketBase* Packet, const unsigned int* Args, unsigned int ArgCount) {
+static bool MarshalTradeResponse(FPacketBase* Packet, const FRpcArg* Args, unsigned int ArgCount) {
     FPayloadClientBlob Wire;
     Wire.Size = Args[1];
     // FUN_06d97b00: bare operator new(len) (06d97b0b) and the copy, no guard at all.
@@ -685,7 +686,7 @@ static bool DeliverTradeResponse(const FPacketBase* Packet, IServer* Server, uns
 // IServer slot 65 (+0x104); the receiver passes packet+0x20 and packet+0x24 as the two
 // references, so the packet's own storage backs them.
 // ===========================================================================
-static bool MarshalSPScanCargo(FPacketBase* Packet, const unsigned int* Args, unsigned int ArgCount) {
+static bool MarshalSPScanCargo(FPacketBase* Packet, const FRpcArg* Args, unsigned int ArgCount) {
     FPayloadClientDwordPair Wire;
     Wire.Field_0x00 = *reinterpret_cast<const unsigned int*>(Args[0]);
     Wire.Field_0x04 = *reinterpret_cast<const unsigned int*>(Args[1]);
@@ -702,7 +703,7 @@ static bool DeliverSPScanCargo(const FPacketBase* Packet, IServer* Server, unsig
 // ch3 0x2f SETMANEUVER -- sender 0x06d8e670, IServer slot 66 (+0x108)
 // SetManeuver(uint Session, XSetManeuver const&): the session comes FIRST.
 // ===========================================================================
-static bool MarshalSetManeuver(FPacketBase* Packet, const unsigned int* Args, unsigned int ArgCount) {
+static bool MarshalSetManeuver(FPacketBase* Packet, const FRpcArg* Args, unsigned int ArgCount) {
     const XSetManeuver* Info = reinterpret_cast<const XSetManeuver*>(Args[1]);
     FPayloadClientDwordTriple Wire;
     Wire.Field_0x00 = Info->Field_0x00;
@@ -727,7 +728,7 @@ static bool DeliverSetManeuver(const FPacketBase* Packet, IServer* Server, unsig
 // ulong trailing argument to ONE BYTE each on the way out and sign/zero-extends them
 // back on the way in. That loss is retail's, not the port's.
 // ===========================================================================
-static bool MarshalRequestEvent(FPacketBase* Packet, const unsigned int* Args, unsigned int ArgCount) {
+static bool MarshalRequestEvent(FPacketBase* Packet, const FRpcArg* Args, unsigned int ArgCount) {
     FPayloadClientRequestEvent Wire;
     Wire.EventType = (unsigned char)(Args[0] & 0xffu);
     Wire.Pad_0x01[0] = 0;
@@ -750,7 +751,7 @@ static bool DeliverRequestEvent(const FPacketBase* Packet, IServer* Server, unsi
     return true;
 }
 
-static bool MarshalRequestCancel(FPacketBase* Packet, const unsigned int* Args, unsigned int ArgCount) {
+static bool MarshalRequestCancel(FPacketBase* Packet, const FRpcArg* Args, unsigned int ArgCount) {
     FPayloadClientRequestCancel Wire;
     Wire.EventType = (unsigned char)(Args[0] & 0xffu);
     Wire.Pad_0x01[0] = 0;
@@ -777,7 +778,7 @@ static bool DeliverRequestCancel(const FPacketBase* Packet, IServer* Server, uns
 // channel-3 receiver that forwards no session id at all: the slot takes four payload
 // values and nothing else.
 // ===========================================================================
-static bool MarshalCommComplete(FPacketBase* Packet, const unsigned int* Args, unsigned int ArgCount) {
+static bool MarshalCommComplete(FPacketBase* Packet, const FRpcArg* Args, unsigned int ArgCount) {
     FPayloadClientDwordQuad Wire;
     Wire.Field_0x00 = Args[0];
     Wire.Field_0x04 = Args[1];
@@ -800,7 +801,7 @@ static bool DeliverCommComplete(const FPacketBase* Packet, IServer* Server, unsi
 // ===========================================================================
 static SCreateCharacterInfo GStaticCreateCharacterInfo;   // retail .data:0x06dbbb10
 
-static bool MarshalCreateNewCharacter(FPacketBase* Packet, const unsigned int* Args, unsigned int ArgCount) {
+static bool MarshalCreateNewCharacter(FPacketBase* Packet, const FRpcArg* Args, unsigned int ArgCount) {
     const SCreateCharacterInfo* Info = reinterpret_cast<const SCreateCharacterInfo*>(Args[0]);
     // IServerImpl::CreateNewCharacter 0x06d8cdf0: wcsncpy(window, Info, 0x40) at
     // 06d8ce1f -- 0x40 wide characters out of the 0x18-character Name, exactly as retail
@@ -836,7 +837,7 @@ static bool DeliverCreateNewCharacter(const FPacketBase* Packet, IServer* Server
 // IServer slots 49 (+0xc4) and 50 (+0xc8). BOTH arguments are serialized, so neither
 // is the implicit session -- the receiver pushes only the two payload dwords.
 // ===========================================================================
-static bool MarshalDwordPair(FPacketBase* Packet, const unsigned int* Args, unsigned int ArgCount) {
+static bool MarshalDwordPair(FPacketBase* Packet, const FRpcArg* Args, unsigned int ArgCount) {
     FPayloadClientDwordPair Wire;
     Wire.Field_0x00 = Args[0];
     Wire.Field_0x04 = Args[1];
@@ -859,7 +860,7 @@ static bool DeliverJumpInComplete(const FPacketBase* Packet, IServer* Server, un
 // ch3 0x3f HAIL -- sender 0x06d8d980, IServer slot 51 (+0xcc). All three arguments
 // travel; no session is appended.
 // ===========================================================================
-static bool MarshalDwordTriple(FPacketBase* Packet, const unsigned int* Args, unsigned int ArgCount) {
+static bool MarshalDwordTriple(FPacketBase* Packet, const FRpcArg* Args, unsigned int ArgCount) {
     FPayloadClientDwordTriple Wire;
     Wire.Field_0x00 = Args[0];
     Wire.Field_0x04 = Args[1];
@@ -877,7 +878,7 @@ static bool DeliverHail(const FPacketBase* Packet, IServer* Server, unsigned int
 // ch3 0x40 REQUEST_USE_ITEM -- sender 0x06d8ec20, IServer slot 56 (+0xe0). Identity
 // mapping of SSPUseItem.
 // ===========================================================================
-static bool MarshalSPRequestUseItem(FPacketBase* Packet, const unsigned int* Args, unsigned int ArgCount) {
+static bool MarshalSPRequestUseItem(FPacketBase* Packet, const FRpcArg* Args, unsigned int ArgCount) {
     const SSPUseItem* Info = reinterpret_cast<const SSPUseItem*>(Args[0]);
     FPayloadClientUseItem Wire;
     Wire.ObjectId = Info->ObjectId;
@@ -901,7 +902,7 @@ static bool DeliverSPRequestUseItem(const FPacketBase* Packet, IServer* Server, 
 // crosses the two byte arguments (reason at +0x04, bool at +0x05) and the receiver
 // crosses them back, which is what tells the two bytes apart.
 // ===========================================================================
-static bool MarshalSPRequestInvincibility(FPacketBase* Packet, const unsigned int* Args, unsigned int ArgCount) {
+static bool MarshalSPRequestInvincibility(FPacketBase* Packet, const FRpcArg* Args, unsigned int ArgCount) {
     FPayloadClientInvincibility Wire;
     Wire.ShipId = Args[0];
     Wire.Reason = (unsigned char)(Args[2] & 0xffu);
@@ -1007,7 +1008,7 @@ static bool DeliverDbgRelocateShip(const FPacketBase*, IServer*, unsigned int) {
 // Retail marshals from an EquipDescList, whose node chain it walks itself. Args[0] is
 // the address of that EquipDescList; since 2026-09-17 IServerImpl::ReqEquipment
 // (0x06d8cf90) and ::ReqCargo (0x06d8d0e0) really do call this.
-static bool MarshalReqEquipmentCommon(FPacketBase* Packet, const unsigned int* Args,
+static bool MarshalReqEquipmentCommon(FPacketBase* Packet, const FRpcArg* Args,
                                       unsigned int ArgCount) {
     const EquipDescList& Source = *reinterpret_cast<const EquipDescList*>(Args[0]);
 
@@ -1062,7 +1063,7 @@ static bool DeliverReqCargo(const FPacketBase* Packet, IServer* Server,
 // 0x36 REQCOLLISIONGROUPS. Retail's sender is three calls long -- allocate, splice the
 // caller's list into the payload with FUN_06d8f710, push -- and its receiver is one
 // instruction: `LEA EAX,[packet+0x20]`, because the payload IS the list object.
-static bool MarshalReqCollisionGroups(FPacketBase* Packet, const unsigned int* Args,
+static bool MarshalReqCollisionGroups(FPacketBase* Packet, const FRpcArg* Args,
                                       unsigned int ArgCount) {
     const std::list<CollisionGroupDesc>& Source =
         *reinterpret_cast<const std::list<CollisionGroupDesc>*>(Args[0]);

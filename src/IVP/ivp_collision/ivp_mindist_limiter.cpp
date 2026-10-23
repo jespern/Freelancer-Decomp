@@ -321,7 +321,7 @@ namespace
         while (NodePtr != nullptr)
         {
             char* NodeBytes = static_cast<char*>(NodePtr);
-            int16_t Delta = *reinterpret_cast<int16_t*>(NodeBytes + 0x0C); // Delta1/Delta2, self-relative
+            int16_t Delta = reinterpret_cast<IVP_Contact_Point_Node*>(NodeBytes)->Delta; // Delta1/Delta2, self-relative
             IVP_Contact_Point* Record = reinterpret_cast<IVP_Contact_Point*>(NodeBytes + Delta);
             if ((Record->Object1 == ObjB || Record->Object2 == ObjB)
                 && IVP_ConfirmPairRecordMatch(Record, Mindist))
@@ -642,9 +642,9 @@ IVP_ListManager::IVP_ListManager(IVP_Environment* EnvironmentIn)
             IVP_Core* Core = Other->RegisteredCores[I];
 
             IVP_Friction_Info_For_Core* OtherEntry = static_cast<IVP_Friction_Info_For_Core*>(
-                Core->find_object_hash_entry(static_cast<unsigned>(reinterpret_cast<uintptr_t>(Other))));
+                Core->find_object_hash_entry(reinterpret_cast<uintptr_t>(Other)));
             IVP_Friction_Info_For_Core* TargetEntry = static_cast<IVP_Friction_Info_For_Core*>(
-                Core->find_object_hash_entry(static_cast<unsigned>(reinterpret_cast<uintptr_t>(Target))));
+                Core->find_object_hash_entry(reinterpret_cast<uintptr_t>(Target)));
 
             if (TargetEntry != nullptr)
             {
@@ -2332,7 +2332,7 @@ namespace
         if (HavingNew == 1)
         {
             IVP_Contact_Point* const Old = reinterpret_cast<IVP_Contact_Point*>(
-                Node + *reinterpret_cast<const int16_t*>(Node + 0xc));
+                Node + reinterpret_cast<const IVP_Contact_Point_Node*>(Node)->Delta);
             const float SavedTick68 = Old->_envTick68;
             const float SavedTick6c = Old->_envTick6c;
             IVP_Environment* const Env = Object->environment;

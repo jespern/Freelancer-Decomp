@@ -19,6 +19,9 @@
 // and the HUDCamera Event::Handler face (FUN_0051d7f0), then HUDCamera 0x6c (FUN_0051d070).
 
 #include "space_camera_game.h"
+#include "hd_client.h"
+#include "hud_status_core.h"
+#include "hd_plugins.h"
 
 #include "character_select_equip.h" // Get/SetPlayerVisitFlagsRetail, GetPlayerStarSystemIdRetail
 #include "cli_projectile_fx.h"  // FCliEquipFirePacket, CliShipHandleEquipUpdate (FUN_00544d70)
@@ -41,7 +44,8 @@
 #include "jump_effect.h"        // FJumpShipEffect::ShakeAmplitude (FUN_00503e20)
 #include "menu_keymap_config.h" // (Un)RegisterAcceleratorGroup, KeyMapIsCommandHeld (FUN_005784a0)
 #include "nn_modal.h"          // G_bNnScreenUp (DAT_0067dcc8)
-#include "player_behavior.h"    // ToggleMouseFlightLock, SetPlayerBehaviorDirectionGated
+#include "player_behavior.h"
+#include "star_sys.h"            // GetAttitudeClass (FLWIN_AUTOAIM)    // ToggleMouseFlightLock, SetPlayerBehaviorDirectionGated
 #include "player_spawn.h"       // GetPlayerConnectionId (DAT_00673344)
 #include "space_letterbox.h"
 #include "space_scene_obj_draw.h" // SpaceCameraRenderSlot78 (FUN_0051b250)
@@ -67,7 +71,7 @@ namespace
 {
     // Retail keeps the object as its Watchable subobject, which sits 8 bytes into IObjRW.
     // Both directions are spelled out inline at every use site rather than in a helper.
-    const int kWatchableOffset = 8;
+    const int kWatchableOffset = FlWatchableOffset(); // retail 8
 
     // .rdata 0x005dbfe8, the source path FUN_0051b4b0 / FUN_0051b500 hand FUN_00422610.
     const char kGamecamCpp[] = "E:\\FL\\Scratch\\Source\\Client\\space\\Gamecam.cpp";
@@ -483,6 +487,14 @@ void HudCameraDraw(FGameCamera* Cam)
 bool HudCameraOnEvent(FHudCamera* Cam, unsigned MsgId)
 {
     // FUN_0051d7f0 (thiscall on the face, RET 4). 0x0051d7f6: FUN_0045a740 -> false.
+    // HD: Hail (0x0051d7f7) -- USER_RADIO (0x5c) clicks the target window's Comm button
+    // (FUN_004e19e0 with 0x26), before the pick test; the retail 0x5c case still follows.
+    static const bool bHail = HdPlugins::Enabled("Hail.dll");
+    if (bHail && MsgId == 0x5c && G_HudTargetPanel != nullptr)
+    {
+        HudTarget* const Target = static_cast<HudTarget*>(G_HudTargetPanel);
+        Target->SetProperty(0x26, reinterpret_cast<uintptr_t>(Target->CommButton), 0);
+    }
     if (HudIsMousePickBlocked())
         return false;
 
@@ -683,6 +695,8 @@ namespace
                         Universe::IZone const* const Zone =
                             static_cast<Universe::IZone const*>(Result.Items[Index]);
                         const unsigned char Visit = Zone->GetVisit();
+                        // HD: Zone.dll sees every zone of the scan (0x0051ce64).
+                        HdZoneObserve(Zone, PlayerPos, Index, Result.Count);
                         if ((Visit & 0x81u) != 0)
                             continue;
                         if (!Zone->InZone(PlayerPos, kZoneQueryRadius))
@@ -702,7 +716,7 @@ namespace
             unsigned char* const Plus0c = reinterpret_cast<unsigned char*>(Player) + 0xc;
             if (Plus0c != nullptr)
             {
-                CEqObj* const EqObj = *reinterpret_cast<CEqObj**>(Plus0c + 4);
+                CEqObj* const EqObj = static_cast<CEqObj*>(ClientGameobjObject(Plus0c - 0xc));
                 if (EqObj != nullptr &&
                     (static_cast<unsigned>(EqObj->ObjectClass) & 0x503u) == 0x503u)
                     PlayerShip = EqObj;
@@ -730,7 +744,7 @@ namespace
                 unsigned char* const Plus0c = reinterpret_cast<unsigned char*>(Go) + 0xc;
                 if (Plus0c != nullptr)
                 {
-                    CEqObj* const EqObj = *reinterpret_cast<CEqObj**>(Plus0c + 4);
+                    CEqObj* const EqObj = static_cast<CEqObj*>(ClientGameobjObject(Plus0c - 0xc));
                     if (EqObj != nullptr &&
                         (static_cast<unsigned>(EqObj->ObjectClass) & 0x503u) == 0x503u)
                         Ship = EqObj;
@@ -789,7 +803,7 @@ void HudCameraUpdate(FHudCamera* Cam, float DeltaSeconds)
                 unsigned char* const Plus0c = Object + 0xc;
                 if (Plus0c != nullptr)
                 {
-                    CEqObj* const EqObj = *reinterpret_cast<CEqObj**>(Plus0c + 4);
+                    CEqObj* const EqObj = static_cast<CEqObj*>(ClientGameobjObject(Plus0c - 0xc));
                     if (EqObj != nullptr &&
                         (static_cast<unsigned>(EqObj->ObjectClass) & 0x503u) == 0x503u)
                         Ship = EqObj;
@@ -835,6 +849,27 @@ void HudCameraUpdate(FHudCamera* Cam, float DeltaSeconds)
     Vector Aim;
     G_HudTargetableObjects->GetAimPoint(&Aim);
 
+    // Port dev aid: FLWIN_AUTOAIM=1 aims the player's guns at the current target's lead point
+    // (CShip::get_tgt_lead_fire_pos, the HUD's lead reticle) instead of the cursor, so scripted
+    // runs that cannot steer the cursor onto a dodging fighter still hit it. It also holds fire
+    // unless that target is hostile, so a script never shoots the friendly it flies with.
+    bool bAutoAimHoldFire = false;
+    if (Ship != nullptr)
+    {
+        static bool const bAutoAim = getenv("FLWIN_AUTOAIM") != nullptr;
+        if (bAutoAim)
+        {
+            IObjRW* const Target = static_cast<CShip*>(Ship)->get_target();
+            IObjInspect const* const PlayerInspect = static_cast<IObjInspect const*>(GetPlayerObjRW());
+            bool const bHostile = Target != nullptr && PlayerInspect != nullptr &&
+                                  GetAttitudeClass(PlayerInspect, Target) == -1;
+            Vector Lead;
+            if (bHostile && static_cast<CShip*>(Ship)->get_tgt_lead_fire_pos(Lead))
+                Aim = Lead;
+            bAutoAimHoldFire = !bHostile;
+        }
+    }
+
     // 0x0051d18a..0x0051d1d2: every gun (traverser mask 0x80) gets that point.
     if (Ship != nullptr)
     {
@@ -848,7 +883,7 @@ void HudCameraUpdate(FHudCamera* Cam, float DeltaSeconds)
     }
 
     // 0x0051d1d8..0x0051d2ed: firing while the latch is up.
-    if (G_bHudFireHeld != 0)
+    if (G_bHudFireHeld != 0 && !bAutoAimHoldFire)
     {
         // 0x0051d1ee: FUN_0059df40(0x3006, 0, 0).
         Win3DBroadcast(0x3006u, 0u, 0u);
@@ -859,13 +894,18 @@ void HudCameraUpdate(FHudCamera* Cam, float DeltaSeconds)
         unsigned char* const Held = const_cast<unsigned char*>(
             reinterpret_cast<const unsigned char*>(Cam->Watched.target()));
         unsigned char* const Object = (Held != nullptr) ? Held - kWatchableOffset : nullptr;
+        // Retail's "+4" is the IObjAffect sub-object of the IObjRW; its LP64 offset differs.
+        void* const Affect =
+            (Object != nullptr)
+                ? static_cast<void*>(static_cast<IObjAffect*>(reinterpret_cast<IObjRW*>(Object)))
+                : nullptr;
 
         if (G_HudFireChanged != 0)
         {
             // 0x0051d201..0x0051d22b: the first frame after the key changed fires with no
             // hardpoint list at all.
             G_HudFireChanged = 0;
-            CliShipFireWeapons(Object + 4, nullptr, 0u, &Aim,
+            CliShipFireWeapons(Affect, nullptr, 0u, &Aim,
                                static_cast<int>(GetPlayerConnectionId()));   // DAT_00673344
         }
         else if (Ship != nullptr)
@@ -887,7 +927,7 @@ void HudCameraUpdate(FHudCamera* Cam, float DeltaSeconds)
                 Gun = CEGun::cast(Ship->EquipManager.Traverse(Walk));
             }
             if (Count != 0)
-                CliShipFireWeapons(Object + 4, HardpointIds, Count, &Aim,
+                CliShipFireWeapons(Affect, HardpointIds, Count, &Aim,
                                    static_cast<int>(GetPlayerConnectionId()));
         }
     }
@@ -1067,14 +1107,14 @@ void HudCameraUpdateShake(FHudCamera* Cam)
         reinterpret_cast<const unsigned char*>(Cam->Watched.target());
     if (Held == nullptr)
         return;
-    if (Held - 8 == nullptr)
+    if (Held - FlWatchableOffset() == nullptr)
         return;
     // Retail reads the Ship Gameobj fields straight off that object. The port's watched object
     // is its IObjInspect face; dynamic_cast is the port's own interface-to-object step (the same
     // one GameobjJumpArmState makes), the downcast to the Ship class is unchecked, as retail's
     // fixed offsets are.
     FClientShipGameobj* const Ship = static_cast<FClientShipGameobj*>(dynamic_cast<FClientGameobj*>(
-        reinterpret_cast<IObjInspect*>(const_cast<unsigned char*>(Held - 8))));
+        reinterpret_cast<IObjInspect*>(const_cast<unsigned char*>(Held - FlWatchableOffset()))));
 
     // 0x0051db4d..0x0051db60: +0x18c bit 0 (a hull hit, set by slot 105 FUN_00545ed0 at
     // 0x00545f07) -> amplitude 0.02f (0x3ca3d70a), bit cleared.

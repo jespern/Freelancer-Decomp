@@ -290,13 +290,13 @@ void FirstPersonCameraUpdate(FFirstPersonCamera* Cam, float DeltaSeconds)
             reinterpret_cast<const unsigned char*>(Hud->Watched.target()));
         if (Held != nullptr)
         {
-            unsigned char* const Object = Held - 8;
+            unsigned char* const Object = Held - FlWatchableOffset();
             if (Object != nullptr)
             {
                 unsigned char* const Plus0c = Object + 0xc;
                 if (Plus0c != nullptr)
                 {
-                    CEqObj* const EqObj = *reinterpret_cast<CEqObj**>(Plus0c + 4);
+                    CEqObj* const EqObj = static_cast<CEqObj*>(ClientGameobjObject(Plus0c - 0xc));
                     if (EqObj != nullptr &&
                         (static_cast<unsigned>(EqObj->ObjectClass) & 0x503u) == 0x503u)
                         bShip = true;
@@ -511,7 +511,7 @@ void FirstPersonCameraSceneDraw(FFirstPersonCamera* Cam, unsigned LayerFlags, un
         reinterpret_cast<const unsigned char*>(Hud->Watched.target());
     if (Held == nullptr)
         return;
-    if (Held - 8 == nullptr)
+    if (Held - FlWatchableOffset() == nullptr)
         return;
 
     // 0x0051843f..0x0051844a: FUN_0051c200(LayerFlags, Param2).

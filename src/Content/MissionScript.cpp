@@ -358,6 +358,22 @@ void DeleteTriggerContents(FTrigger* Trigger)
     }
 }
 
+// Port dev aid: FLWIN_MSN_TRACE=1 logs every mission trigger that fires, by its CreateID (map
+// back to the [Trigger] nickname with the mission's .ini).
+static bool MissionTraceOn()
+{
+    static bool const bOn = getenv("FLWIN_MSN_TRACE") != nullptr;
+    return bOn;
+}
+
+// Port: a fired trigger is also an input-script signal ("trigger:<CreateID>").
+static void MissionSignalTrigger(unsigned int TriggerId)
+{
+    char Tag[32];
+    snprintf(Tag, sizeof(Tag), "trigger:%u", TriggerId);
+    FlScriptSignal(Tag);
+}
+
 // FUN_06eb82c0.
 void ActivateMissionTrigger(FMissionScript* Script, unsigned int const* TriggerId)
 {
@@ -388,6 +404,9 @@ void ActivateMissionTrigger(FMissionScript* Script, unsigned int const* TriggerI
         Trigger.Condition->Matches(static_cast<EMessage>(-1), nullptr))
     {
         Trigger.State = G_TriggerStateComplete;
+        if (MissionTraceOn())
+            fprintf(stderr, "[msn] fire %u (activate)\n", *TriggerId);
+        MissionSignalTrigger(*TriggerId);
         std::list<Act*>::iterator ActIt = Trigger.Actions.begin();
         for (; ActIt != Trigger.Actions.end(); ++ActIt)
             (*ActIt)->Execute();
@@ -459,6 +478,9 @@ void DispatchMissionTriggerEvent(FMissionScript* Script, EMessage const* EventId
         {
             if (Trigger.Condition->Matches(*EventId, EventParms))
             {
+                if (MissionTraceOn())
+                    fprintf(stderr, "[msn] fire %u (event %d)\n", (*ActiveIt)->first, (int)*EventId);
+                MissionSignalTrigger((*ActiveIt)->first);
                 Trigger.State = G_TriggerStateComplete;
                 std::list<Act*>::iterator ActIt = Trigger.Actions.begin();
                 for (; ActIt != Trigger.Actions.end(); ++ActIt)
@@ -1060,7 +1082,9 @@ void FMissionScript::HandleMissionMessage(EMessage MessageId, void const* Messag
         bBaseBody = false;
         if (Parms[0] != PlayerId || !pub::SinglePlayer())
             break;
-        FILE* File = reinterpret_cast<FILE*>(static_cast<uintptr_t>(Parms[1]));
+        // {player, FILE*} (the sender's FSaveWrittenEvent): the pointer follows the id.
+        struct FSaveParms { unsigned int PlayerId; FILE* File; };
+        FILE* File = static_cast<FSaveParms const*>(MessageParms)->File;
         fprintf(File, "\n[MissionState]\n");
         SaveMissionState(File);
         FMissionObject::HandleMissionMessage(MessageId, MessageParms);
@@ -1079,7 +1103,9 @@ void FMissionScript::HandleMissionMessage(EMessage MessageId, void const* Messag
         }
         else if (Parms[0] == PlayerId)
         {
-            INI_Reader* Reader = reinterpret_cast<INI_Reader*>(static_cast<uintptr_t>(Parms[1]));
+            // {player, INI_Reader*} (FCharacterLoadedEvent): the pointer follows the id.
+            struct FLoadParms { unsigned int PlayerId; INI_Reader* Reader; };
+            INI_Reader* Reader = static_cast<FLoadParms const*>(MessageParms)->Reader;
             INI_Reader::State SavedState;
             Reader->get_state(SavedState);
             Reader->reset();

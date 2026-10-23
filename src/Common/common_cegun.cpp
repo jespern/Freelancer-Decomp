@@ -50,7 +50,7 @@ namespace
     const float kSeekerLeadSpeed = 1.0e9f;
     const unsigned kJointTypeRev = 2;
 
-    const unsigned kWatchableOffset = 0x9c;   // offsetof(CSimple, SelfWatchable)
+    const unsigned kWatchableOffset = offsetof(CSimple, SelfWatchable); // retail 0x9c
 
     // CEGun's lock watcher (+0x250) watches CSimple::SelfWatchable; retail recovers the CSimple
     // with `W ? W - 0x9c : 0` and then tests the result for null as well (W == 0x9c).

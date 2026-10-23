@@ -2260,7 +2260,7 @@ void FThornEvent::ApplyFloorHeightDesc(const void* DescIn)
     if (ReadEventWord(DescIn, 0) == kThornTypeFloorHeightAnim)
     {
         std::memcpy(&FloorTarget, static_cast<const unsigned char*>(DescIn) + 44, sizeof(FloorTarget));
-        SetFloorTargetPart(reinterpret_cast<const char*>(static_cast<INT_PTR>(ReadEventWord(DescIn, 12))));
+        SetFloorTargetPart(FL_U32_TO_PTR(const char, ReadEventWord(DescIn, 12)));
         TargetType = ReadEventWord(DescIn, 13);
     }
     // 49677..49696 mirrors common timing/endpoints after the payload work.
@@ -2782,12 +2782,12 @@ void FThornEvent::ApplyConnectDesc(const void* DescIn)
     if (bMatchingType)
     {
         const char* HardpointName =
-            reinterpret_cast<const char*>(static_cast<INT_PTR>(ReadEventWord(DescIn, 11)));
+            FL_U32_TO_PTR(const char, ReadEventWord(DescIn, 11));
         if (HardpointName != nullptr)
             SetConnectHardpoint(HardpointName);
         // 48237 reads the second argument after the first string operation.
         const char* ParentHardpointName =
-            reinterpret_cast<const char*>(static_cast<INT_PTR>(ReadEventWord(DescIn, 12)));
+            FL_U32_TO_PTR(const char, ReadEventWord(DescIn, 12));
         if (ParentHardpointName != nullptr)
             SetConnectParentHardpoint(ParentHardpointName);
     }
@@ -2806,7 +2806,7 @@ void FThornEvent::ApplyAttachDesc(const void* DescIn)
         TargetType = ReadEventWord(DescIn, 14);
         LookAtUpAxis = ReadEventWord(DescIn, 15);
         LookAtFrontAxis = ReadEventWord(DescIn, 16);
-        const char* TargetPartName = reinterpret_cast<const char*>(static_cast<INT_PTR>(ReadEventWord(DescIn, 17)));
+        const char* TargetPartName = FL_U32_TO_PTR(const char, ReadEventWord(DescIn, 17));
         if (TargetPartName != nullptr)
         {
             AttachTargetPartStorage.Assign(TargetPartName);
@@ -2903,13 +2903,13 @@ void FThornEvent::ApplyMotionDesc(const void* DescIn)
         std::memcpy(&TransTime, static_cast<const unsigned char*>(DescIn) + 48, sizeof(TransTime));
         std::memcpy(&TransScale, static_cast<const unsigned char*>(DescIn) + 76, sizeof(TransScale));
         std::memcpy(&Weight, static_cast<const unsigned char*>(DescIn) + 56, sizeof(Weight));
-        const char* AnimationName = reinterpret_cast<const char*>(static_cast<INT_PTR>(ReadEventWord(DescIn, 15)));
+        const char* AnimationName = FL_U32_TO_PTR(const char, ReadEventWord(DescIn, 15));
         if (AnimationName != nullptr)
         {
             MotionAnimationStorage.Assign(AnimationName);
             Animation = MotionAnimationStorage.GetPublishedData();
         }
-        const char* BoneName = reinterpret_cast<const char*>(static_cast<INT_PTR>(ReadEventWord(DescIn, 18)));
+        const char* BoneName = FL_U32_TO_PTR(const char, ReadEventWord(DescIn, 18));
         if (BoneName != nullptr)
         {
             MotionLockedBoneStorage.Assign(BoneName);
@@ -2983,7 +2983,7 @@ void FThornEvent::ApplySpatialPropAnimDesc(const void* DescIn)
         SpatialMatrixToQuaternion(G_SceneEventMathEngine, TargetQuat,
             static_cast<const unsigned char*>(DescIn) + 48);
     }
-    const char* TargetPartName = reinterpret_cast<const char*>(static_cast<INT_PTR>(ReadEventWord(DescIn, 30)));
+    const char* TargetPartName = FL_U32_TO_PTR(const char, ReadEventWord(DescIn, 30));
     // 46636 already cleared exposure before the math callback. Null input
     // skips assignment entirely; do not clear a callback's later publication.
     if (TargetPartName != nullptr)

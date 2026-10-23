@@ -6,11 +6,15 @@
 
 #include "client_cliobj.h"
 
+#include <typeinfo>
+
 #include "common_goods.h"
 #include "common_id.h"
 #include "common_ini.h"
 #include "common_misc.h"
 #include "dacom.h"
+#include "globals.h" // G_RenderSurfaceWidth / G_RenderSurfaceHeight (jflp LOD fov)
+#include "hd_plugins.h"
 #include "dacom_iids.h"
 #include "DALib.h"
 #include "engine/engbase.h"
@@ -126,9 +130,11 @@ namespace Archetype
 
                 FLodNode* Node = *NodeSlot;
                 unsigned Index = 0;
+                // HD: flplusplus lod_scale multiplies every LOD range (0x00402385).
+                static const float LodScale = HdPlugins::FlppScale("lod_scale", 1000000.0f);
                 while (!Reader->is_value_empty(Index) && Index < 8)
                 {
-                    Node->Ranges[Index] = Reader->get_value_float(Index);
+                    Node->Ranges[Index] = Reader->get_value_float(Index) * LodScale;
                     Index += 1;
                 }
                 float* TermSlot = reinterpret_cast<float*>(
@@ -842,8 +848,9 @@ namespace Archetype
 
                 bRestoreGroup = true;
                 // 0x0041ad6c: JGE -- a negative arg (the -1 every caller passes) becomes 0x80.
+                // HD: flplusplus makes it 0x2000 (0x0041ad6f), its "texture size bug fix".
                 if (GroupOverride < 0)
-                    GroupOverride = 0x80;
+                    GroupOverride = HdPlugins::Enabled("flplusplus.dll") ? 0x2000 : 0x80;
 
                 // 0x0041ad84 slot 4 (+0x10) GetGenericSlot(4, &saved); 0x0041ad94 slot 3 (+0x0c)
                 // SetGenericSlot(4, group).
@@ -1232,6 +1239,21 @@ namespace Archetype
         static float const kArchLodFarCutoff = 15000.0f;
         static double const kArchLodRangeScale = 0.700208;
 
+        // HD: jflp 1.27's Resolution() rewrites DAT_005c7410 to tan(calc_fovx(35)): the 4:3
+        // value widened to the surface aspect, so LODs switch at the same on-screen size.
+        double ArchLodRangeScale()
+        {
+            static const bool bJflpLodFov = HdPlugins::Enabled("jflp.dll");
+            if (!bJflpLodFov || G_RenderSurfaceHeight == 0)
+                return kArchLodRangeScale;
+            const double Pi = 3.1415926535897932384626433832795;
+            const float Ratio = static_cast<float>(static_cast<int>(G_RenderSurfaceWidth)) /
+                                static_cast<float>(static_cast<int>(G_RenderSurfaceHeight));
+            const float Fovx = static_cast<float>(
+                atan(Ratio / 2 / (4.0f / 3 / 2 / tan(35.0f * Pi / 180))) * 180 / Pi); // calc_fovx
+            return tan(Fovx * Pi / 180);
+        }
+
         // FUN_00401ed0 (cdecl, returns AL = 1 on every path), listing-traced
         // 0x00401ed0..0x00402174 -- the LOD ranges of one mesh onto the renderer. The callback
         // IEngine slot 21 (EnumerateArchetypeChildren) calls with (parent, child, 0, context),
@@ -1296,7 +1318,7 @@ namespace Archetype
             Match->Unk28 = 1;
             float PriorScaled = static_cast<float>(static_cast<double>(Raw[0]) *
                                                    static_cast<double>(Ctx->DistanceScale) *
-                                                   kArchLodRangeScale);
+                                                   ArchLodRangeScale());
             int Cap = Ctx->MinSpecCap;
             if (Cap > LodCount)
                 Cap = LodCount;
@@ -1357,7 +1379,7 @@ namespace Archetype
                     Range * static_cast<double>(Ctx->DistanceScale) >
                         static_cast<double>(kArchLodFarCutoff))
                     Range = static_cast<double>(Index) + static_cast<double>(kArchLodFarCutoff);
-                float const CurrentScaled = static_cast<float>(kArchLodRangeScale * Range);
+                float const CurrentScaled = static_cast<float>(ArchLodRangeScale() * Range);
                 if (Range > static_cast<double>(Ctx->MaxDistance))
                     Ctx->MaxDistance = static_cast<float>(Range);
                 DALib::Renderer->SetArchetypeLodRange(MeshHandle, Index, PriorScaled, CurrentScaled);
@@ -4485,6 +4507,45 @@ namespace Archetype
         // FCliObjFactory::Create always fills with an FCliObj or a subclass of it.
         // 0040712b/00407171 SETZ: retail's zero means apply now and latch slot 10.
         return static_cast<FCliObj*>(Companion)->PreloadMaterials(!bDeferApply);
+    }
+
+    namespace
+    {
+        struct FCliFieldOffset
+        {
+            unsigned short Retail;
+            unsigned short Native;
+        };
+#include "client_cliobj_offsets.inc"
+
+        template <size_t N>
+        unsigned MapCliOffset(FCliFieldOffset const (&Table)[N], unsigned RetailOffset)
+        {
+            size_t Best = 0;
+            for (size_t Index = 0; Index < N && Table[Index].Retail <= RetailOffset; ++Index)
+                Best = Index;
+            return Table[Best].Native + (RetailOffset - Table[Best].Retail);
+        }
+    }
+
+    unsigned char const* CliCompanionAt(void const* Companion, unsigned RetailOffset)
+    {
+        unsigned char const* const Bytes = static_cast<unsigned char const*>(Companion);
+#if INTPTR_MAX == INT32_MAX
+        return Bytes + RetailOffset;
+#else
+        if (Companion == nullptr)
+            return Bytes + RetailOffset;
+        std::type_info const& Type = typeid(*static_cast<ICliObj const*>(Companion));
+#define FL_CLIOBJ_TRY(C)                                                                            \
+        if (Type == typeid(C))                                                                     \
+            return Bytes + MapCliOffset(kCliOffsets_##C, RetailOffset);
+        FL_CLIOBJ_OFFSET_CLASSES(FL_CLIOBJ_TRY)
+#undef FL_CLIOBJ_TRY
+        fprintf(stderr, "[flwin] CliCompanionAt: unmapped companion %s, retail +0x%x\n", Type.name(),
+                RetailOffset);
+        abort();
+#endif
     }
 
     void CliTradeLaneAddEffectRef(ICliObj* Companion)

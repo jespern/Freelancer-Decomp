@@ -113,6 +113,12 @@ int CountClientSoundArchSources(void* Arch);
 // FUN_00428ba0 / FUN_00428bc0: copy global BGM/ambient source.
 unsigned char BindClientBackgroundMusic(void** OutSource);
 unsigned char BindClientBackgroundAmbient(void** OutSource);
+// HD: FLSharp more_test_sounds -- the background music (bMusic) or ambience: playing (a stream,
+// not paused); paused / resumed even when it is the music (Pause / Resume skip that one).
+// ClientBackgroundPause answers whether it paused a playing source.
+bool ClientBackgroundIsPlaying(bool bMusic);
+bool ClientBackgroundPause(bool bMusic);
+void ClientBackgroundResume(bool bMusic);
 // FUN_004288e0 / FUN_00428a40 — DAT_00667cb0 / DAT_00667cb4 writers.
 unsigned char SetClientBackgroundMusic(unsigned NicknameId, unsigned Flags, float Fade);
 unsigned char SetClientBackgroundAmbient(unsigned NicknameId, unsigned Flags, float Fade);

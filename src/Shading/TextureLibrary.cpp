@@ -1505,7 +1505,8 @@ GENRESULT DACOM_API FTextureLibrary::FindTextureByCrc(void* Query, void** OutTex
 {
     // LAB_06ec2810 RET 0xC: CRC at Query+4 → map this+0x54 (FUN_06ecaa00).
     // Hit: FUN_06ebe560(tex) then *OutTex = node+0x10. Miss: EAX=-1.
-    const unsigned long Crc = *(unsigned long*)((unsigned char*)Query + 4);
+    // The query is {const char* Name; unsigned long Crc}: the CRC follows the name pointer.
+    const unsigned long Crc = *(unsigned long*)((unsigned char*)Query + sizeof(const char*));
     FTextureEntry* Entry = FindEntryByCrc(Crc);
     if (Entry == nullptr)
         return GR_GENERIC;
@@ -1648,9 +1649,12 @@ GENRESULT DACOM_API FTextureLibrary::FindOrCreateByName(const char* Name, void**
         return GR_GENERIC;
     FTextureEntry* Entry;
     CreateTextureRecord(0, Name, &Entry, false);
-    const unsigned long Query[2] = { 0, DACOM_CRC::GetCRC32(Name) };
-    // The query stays read-only; the shared lookup has an opaque mutable signature.
-    return FindTextureByCrc(const_cast<unsigned long*>(Query), OutTex);
+    struct
+    {
+        const char* Name;
+        unsigned long Crc;
+    } Query = {nullptr, DACOM_CRC::GetCRC32(Name)}; // {name, CRC}
+    return FindTextureByCrc(&Query, OutTex);
 }
 
 GENRESULT DACOM_API FTextureLibrary::CreatePlaybackGroup(void* SourceRecord, int* OutId)

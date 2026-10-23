@@ -5,6 +5,7 @@
 // Author: Giperion.
 
 #include "win3d.h"
+#include "hd_client.h"
 #ifdef FREELANCER_WALK_MODE
 #include "base_walk.h"
 #endif
@@ -35,6 +36,8 @@
 #include "x86math.h"
 
 #include <math.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
 
@@ -538,7 +541,7 @@ bool Win3D::Slot22(unsigned /*A*/, unsigned /*B*/)
     return false;
 }
 
-bool Win3D::Slot23(unsigned /*Msg*/, unsigned /*A*/, unsigned /*B*/)
+bool Win3D::Slot23(unsigned /*Msg*/, uintptr_t /*A*/, uintptr_t /*B*/)
 {
     // LAB_004b50e0: XOR AL,AL / RET 0xc.
     return false;
@@ -585,6 +588,25 @@ void Win3D::SetName(char const* NewName)
     Name[Length] = '\0';
     NameLength = Length;
 }
+
+// Port dev aid: FLWIN_UI_TRACE=1 logs every mouse-button event the Win3D input handler sees,
+// with the capture chain, the global pick and which controls report a capture.
+static bool Win3DUiTraceOn()
+{
+    static bool const bOn = getenv("FLWIN_UI_TRACE") != nullptr;
+    return bOn;
+}
+
+static char const* Win3DTraceName(Win3D* Object)
+{
+    if (Object == nullptr)
+        return "-";
+    if (Object->Name[0] != '\0')
+        return Object->Name;
+    return Object->ClassName != nullptr ? Object->ClassName : "?";
+}
+
+static void Win3DUiTraceButton(unsigned MsgId, int Field0, int Field1);
 
 // ---------------------------------------------------------------------------------------
 // Manager
@@ -1247,6 +1269,32 @@ bool Win3DAnyCaptured()
     return false;
 }
 
+static void Win3DUiTraceButton(unsigned MsgId, int Field0, int Field1)
+{
+    char Chain[256];
+    size_t Used = 0;
+    Chain[0] = '\0';
+    for (Win3D* Walk = G_CaptureHead; Walk != nullptr && Used + 40 < sizeof(Chain); Walk = Walk->CaptureNext)
+        Used += static_cast<size_t>(snprintf(Chain + Used, sizeof(Chain) - Used, "%s%s",
+                                             Used != 0 ? ">" : "", Win3DTraceName(Walk)));
+    char Captured[256];
+    Used = 0;
+    Captured[0] = '\0';
+    for (FWin3DListNode* Node = G_Registry.Head; Node != nullptr && Used + 40 < sizeof(Captured); Node = Node->Next)
+    {
+        Win3D* const Object = static_cast<Win3D*>(Node->Payload);
+        WinControl* const Control = Object != nullptr ? Object->AsWinControl() : nullptr;
+        if (Control != nullptr && Control->bCaptured != 0)
+            Used += static_cast<size_t>(snprintf(Captured + Used, sizeof(Captured) - Used, "%s%s",
+                                                 Used != 0 ? "," : "", Win3DTraceName(Object)));
+    }
+    int X = 0;
+    int Y = 0;
+    GetClientSoftwareCursor(&X, &Y, nullptr);
+    fprintf(stderr, "[ui] msg %u f0 %d f1 %d at %d,%d pick %s chain [%s] captured [%s]\n", MsgId,
+            Field0, Field1, X, Y, Win3DTraceName(Win3DPick(G_MouseRay)), Chain, Captured);
+}
+
 // DAT_0067dbc8 -- the material-cache entry of interface\interface.generic.vms (FUN_0059d5a0
 // fills it through FUN_0041ade0, FUN_0059d6d0 gives it back through FUN_0041b030).
 Archetype::FCliMaterialEntry* G_InterfaceGenericMaterial = nullptr;
@@ -1520,20 +1568,22 @@ namespace
         {
             // 0059d2fe: the wheel. The capture head alone gets slot 18 with DAT_0061684c;
             // otherwise the picked object does.
+            // HD: WheelScroll answers for windows that do not take the wheel themselves.
 #ifdef FREELANCER_WIDESCREEN_SUPPORT
-            if (G_CaptureHead != nullptr)
-                return WheelWidescreen(G_CaptureHead, GetClientMouseWheel());
-            Win3D* const Picked = Win3DPick(G_MouseRay);
-            if (Picked == nullptr)
+            Win3D* const Target = G_CaptureHead != nullptr ? G_CaptureHead : Win3DPick(G_MouseRay);
+            if (Target == nullptr)
                 return false;
-            return WheelWidescreen(Picked, GetClientMouseWheel());
+            if (WheelWidescreen(Target, GetClientMouseWheel()))
+                return true;
+            FWidescreenHudShiftScope const Scope(WidescreenHudShiftPixelsFor(Target), false);
+            return HdWheelScroll(Target, GetClientMouseWheel());
 #else
-            if (G_CaptureHead != nullptr)
-                return G_CaptureHead->Slot18(GetClientMouseWheel());
-            Win3D* const Picked = Win3DPick(G_MouseRay);
-            if (Picked == nullptr)
+            Win3D* const Target = G_CaptureHead != nullptr ? G_CaptureHead : Win3DPick(G_MouseRay);
+            if (Target == nullptr)
                 return false;
-            return Picked->Slot18(GetClientMouseWheel());
+            if (Target->Slot18(GetClientMouseWheel()))
+                return true;
+            return HdWheelScroll(Target, GetClientMouseWheel());
 #endif
         }
 
@@ -1596,6 +1646,8 @@ namespace
         // declined, unless the pick WAS the capture object. The walk stops once handled.
         bool bHandled = false;
         Win3D* Capture = G_CaptureHead;
+        if (Win3DUiTraceOn())
+            Win3DUiTraceButton(MsgId, Event.Field0, Event.Field1);
         if (Capture != nullptr)
         {
             do

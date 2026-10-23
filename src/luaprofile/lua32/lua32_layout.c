@@ -13,5 +13,7 @@
 #include "lobject.h"
 #include "lstate.h"
 
+#if INTPTR_MAX == INT32_MAX /* retail layouts are 32-bit; pointers widen them on LP64 */
 typedef char LuaStateSizeCheck[(sizeof(struct lua_State) == 0x7C) ? 1 : -1];
 typedef char LuaTObjectSizeCheck[(sizeof(TObject) == 16) ? 1 : -1];
+#endif

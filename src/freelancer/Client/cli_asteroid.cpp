@@ -5,6 +5,7 @@
 // Author: Giperion.
 
 #include "cli_asteroid.h"
+#include "hd_plugins.h"
 
 #include "asteroid_billboard.h"
 #include "cli_asteroid_dynamic.h"
@@ -125,6 +126,21 @@ namespace
         return reinterpret_cast<unsigned*>(Blob) + DwordIndex;
     }
 
+    // The four pointers retail keeps inside the band record (+0x00 shape, +0x04 zone, +0x3c
+    // ring particles, +0x60 spokes) do not fit their dword slots on LP64 -- each would run into
+    // the field after it -- so the port keeps them in a native tail after the retail bytes.
+    void*& BandPtr(unsigned char* Blob, int RetailOffset)
+    {
+        int Slot = 0;
+        if (RetailOffset == 0x04)
+            Slot = 1;
+        else if (RetailOffset == 0x3c)
+            Slot = 2;
+        else if (RetailOffset == 0x60)
+            Slot = 3;
+        return reinterpret_cast<void**>(Blob + kCliBandPtrTail)[Slot];
+    }
+
     // FUN_0054c580 (__thiscall on the 0x84 blob), in listing order. It writes nothing else:
     // +0x08, +0x7c, +0x80 and the pad bytes +0x75..+0x77 keep whatever the storage held --
     // BandParseIni (FUN_0054c630) sets +0x08 / +0x58 / +0x7c / +0x80 when a section is read.
@@ -160,6 +176,10 @@ namespace
         *BandU(Blob, 0x14) = 0;         // +0x50
         *BandU(Blob, 0x17) = 0;         // +0x5c
         *BandF(Blob, 0x15) = 1.0f;      // +0x54
+        BandPtr(Blob, 0x00) = nullptr;
+        BandPtr(Blob, 0x04) = nullptr;
+        BandPtr(Blob, 0x3c) = nullptr;
+        BandPtr(Blob, 0x60) = nullptr;
     }
 
     // FUN_0054d970(band, diffuse_tint, ambient_tint)
@@ -205,7 +225,7 @@ namespace
             {
                 char const* Name = Reader.get_value_string();
                 FTexShape const* Shape = Shapes->Find(Name);
-                *reinterpret_cast<FTexShape const**>(Blob) = Shape;
+                BandPtr(Blob, 0x00) = const_cast<FTexShape*>(Shape);
             }
             else if (Reader.is_value("texture_aspect"))
             {
@@ -271,11 +291,11 @@ namespace
     // pass null. operator delete (FUN_005b7e1d) takes null.
     void BandFreeRingMesh(unsigned char* Blob)
     {
-        operator delete(*reinterpret_cast<void**>(Blob + 0x3c));
-        *reinterpret_cast<void**>(Blob + 0x3c) = nullptr;
+        operator delete(static_cast<void*>(BandPtr(Blob, 0x3c)));
+        BandPtr(Blob, 0x3c) = nullptr;
         *BandU(Blob, 0x11) = 0;
-        operator delete(*reinterpret_cast<void**>(Blob + 0x60));
-        *reinterpret_cast<void**>(Blob + 0x60) = nullptr;
+        operator delete(static_cast<void*>(BandPtr(Blob, 0x60)));
+        BandPtr(Blob, 0x60) = nullptr;
         *BandU(Blob, 0x16) = 0;
     }
 
@@ -482,7 +502,9 @@ namespace
             }
             else if (Reader.is_value("start_dist"))
             {
-                Bb->StartDist = Reader.get_value_float(0);
+                // HD: flplusplus asteroid_dist_scale (0x0054dd32).
+                static const float DistScale = HdPlugins::FlppScale("asteroid_dist_scale", 10.0f);
+                Bb->StartDist = Reader.get_value_float(0) * DistScale;
             }
             else if (Reader.is_value("fade_dist_percent"))
             {
@@ -814,7 +836,9 @@ namespace
             }
             else if (Reader.is_value("fill_dist"))
             {
-                This->FillDistAt24 = FloatToIntTrunc(Reader.get_value_float(0));
+                // HD: flplusplus asteroid_dist_scale (0x00520b26).
+                static const float DistScale = HdPlugins::FlppScale("asteroid_dist_scale", 10.0f);
+                This->FillDistAt24 = FloatToIntTrunc(Reader.get_value_float(0) * DistScale);
             }
             else if (Reader.is_value("LOD"))
             {
@@ -966,7 +990,7 @@ void CliAsteroidLoadFieldIni(FCliAsteroid* This, char const* FieldIniRel)
 
                 // 0x00520f11..0x00520f56: operator new(0x84) + FUN_0054c580 (only on a
                 // non-null block), pushed onto the +0x184 vector (FUN_00537260).
-                unsigned char* Blob = static_cast<unsigned char*>(operator new(0x84));
+                unsigned char* Blob = static_cast<unsigned char*>(operator new(kCliBandBytes));
                 if (Blob != nullptr)
                     InitBandBlob(Blob);
                 BandVectorPush(This, Blob);
@@ -996,7 +1020,7 @@ void CliAsteroidLoadFieldIni(FCliAsteroid* This, char const* FieldIniRel)
                     }
                     else
                     {
-                        *reinterpret_cast<Universe::IZone const**>(Last + 4) = Z;
+                        BandPtr(Last, 0x04) = const_cast<Universe::IZone*>(Z);
                     }
                 }
             }
@@ -1123,7 +1147,7 @@ void CliAsteroidLoadFieldIni(FCliAsteroid* This, char const* FieldIniRel)
     int BandSpokeCursor = 0;
     if (This->FlagF8 != 0)
     {
-        *reinterpret_cast<Universe::IZone**>(This->BandBlob + 4) = This->Zone;
+        BandPtr(This->BandBlob, 0x04) = This->Zone;
         BandBuildExclusionRings(This->BandBlob);
         BandSpokeCursor = static_cast<int>(*BandU(This->BandBlob, 0x16));
     }
@@ -1397,7 +1421,7 @@ namespace
         int Rel = PieceIndex - static_cast<int>(*reinterpret_cast<unsigned*>(Blob + 0x5c));
         if (Rel < 0)
             Rel = 0;
-        unsigned char* const Table = *reinterpret_cast<unsigned char**>(Blob + 0x60);
+        unsigned char* const Table = static_cast<unsigned char*>(BandPtr(Blob, 0x60));
         float const* const Entry = reinterpret_cast<float const*>(Table + Rel * 0x18 + 8);
         OutXYZ[0] = Entry[0];
         OutXYZ[1] = Entry[1];
@@ -1412,7 +1436,7 @@ namespace
         int Rel = PieceIndex - static_cast<int>(*reinterpret_cast<unsigned*>(Blob + 0x5c));
         if (Rel < 0)
             Rel = 0;
-        unsigned char* const Table = *reinterpret_cast<unsigned char**>(Blob + 0x60);
+        unsigned char* const Table = static_cast<unsigned char*>(BandPtr(Blob, 0x60));
         return *reinterpret_cast<float const*>(Table + Rel * 0x18 + 0x14);
     }
 } // namespace
@@ -1436,7 +1460,7 @@ namespace
         if (Blob == nullptr)
             return;
 
-        Universe::IZone* Zone = *reinterpret_cast<Universe::IZone**>(Blob + 4);
+        Universe::IZone* Zone = static_cast<Universe::IZone*>(BandPtr(Blob, 0x04));
         if (Zone == nullptr)
             return;
 
@@ -1493,7 +1517,7 @@ namespace
         AmbB = AmbWork[2] * AmbScale;
 
         int const PointCount = static_cast<int>(*reinterpret_cast<unsigned*>(Blob + 0x44));
-        float* Particles = *reinterpret_cast<float**>(Blob + 0x3c);
+        float* Particles = static_cast<float*>(BandPtr(Blob, 0x3c));
         if (Particles == nullptr || PointCount <= 0)
         {
             Blob[0x7c] = 1;
@@ -1642,7 +1666,7 @@ namespace
         float const CSq = C * C;
         float const DSq = D * D;
         int const SpokeCount = *reinterpret_cast<int*>(Blob + 0x44);
-        unsigned char* const Spokes = *reinterpret_cast<unsigned char**>(Blob + 0x3c);
+        unsigned char* const Spokes = static_cast<unsigned char*>(BandPtr(Blob, 0x3c));
         for (int Index = 0; Index < SpokeCount; ++Index)
             BandUpdateSpokeFade(Spokes + Index * 0x3c, CamPos, ASq, BSq, CSq, DSq);
     }
@@ -1673,12 +1697,12 @@ namespace
         float const InvVertInc = static_cast<float>(1.0 / static_cast<double>(VertInc));
         int const PointCount = static_cast<int>(*reinterpret_cast<unsigned*>(Blob + 0x44));
         int const CullMode = static_cast<int>(*reinterpret_cast<unsigned*>(Blob + 0x50));
-        float* Particles = *reinterpret_cast<float**>(Blob + 0x3c);
-        unsigned char* Spokes = *reinterpret_cast<unsigned char**>(Blob + 0x60);
+        float* Particles = static_cast<float*>(BandPtr(Blob, 0x3c));
+        unsigned char* Spokes = static_cast<unsigned char*>(BandPtr(Blob, 0x60));
 
         // 0x0054d53c..0x0054d54a: a shape at +0 binds FUN_00425640(shape, 0) -- whatever that
         // returns, null included.
-        FTexShape const* Shape = *reinterpret_cast<FTexShape const**>(Blob);
+        FTexShape const* Shape = static_cast<FTexShape const*>(BandPtr(Blob, 0x00));
         if (Shape != nullptr)
             Win3DBindTexture(TexShapeGetGpuHandle(Shape, 0));
 
@@ -1822,8 +1846,7 @@ void CliAsteroidUpdate(FCliAsteroid* This, FSpaceCamera* Cam, float Dt)
     // cleared either way.
     if (This->Flag21C != 0 && This->Zone != nullptr)
     {
-        This->ZeroD4 = static_cast<unsigned>(reinterpret_cast<uintptr_t>(
-            StarSysFindNebula(&This->Zone->GetPos(), nullptr, nullptr)));
+        This->ZeroD4 = FL_PTR_TO_U32(StarSysFindNebula(&This->Zone->GetPos(), nullptr, nullptr));
     }
     This->Flag21C = 0;
 
@@ -2161,7 +2184,7 @@ namespace
             void* const Controller = GetSpaceFieldController();
             if (Controller != nullptr && GetSpaceFieldEnclosure() != 0)
             {
-                Field->ZeroD4 = static_cast<unsigned>(reinterpret_cast<uintptr_t>(Controller));
+                Field->ZeroD4 = FL_PTR_TO_U32(Controller); // a token on LP64, like FClientGameobj +0x38
                 using FControllerFloatFn = float(__thiscall*)(void*);
                 FogFactor = ((FNebulaEffect*)Controller)->GetFloat294();
             }
@@ -3266,14 +3289,14 @@ namespace
         if (Blob == nullptr)
             return;
 
-        void* OldParticles = *reinterpret_cast<void**>(Blob + 0x3c);
+        void* OldParticles = static_cast<void*>(BandPtr(Blob, 0x3c));
         if (OldParticles != nullptr)
             operator delete(OldParticles);
 
         Blob[0x7c] = 0;
         *BandU(Blob, 0x20) = 0;
 
-        Universe::IZone* Zone = *reinterpret_cast<Universe::IZone**>(Blob + 4);
+        Universe::IZone* Zone = static_cast<Universe::IZone*>(BandPtr(Blob, 0x04));
         if (Zone == nullptr)
             return;
 
@@ -3312,7 +3335,7 @@ namespace
                 }
             }
         }
-        *reinterpret_cast<float**>(Blob + 0x3c) = Particles;
+        BandPtr(Blob, 0x3c) = Particles;
 
         // Fade distances × height, then height *= 0.5.
         *BandF(Blob, 0x19) = *BandF(Blob, 0x19) * Height;
@@ -3390,7 +3413,7 @@ namespace
         // Per-particle normals from neighbour tangents (0054cb81..0054cd43).
         // Retail multiplies several terms by DAT_005c7474 (0.0); kept verbatim.
         PointCount = static_cast<int>(*BandU(Blob, 0x11));
-        unsigned char* Base = *reinterpret_cast<unsigned char**>(Blob + 0x3c);
+        unsigned char* Base = static_cast<unsigned char*>(BandPtr(Blob, 0x3c));
         if (Base != nullptr && PointCount > 0)
         {
             float* NrmAt = reinterpret_cast<float*>(Base + 8);
@@ -3453,7 +3476,7 @@ namespace
         }
 
         void* Spokes = operator new(static_cast<size_t>(RenderParts) * 0x18);
-        *reinterpret_cast<void**>(Blob + 0x60) = Spokes;
+        BandPtr(Blob, 0x60) = Spokes;
 
         if (Spokes != nullptr && RenderParts > 0 && PointCount > 0)
         {
@@ -3475,7 +3498,7 @@ namespace
         if (Spokes != nullptr && RenderParts > 0)
         {
             unsigned char* SpokeBytes = static_cast<unsigned char*>(Spokes);
-            float* PartBase = *reinterpret_cast<float**>(Blob + 0x3c);
+            float* PartBase = static_cast<float*>(BandPtr(Blob, 0x3c));
             for (int I = 0; I < RenderParts; ++I)
             {
                 int I0 = *reinterpret_cast<int*>(SpokeBytes);

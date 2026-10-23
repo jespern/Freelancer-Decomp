@@ -604,7 +604,7 @@ void BreakAwayIdea::SetWatchObject(void const* Object2)
     // null arm folding to a plain nullptr.
     Watchable const* const Target =
         (Object2 != nullptr)
-            ? reinterpret_cast<Watchable const*>(static_cast<unsigned char const*>(Object2) + 8)
+            ? reinterpret_cast<Watchable const*>(static_cast<unsigned char const*>(Object2) + FlWatchableOffset())
             : nullptr;
 
     Picker.Watcher.set(Target);  // 062d9465-062d946a

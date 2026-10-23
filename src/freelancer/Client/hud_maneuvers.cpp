@@ -5,6 +5,8 @@
 // Author: Giperion.
 
 #include "hud_maneuvers.h"
+#include "hd_client.h"
+#include "hd_plugins.h"
 
 #include "common_cobject.h"
 #include "common_id.h"
@@ -472,6 +474,17 @@ bool HUD_Maneuvers::OnEvent(unsigned MsgId)
 
     case 0x04:
     {
+        // HD: WheelScroll (0x004d845c) leaves the wheel to the windows while the cursor is the
+        // arrow.
+        static const bool bWheelScroll = HdPlugins::Enabled("WheelScroll.dll");
+        if (bWheelScroll && MouseIsArrowCursor())
+            return false;
+        // HD: TurretZoom (0x004d845c) -- in turret view the wheel moves the turret camera.
+        if (HdTurretZoomEnabled() && GetHudStatus() != nullptr && GetHudStatus()->bTurretView != 0)
+        {
+            HdTurretZoomWheel(GetClientMouseWheel(), HudCommandRecord()->Modifiers);
+            return true;
+        }
         // 0x004d8354: the mouse wheel steps the throttle by 0.2 (DAT_005d8298).
         int const Wheel = GetClientMouseWheel();
         if (Wheel < 0)
@@ -553,6 +566,11 @@ void HUD_Maneuvers::UpdateInactive()
         !IsLetterboxVisible())
     {
         SetHiddenWithChildren(false);          // FUN_005a0c30(0)
+        // HD: FLSharp maneuver_frame_fix — lay the buttons out as soon as the bar shows
+        // (0x004d8592 calls FUN_004d88f0 after the show), so it does not flicker.
+        static const bool bLayOut = HdPlugins::FlSharp("maneuver_frame_fix");
+        if (bLayOut)
+            UpdateButtons();
     }
     // 0x004d8597..0x004d85b4: LAB_004682f0 inlined.
     Win3D::UpdateInactive();
@@ -738,13 +756,15 @@ void HUD_Maneuvers::UpdateButtons()
     float const Start = (Shown & 1) != 0 ? 0.0f : 0.02f;
     float X = static_cast<float>(static_cast<double>(Start) -
                                  static_cast<double>(Shown / 2) * static_cast<double>(0.04f));
+    // HD: HudShift's ManeuverBar x offset, kept in FUN_004d88f0's padding (0x004d8bec).
+    X += HdHudShiftBase(0x004d8bec, 0.0f);
     for (int i = 0; i < ManeuverCount; ++i)
     {
         // Retail walks Buttons[] as far as the vector's size (hud.ini has four lines).
         WinControl* const Button = Buttons[i];
         if ((Button->Flags & kWin3DVisible) == 0)
             continue;
-        float const Pos[3] = {X, 0.1777f, 0.5f};    // 0x3e35f6fd, 0x3f000000
+        float const Pos[3] = {X, HdHudShiftBase(0x004d8baf, 0.1777f), 0.5f};    // 0x3e35f6fd, 0x3f000000
         Button->SetProperty(6, reinterpret_cast<uintptr_t>(Pos), 0);
         X = X + 0.04f;
     }

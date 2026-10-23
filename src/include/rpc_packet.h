@@ -63,6 +63,14 @@ public:
 // class CDAPacket in src/include/common_server_types.h is the plain-struct mirror of
 // this layout, so a FPacketBase* and a CDAPacket* are interchangeable by cast.
 // ===========================================================================
+// Packet bodies are declared with their retail byte counts. The payload structs placed in them
+// hold pointers and std containers, which are larger on LP64, so the body gets headroom there.
+#if INTPTR_MAX == INT32_MAX
+#define FL_RPC_BODY(n) (n)
+#else
+#define FL_RPC_BODY(n) ((n) * 2 + 0x40)
+#endif
+
 class FPacketBase : public FRpcRefObject {
 public:
     explicit FPacketBase(unsigned int InPacketId);
@@ -92,9 +100,10 @@ public:
     unsigned int GetChannel() const { return PacketId >> 16; }
     unsigned int GetOpcode() const { return PacketId & 0xfff; }
 
-    // Payload starts at +0x20 and belongs to the concrete packet class.
-    unsigned char* Payload() { return reinterpret_cast<unsigned char*>(this) + 0x20; }
-    const unsigned char* Payload() const { return reinterpret_cast<const unsigned char*>(this) + 0x20; }
+    // Payload starts right after the base (+0x20 retail) and belongs to the concrete packet
+    // class, whose first member is its body.
+    unsigned char* Payload() { return reinterpret_cast<unsigned char*>(this + 1); }
+    const unsigned char* Payload() const { return reinterpret_cast<const unsigned char*>(this + 1); }
     unsigned int* PayloadDwords() { return reinterpret_cast<unsigned int*>(Payload()); }
     const unsigned int* PayloadDwords() const { return reinterpret_cast<const unsigned int*>(Payload()); }
 

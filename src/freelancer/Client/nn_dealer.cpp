@@ -7,6 +7,7 @@
 // Retail NN_Dealer -- see nn_dealer.h for the class, its vftable and layout.
 
 #include "nn_dealer.h"
+#include "hd_plugins.h"
 
 #include "client_base_market.h"     // GetClientLocationBaseMarket (FUN_0043a510), the market
                                     // queries FUN_00438060 / 00438160 / 004381c0 / 00438220
@@ -33,6 +34,7 @@
 #include "win3d.h"                  // Win3DFindByName (FUN_0059da10)
 #include "win_factory.h"
 #include "wire_controls.h"          // WireStaticControl::SoundSlot (+0x380)
+#include "hd_plugins.h"
 
 #include "common_archetype.h"       // Archetype::Gun / Munition (the equipment sort)
 #include "common_goods.h"           // Good2Arch / Arch2Good / GoodList
@@ -738,6 +740,7 @@ void NnDealer::Update()
             // 00480402..004806d0: how many can be bought / taken.
             MaxCount = Field38c;
             float RankRequired = 0.0f; // [ESP+0x1c]
+            float FeelingRequired = 0.0f; // [ESP+0x24], kept for HD: FLSharp print_rep_requirements
             // [ESP+0x18]: GetMaxBuyCount writes it; on the ship dealer's path retail leaves it
             // uninitialised unless a cap below sets it -- the port starts it at 0 (no message).
             int Reason = 0;
@@ -758,13 +761,16 @@ void NnDealer::Update()
                         // player's rank, the good's required feeling ([ESP+0x24]).
                         RankRequired = ClientMarketGetMinLevel(Market, GoodId); // FUN_00438160
                         int const Rank = GetPlayerRankLevelRetail();            // FUN_004c55d0
-                        float const FeelingRequired = ClientMarketGetMinRep(Market, GoodId); // FUN_004381c0
+                        FeelingRequired = ClientMarketGetMinRep(Market, GoodId); // FUN_004381c0
 
                         // 00480491..004804de: in single player, a rank in 0..0x3e6 below the
                         // requirement (FILD / FCOMP, TEST AH,5 + JP: only "less" is taken) --
                         // reason 5; otherwise the base's feeling (+0x990) below the good's --
                         // reason 6. Either leaves nothing to buy.
-                        if (SinglePlayer() && Rank >= 0 && Rank < 0x3e7 &&
+                        // HD: no_level_requirements — the rank test is skipped (0x00480499
+                        // JE -> JMP); the feeling test still runs.
+                        static const bool bHdNoLevelReqs = HdPlugins::Feature("no_level_requirements");
+                        if (!bHdNoLevelReqs && SinglePlayer() && Rank >= 0 && Rank < 0x3e7 &&
                             static_cast<double>(Rank) < static_cast<double>(RankRequired))
                         {
                             Reason = 5;
@@ -878,7 +884,13 @@ void NnDealer::Update()
                 case 3: ShowErrorText(0x480, 0); break;
                 case 4: ShowErrorText(0x490, 0); break;
                 case 5: ShowErrorText(0x61b, static_cast<int>(RankRequired)); break; // ftol
-                case 6: ShowErrorText(0x61c, 0); break;
+                case 6: // HD: FLSharp print_rep_requirements (0x00480739), rep_requirement_ids
+                    if (NnPrintRepRequirements())
+                        ShowErrorText(NnRepRequirementIds(),
+                                      static_cast<int>(FeelingRequired * 100.0f), true);
+                    else
+                        ShowErrorText(NnRepRequirementIds(), 0);
+                    break;
                 case 7: ShowErrorText(0x637, 0); break;
                 case 8: ShowErrorText(0x63f, 0); break;
                 case 9: ShowErrorText(0x3a4, 0); break;
@@ -1232,7 +1244,7 @@ intptr_t NnDealer::SetProperty(int Msg, uintptr_t A, uintptr_t B)
     }
 }
 
-void NnDealer::ShowErrorText(unsigned Ids, int Arg)
+void NnDealer::ShowErrorText(unsigned Ids, int Arg, bool bAlwaysFormat)
 {
     // FUN_0047fd50 (RET 8). No control pointer is null-tested.
     ErrorHelp->SetProperty(1, 0, 0); // +0x9d4 shown
@@ -1254,7 +1266,7 @@ void NnDealer::ShowErrorText(unsigned Ids, int Arg)
     PlusMinus->SetProperty(1, 1, 0);          // +0x9d8
 
     // 0047fe80..0047fea0: no argument -- the ids goes to the control as is (property 0x1e).
-    if (Arg == 0)
+    if (Arg == 0 && !bAlwaysFormat)
     {
         ErrorHelp->SetProperty(0x1e, Ids, 0);
         return;
@@ -1368,8 +1380,61 @@ void NnDealer::BuyShip()
     NnVoiceEnqueue(G_NnVoiceShipPurchaseCompleteId, 0);
 }
 
+namespace
+{
+    // HD: FLSharp equip_stat_flicker_fix — after the last unit sells, the selection still
+    // points at it for two refreshes; FLSharp skips the info card (0x00482c43) for them.
+    bool G_bDealerSoldOut = false;      // FLSharp quantity0
+    int G_DealerSkipRefreshes = 3;      // FLSharp iterations
+    bool G_bDealerSkipInfoCard = false; // the 0x00482c43 je patched to jmp
+    int G_DealerRefreshDepth = 0;
+
+    struct FDealerRefreshScope
+    {
+        FDealerRefreshScope()
+        {
+            if (G_DealerRefreshDepth == 0 && G_bDealerSoldOut && G_DealerSkipRefreshes >= 3)
+            {
+                G_bDealerSkipInfoCard = true;
+                G_DealerSkipRefreshes = 2;
+            }
+            ++G_DealerRefreshDepth;
+        }
+        ~FDealerRefreshScope()
+        {
+            --G_DealerRefreshDepth;
+            if (G_DealerRefreshDepth == 0 && G_bDealerSoldOut && --G_DealerSkipRefreshes <= 0)
+            {
+                G_bDealerSkipInfoCard = false;
+                G_bDealerSoldOut = false;
+                G_DealerSkipRefreshes = 3;
+            }
+        }
+    };
+}
+
+unsigned NnRepRequirementIds()
+{
+    static const unsigned Ids = HdPlugins::Feature("rep_requirement_ids") ? 0x7001eu : 0x61cu;
+    return Ids;
+}
+
+bool NnPrintRepRequirements()
+{
+    static const bool bPrint = HdPlugins::FlSharp("print_rep_requirements");
+    return bPrint;
+}
+
+void NnDealerNoteSoldOut()
+{
+    static const bool bFix = HdPlugins::FlSharp("equip_stat_flicker_fix");
+    if (bFix)
+        G_bDealerSoldOut = true;
+}
+
 void NnDealer::RefreshMarketList()
 {
+    FDealerRefreshScope const FlickerScope; // HD: FLSharp equip_stat_flicker_fix
     // FUN_00482a90. 00482ab3..00482ab9: FUN_0043a510(DAT_0066873c) on DAT_00668708 (not
     // null-tested: FUN_00437f70 runs on it as it is).
     FClientMarket* const Market = GetClientLocationBaseMarket(GetClientLocationCurrentBase());
@@ -1437,7 +1502,7 @@ void NnDealer::RefreshMarketList()
     }
 
     // 00482c3d..00482c56: that entry's archetype on the info card.
-    if (Selected != nullptr)
+    if (Selected != nullptr && !G_bDealerSkipInfoCard) // HD: equip_stat_flicker_fix
         ShowInfoCard(Good2Arch(Selected->Info.GoodId), 0); // FUN_0047ba90
 
     // 00482c5b..00482c65
@@ -1506,7 +1571,9 @@ bool NnDealer::CanBuyGood(unsigned GoodId)
 
     // 00482e72..00482e9e: a rank in 0..0x3e6 below the requirement (FILD / FCOMP, TEST AH,5 +
     // JP: only "less"), in single player (tested last) -- false.
-    if (Rank >= 0 && Rank < 0x3e7 &&
+    // HD: no_level_requirements — never refused by rank (0x00482e95 JE -> JMP).
+    static const bool bHdNoLevelReqs = HdPlugins::Feature("no_level_requirements");
+    if (!bHdNoLevelReqs && Rank >= 0 && Rank < 0x3e7 &&
         static_cast<double>(Rank) < static_cast<double>(RankRequired) && SinglePlayer())
         return false;
 

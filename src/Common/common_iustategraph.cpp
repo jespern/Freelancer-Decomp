@@ -39,7 +39,7 @@ namespace
         {
             return nullptr;
         }
-        unsigned char* const Raw = reinterpret_cast<unsigned char*>(const_cast<Watchable*>(Watched)) - 8;
+        unsigned char* const Raw = reinterpret_cast<unsigned char*>(const_cast<Watchable*>(Watched)) - FlWatchableOffset();
         if (Raw == nullptr)
         {
             return nullptr;
@@ -139,14 +139,11 @@ FAiTargetList* GetAiTargetList(SystemManager* Sys)
 // earlier pass apart from the doc comment.
 unsigned ElemVectorSize(void const* VectorHeader)
 {
-    unsigned char const* const H = static_cast<unsigned char const*>(VectorHeader);
-
-    int const Begin = *reinterpret_cast<int const*>(H + 0x4);
-    if (Begin == 0)
+    // Retail reads Begin (+0x4) and End (+0x8) of the vector header as dwords.
+    FAiTargetVector const* const V = static_cast<FAiTargetVector const*>(VectorHeader);
+    if (V->Begin == nullptr)
         return 0;
-
-    int const Used = *reinterpret_cast<int const*>(H + 0x8);
-    return static_cast<unsigned>((Used - Begin) / static_cast<int>(kElemStride));
+    return static_cast<unsigned>(V->End - V->Begin);
 }
 
 // Common.dll.c 0x062ed100 (FUN_062ed100), item 1883. Retail's

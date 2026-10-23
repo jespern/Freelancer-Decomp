@@ -10,6 +10,8 @@
 #include "DALib.h"
 #include "common_misc.h" // GetScreenShotPath
 #include "dacom.h"
+#include "globals.h"              // g_display, G_RenderMgrWindow, RenderMgrCreateBuffers
+#include "hd_plugins.h"
 #include "hud_command_dispatch.h"
 #include "nn_pause.h"              // NnPauseOpen (FUN_004a75c0)
 #include "render/IRenderPipeline.h"
@@ -78,9 +80,25 @@ namespace
             // caseD_cb (005b2470): FUN_00425170, falls into caseD_15's `MOV AL,1`.
             TakeClientScreenShot();
             return true;
-        default:
+        case kUserFullscreen:
+        {
             // USER_FULLSCREEN (0x17) is registered but its table byte (005b2497 = 4) sends it to
             // the shared `XOR AL,AL` arm (005b247a), like every unlisted id.
+            // HD: jflp ToggleFullScreen (005b2497 = 0x33, jump-table slot 005b254c): the mode at
+            // DAT_00679bc0 with its fullscreen byte (+0x25) flipped goes to FUN_004249c0. HD's
+            // no_pause_on_alt_tab turns it off (jflp.dll 0x1528 33 -> 04): a background window
+            // must never become fullscreen.
+            static const bool bJflpToggle =
+                HdPlugins::Enabled("jflp.dll") && !HdPlugins::Feature("no_pause_on_alt_tab");
+            if (!bJflpToggle)
+                return false;
+            DisplaySettings Mode;
+            memcpy(&Mode, &g_display, sizeof(Mode));
+            Mode.fullscreen ^= 1;
+            RenderMgrCreateBuffers(G_RenderMgrWindow, &Mode, &g_display);
+            return true;
+        }
+        default:
             return false;
         }
     }

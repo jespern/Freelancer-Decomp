@@ -101,7 +101,7 @@ struct Win3D : public LinkTree<Win3D>
     // slot 22 (+0x58) LAB_0043d8a0 -- false. FUN_0059d140 event 2 passes record +0x10/+0x14.
     virtual bool Slot22(unsigned A, unsigned B);
     // slot 23 (+0x5c) LAB_004b50e0 -- XOR AL,AL / RET 0xc. Broadcast by FUN_0059df40.
-    virtual bool Slot23(unsigned Msg, unsigned A, unsigned B);
+    virtual bool Slot23(unsigned Msg, uintptr_t A, uintptr_t B);
     // slot 24 (+0x60) LAB_0043d900 -- slot 24 on every child
     virtual void Slot24(unsigned A);
     // slots 25 / 26 (+0x64 / +0x68) LAB_0043d930 -- FLD 1.0f (DAT_005c75dc)

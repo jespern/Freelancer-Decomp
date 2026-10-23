@@ -445,8 +445,10 @@ COMMON_API void __cdecl Add(int PlaybackId)
     for (std::vector<void*>::const_iterator ChanIt = Channels.begin(); ChanIt != Channels.end(); ++ChanIt)
     {
         // 0627d9c8..0627d9db: IChannel slot 16 (+0x40) GetHeader(&Header, channel).
+        // EnumObjects hands out the typed channels themselves; the channel interface keys them
+        // by their 32-bit token (fl_compat.h), which a plain cast truncates on LP64.
         unsigned long Header[4];
-        DALib::Channel->GetHeader(Header, (unsigned long)*ChanIt);
+        DALib::Channel->GetHeader(Header, FL_PTR_TO_U32(*ChanIt));
         // 0627d9de..0627d9e4: Header[0] != 0 -> next channel.
         if (Header[0] != 0)
             continue;

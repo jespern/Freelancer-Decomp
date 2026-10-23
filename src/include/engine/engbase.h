@@ -395,6 +395,13 @@ struct FDeformPartDesc
                             //       mesh+0x70 = 1 (065f3b3a SETC)
 };
 
+// The head of the part table (retail {int Count; FDeformPartDesc* Parts} at +0 / +4).
+struct FDeformPartTable
+{
+    int Count;
+    FDeformPartDesc* Parts;
+};
+
 // IDeformable — 39 slots (docs/re/deformable2.md). Facet at object+0.
 struct IDeformable : IDAComponent
 {

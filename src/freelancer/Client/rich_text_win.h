@@ -107,7 +107,7 @@ public:
     // slot 13 FUN_0057ab10
     void Draw() override;
     // slot 23 FUN_0057afd0 -- 0xf005 from the scrollbars
-    bool Slot23(unsigned Msg, unsigned A, unsigned B) override;
+    bool Slot23(unsigned Msg, uintptr_t A, uintptr_t B) override;
     // slot 42 LAB_0057ebb0 -- property 6 sets the attach offset
     intptr_t SetProperty(int Msg, uintptr_t A, uintptr_t B) override;
 
@@ -322,6 +322,10 @@ public:
     virtual bool OnKeyDown(FHudCmdRecord const* Record);
     // slot 50 (+0xc8) LAB_0057ceb0 (RET 4) -- event 2, a character.
     virtual bool OnChar(FHudCmdRecord const* Record);
+    // HD: FLSharp copy_paste_feature -- Ctrl+V types the clipboard's text through OnChar (up to
+    // MaxLength); Ctrl+C puts the box's text on the clipboard (not in password mode).
+    void PasteFromClipboard();
+    void CopyToClipboard();
     // slot 51 (+0xcc) FUN_00401e90 -- RET; Activate's tail call.
     virtual void OnActivated();
     // slot 52 (+0xd0) FUN_00401e90 -- RET; Deactivate's first call.

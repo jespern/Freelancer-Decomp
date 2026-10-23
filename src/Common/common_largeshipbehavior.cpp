@@ -237,7 +237,7 @@ static IObjInspect const* OwnerObjInspectOf(SystemManager* Sys)
     {
         return nullptr;
     }
-    unsigned char* const Raw = reinterpret_cast<unsigned char*>(const_cast<Watchable*>(Watched)) - 8;
+    unsigned char* const Raw = reinterpret_cast<unsigned char*>(const_cast<Watchable*>(Watched)) - FlWatchableOffset();
     return static_cast<IObjInspect const*>(reinterpret_cast<IObjRW*>(Raw));
 }
 

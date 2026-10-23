@@ -36,9 +36,9 @@ namespace
     // its only reference in the listing.
     int32_t G_IVP_FrictionPassCount = 0;
 
-    unsigned IVP_FrictionKey(const IVP_ListManager* FrictionSystem)
+    uintptr_t IVP_FrictionKey(const IVP_ListManager* FrictionSystem)
     {
-        return static_cast<unsigned>(reinterpret_cast<uintptr_t>(FrictionSystem));
+        return reinterpret_cast<uintptr_t>(FrictionSystem);
     }
 
     // FUN_0628be40 (this = A; B): (A.z*B.z + A.y*B.y) + A.x*B.x, left in ST0.

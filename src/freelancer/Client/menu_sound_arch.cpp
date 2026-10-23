@@ -1124,11 +1124,11 @@ namespace
 
         FClientSoundArch* Target = Arch;
         // 0x0042bfad..0x0042bfbf: any Lod above 0 -- no upper bound -- picks the ID_String at
-        // this + 0x18 + Lod * 4 (lod1 +0x1c, lod2 +0x20).
+        // this + 0x18 + Lod * 4 (lod1 +0x1c, lod2 +0x20). Read by member: on LP64 the vptr is
+        // 8 bytes and retail's +0x1c / +0x20 land on RangeMin / RangeMax.
         if (Lod > 0)
         {
-            unsigned const LodId = *reinterpret_cast<unsigned const*>(
-                reinterpret_cast<unsigned char const*>(Arch) + 0x18 + Lod * 4);
+            unsigned const LodId = Arch->Lod[Lod - 1];
             if (LodId != 0 && LodId != Arch->NicknameId)
             {
                 if (LodId == G_SoundNoneId)
@@ -1715,7 +1715,8 @@ namespace
     // archetypes by this dword (MOV EDX,[EDI+4] / CMP EDX,[ECX+4]), not by pointer.
     unsigned ArchIdentity(Archetype::ISound* Arch)
     {
-        return *reinterpret_cast<unsigned const*>(reinterpret_cast<char const*>(Arch) + 4);
+        // Retail +4; on LP64 the dword after the 8-byte vptr.
+        return *reinterpret_cast<unsigned const*>(reinterpret_cast<char const*>(Arch) + sizeof(void*));
     }
 
     // FUN_004291c0 (slot 22, RET 8) -- listing 004291c0..00429328.
@@ -3136,6 +3137,40 @@ unsigned char BindClientBackgroundMusic(void** OutSource)
 unsigned char BindClientBackgroundAmbient(void** OutSource)
 {
     return BindSource(G_BackgroundAmbient, OutSource);
+}
+
+bool ClientBackgroundIsPlaying(bool bMusic)
+{
+    // HD: FLSharp more_test_sounds -- FLSharp's !(FinishedPlaying() || IsPaused()): a stream
+    // handle (+0x30) and not paused (+0x08).
+    FStreamedSource* const Source = bMusic ? G_BackgroundMusic : G_BackgroundAmbient;
+    return Source != nullptr && IsStreamHandle(Source->StreamHandle) && Source->IsPaused() == 0;
+}
+
+bool ClientBackgroundPause(bool bMusic)
+{
+    // HD: FLSharp more_test_sounds -- Pause's body (LAB_0042a3a0) without its "not the
+    // background music" gate (FLSharp's ForcePause); true when it was playing.
+    FStreamedSource* const Source = bMusic ? G_BackgroundMusic : G_BackgroundAmbient;
+    if (Source == nullptr || Source->IsPaused() != 0)
+        return false;
+    if (DALib::Streamer == nullptr || !IsStreamHandle(Source->StreamHandle))
+        return false;
+    Source->Field08 = 1;
+    DALib::Streamer->StopStream(Source->StreamHandle);
+    return true;
+}
+
+void ClientBackgroundResume(bool bMusic)
+{
+    // HD: FLSharp more_test_sounds -- Resume's body (LAB_0042a3e0) without the same gate.
+    FStreamedSource* const Source = bMusic ? G_BackgroundMusic : G_BackgroundAmbient;
+    if (Source == nullptr || Source->IsPaused() == 0)
+        return;
+    if (DALib::Streamer == nullptr || !IsStreamHandle(Source->StreamHandle))
+        return;
+    DALib::Streamer->StartStream(Source->StreamHandle);
+    Source->Field08 = 0;
 }
 
 unsigned char SetClientBackgroundMusic(unsigned NicknameId, unsigned Flags, float Fade)

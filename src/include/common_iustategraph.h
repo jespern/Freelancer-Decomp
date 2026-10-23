@@ -93,7 +93,7 @@
 
 // sizeof(FAiTarget) == 0x88. Kept as a named constant because retail's own
 // pointer arithmetic is written in raw bytes throughout this cluster.
-inline constexpr std::size_t kElemStride = 0x88;
+inline constexpr std::size_t kElemStride = sizeof(FAiTarget); // retail 0x88
 
 // ----------------------------------------------------------------------------
 // The object at SystemManager+0x34. FAiTargetVector and every field this

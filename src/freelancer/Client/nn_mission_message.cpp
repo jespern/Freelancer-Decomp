@@ -5,6 +5,7 @@
 // Author: Giperion.
 
 #include "nn_mission_message.h"
+#include "hd_client.h"
 
 #include "character_select_equip.h" // GetPlayerEquipDescListRetail (FUN_004c4060),
                                     // FindPlayerNonMissionEquipRetail (FUN_004c45d0)
@@ -332,7 +333,7 @@ bool NeuroNetMissionMessage::Create(Win3D* NewParent, void* Data)
                     }
                 };
                 FPilotName Pilot = {{nullptr, 0}};
-                GetShipPilotName(Object, &Pilot.Name); // FUN_005472d0
+                GetShipPilotNameFull(Object, &Pilot.Name); // FUN_005472d0; HD: FLSharp pilot_names_fix
                 if (Pilot.Name.Text != nullptr && Pilot.Name.Text[0] != 0)
                 {
                     wcscpy(G_NnTextScratchB, Pilot.Name.Text);
@@ -369,7 +370,7 @@ bool NeuroNetMissionMessage::Create(Win3D* NewParent, void* Data)
 
     // 0x0048acc3..0x0048ad03: slot 31 SetOffset(0, 0.076, -1.288), slot 5 SetPosition on its
     // own +0x60.
-    SetOffset(0.0f, NnFloatBits(0x3d9ba5e3), NnFloatBits(0xbfa4dd2f));
+    SetOffset(HdHudShiftBase(0x0048accc, 0.0f), NnFloatBits(0x3d9ba5e3), NnFloatBits(0xbfa4dd2f)); // HD
     SetPosition(Position);
 
     // 0x0048ad06..0x0048ad0d: NN_MainButton's panel closes (FUN_0045a460), the NavBar

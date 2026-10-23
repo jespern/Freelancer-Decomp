@@ -201,8 +201,12 @@ struct IVP_PairContactAxisSetup
 
     // Field[0x18]/[0x19] are IVP_Core* (see class comment above) -- accessors
     // spare every caller from repeating the reinterpret_cast.
-    IVP_Core*& CoreA() { return *reinterpret_cast<IVP_Core**>(&Field[0x18]); }
-    IVP_Core*& CoreB() { return *reinterpret_cast<IVP_Core**>(&Field[0x19]); }
+    // On LP64 the two pointers no longer fit the adjacent dword slots (CoreB's store would
+    // clobber CoreA's top half, Field[0x1a] CoreB's), so they live after the retail scratch.
+    IVP_Core*& CoreA() { return CoreAPtr; }
+    IVP_Core*& CoreB() { return CoreBPtr; }
+    IVP_Core* CoreAPtr = nullptr;
+    IVP_Core* CoreBPtr = nullptr;
 };
 static_assert(sizeof(IVP_PairContactAxisSetup) == 0x6C, "IVP_PairContactAxisSetup must match retail's 0x6C-byte scratch extent (FUN_063561c0's own SUB ESP,0x6c)");
 

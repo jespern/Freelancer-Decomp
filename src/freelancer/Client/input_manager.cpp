@@ -13,6 +13,7 @@
 // rounds at the same stores; the two agree except in the last bits of a double.
 
 #include "input_manager.h"
+#include "hd_plugins.h"
 #ifdef FREELANCER_WALK_MODE
 #include "base_walk.h"
 #endif
@@ -23,8 +24,10 @@
 #include "hud_command_dispatch.h"
 #include "menu_keymap_config.h"
 #include "nn_modal.h" // NnMainButtonOnUnclaimedMouse (FUN_0045a270)
+#include "nn_ui_pulse.h" // G_NnPaletteArgb_679b88 / 679b9c (HD: more_cursor_colors)
 #include "texture_shapes.h"
 #include "win3d_immediate.h"
+#include "hd_plugins.h"
 
 #include "DALib.h"
 #include "common_ini.h"
@@ -34,6 +37,9 @@
 #include "render/IRenderPipeline.h"
 
 #include <windows.h>
+#include <cstdint>
+#include <cstdio>
+#include <cstring>
 
 #define DIRECTINPUT_VERSION 0x0800
 #include <dinput.h>
@@ -200,6 +206,14 @@ namespace
     FMouseCursor* G_Cursors[kMaxCursors] = {}; // DAT_00616744
     unsigned G_CursorCount = 0;                 // DAT_00616740 (LAB_0041dc10)
     FMouseCursor* G_CurrentCursor = nullptr;    // DAT_00616858
+
+    // HD: FLSharp more_cursor_colors (cursor_colors.cpp) -- copies of "neutral" and
+    // "fire_neutral" tinted for group members (_group) and trade requests (_trade), kept apart
+    // from G_Cursors; the six attitude cursors they stand in for, in the order below.
+    char const* const kTintSourceNames[6] = {"friendly", "neutral", "hostile",
+                                             "fire_friendly", "fire_neutral", "fire"};
+    FMouseCursor* G_TintSources[6] = {};
+    FMouseCursor* G_TintCopies[2][2] = {}; // [Kind - 1][set: 0 normal, 1 fire]
     TString<32> G_DefaultCursorName = {0, {0}}; // DAT_00616794 (LAB_0041dc00)
 
     // FUN_0041e5a0.
@@ -331,8 +345,17 @@ namespace
         CreateDevice(true);
     }
 
-    // FUN_004201a0 (thiscall, RET 4).
-    void SetActive(bool bActive)
+    // HD: FLSharp cursor_fix (mouse.cpp) -- see DrawCursor and SetActive.
+    bool CursorFix()
+    {
+        static const bool bFix = HdPlugins::FlSharp("cursor_fix");
+        return bFix;
+    }
+
+    // FUN_004201a0 (thiscall, RET 4). The two port-only arguments say which retail copy runs:
+    // bFromMouseMove the WM_MOUSEMOVE one inlined in FUN_0041e890, bEdgeRelease the release at
+    // the surface edge (0x0041f2c6) -- the two FLSharp's cursor_fix patches.
+    void SetActive(bool bActive, bool bFromMouseMove = false, bool bEdgeRelease = false)
     {
         if (bActive)
         {
@@ -358,7 +381,9 @@ namespace
                 G_CursorX = Width - 1;
             if (G_CursorY < 0)
                 G_CursorY = 0;
-            else if (G_CursorY >= Height)
+            // HD: FLSharp cursor_fix — the mouse-move path keeps a cursor below the bottom edge
+            // (0x0041ea9b jl -> jmp), so it is not drawn there.
+            else if (G_CursorY >= Height && !(bFromMouseMove && CursorFix()))
                 G_CursorY = Height - 1;
 
             while (ShowCursor(FALSE) >= 0)
@@ -387,6 +412,25 @@ namespace
         Point.y = G_CursorY;
         if (ClientToScreen(g_client.window, &Point) != 0)
             SetCursorPos(Point.x, Point.y);
+        // HD: FLSharp cursor_fix — at the edge release the OS cursor shows only once the pointer
+        // really is outside the window, and the soft cursor follows it (0x00420335), so the
+        // two do not flicker in turn at a screen border.
+        if (bEdgeRelease && CursorFix())
+        {
+            POINT Real;
+            if (GetCursorPos(&Real) != 0 && ScreenToClient(g_client.window, &Real) != 0)
+            {
+                if (Real.x < 0 || Real.y < 0 || Real.x >= g_display.width || Real.y > g_display.height)
+                {
+                    while (ShowCursor(TRUE) < 1)
+                    {
+                    }
+                }
+                G_CursorX = Real.x;
+                G_CursorY = Real.y;
+            }
+            return;
+        }
         while (ShowCursor(TRUE) <= 0)
         {
         }
@@ -439,8 +483,12 @@ namespace
     // FILD DAT_00610850 / FMUL double 0.00125 / FMUL float DAT_006107d0 -- kept unrounded.
     double AxisScale()
     {
-        return static_cast<double>(static_cast<int>(G_RenderSurfaceWidth)) * kAxisScale *
-               static_cast<double>(G_MouseSpeed);
+        // HD: jflp reads its width43 (height * 4 / 3) instead of DAT_00610850 (0x0041fb6a,
+        // 0x0041fbde, 0x0041fdb7, 0x0041fe23), so a wide screen moves the cursor as 4:3 does.
+        static const bool bJflpWidth43 = HdPlugins::Enabled("jflp.dll");
+        int const Width = bJflpWidth43 ? static_cast<int>(G_RenderSurfaceHeight * 4 / 3)
+                                       : static_cast<int>(G_RenderSurfaceWidth);
+        return static_cast<double>(Width) * kAxisScale * static_cast<double>(G_MouseSpeed);
     }
 
     // One X / Y / Z step. Absolute mode: the position is (value - base) * scale, truncated.
@@ -749,6 +797,10 @@ namespace
     {
         if (G_MouseCursorDrawFlag == 0)
             return;
+        // HD: FLSharp cursor_fix — no soft cursor outside the window (0x0041f30a).
+        if (CursorFix() && (G_CursorX < 0 || G_CursorY < 0 || G_CursorX >= g_display.width ||
+                            G_CursorY >= g_display.height))
+            return;
 
         if (G_CurrentCursor != nullptr)
         {
@@ -968,7 +1020,7 @@ void ClientInputOnMouseMove()
     if (!G_bInputActive)
         return;
     EnsureDevice();
-    SetActive(true);
+    SetActive(true, true);
 }
 
 void ClientInputOnFocusGained()
@@ -1105,7 +1157,7 @@ void MouseFrameUpdate()
         {
             G_Mouse.bMoved = true;
             if (ClampOrRelease(Dx, Dy))
-                SetActive(false);
+                SetActive(false, false, true);
             QueueMoveEvent();
         }
 
@@ -1127,6 +1179,58 @@ void MouseInitCursors()
     LoadCursors("mouse.ini", DALib::Data);         // FUN_0041df30
     G_bCursorsReady = true;
     MouseSetCursor("DEFAULT", false);
+
+    // HD: FLSharp more_cursor_colors — after the cursors load (0x0059d60b), the tinted copies.
+    static const bool bTint = HdPlugins::FlSharp("more_cursor_colors");
+    if (!bTint)
+        return;
+    for (int Source = 0; Source < 6; ++Source)
+    {
+        G_TintSources[Source] = nullptr;
+        for (unsigned Index = 0; Index < G_CursorCount; ++Index)
+            if (strcmp(G_Cursors[Index]->Name.Data, kTintSourceNames[Source]) == 0)
+                G_TintSources[Source] = G_Cursors[Index];
+    }
+    unsigned long const Colours[2] = {G_NnPaletteArgb_679b88, G_NnPaletteArgb_679b9c};
+    char const* const Suffixes[2] = {"_group", "_trade"};
+    for (int Set = 0; Set < 2; ++Set)
+    {
+        FMouseCursor const* const Neutral = G_TintSources[Set * 3 + 1];
+        for (int Kind = 0; Kind < 2; ++Kind)
+        {
+            delete G_TintCopies[Kind][Set];
+            G_TintCopies[Kind][Set] = nullptr;
+            if (Neutral == nullptr)
+                continue;
+            FMouseCursor* const Copy = new FMouseCursor(*Neutral);
+            char Name[64];
+            snprintf(Name, sizeof(Name), "%s%s", Neutral->Name.Data, Suffixes[Kind]);
+            Copy->Name = Name;
+            // The DWORD as it lies in memory, as FLSharp copies it.
+            uint32_t const Colour = static_cast<uint32_t>(Colours[Kind]);
+            memcpy(Copy->Color, &Colour, sizeof(Copy->Color));
+            G_TintCopies[Kind][Set] = Copy;
+        }
+    }
+}
+
+void MouseApplyTargetCursorTint(int Kind)
+{
+    // HD: FLSharp more_cursor_colors — the current attitude cursor swapped for its group (1) or
+    // trade (2) copy, keeping its animation frame (0x004ec914 / 0x004ec953).
+    if (Kind < 1 || Kind > 2 || G_CurrentCursor == nullptr)
+        return;
+    for (int Source = 0; Source < 6; ++Source)
+    {
+        if (G_TintSources[Source] == nullptr || G_TintSources[Source] != G_CurrentCursor)
+            continue;
+        FMouseCursor* const Copy = G_TintCopies[Kind - 1][Source / 3];
+        if (Copy == nullptr)
+            return;
+        Copy->Frame = G_CurrentCursor->Frame;
+        G_CurrentCursor = Copy;
+        return;
+    }
 }
 
 void MouseShutdown()
@@ -1156,6 +1260,15 @@ void MouseShutdown()
         operator delete(G_Cursors[Index]);
         G_Cursors[Index] = nullptr;
     }
+    // HD: FLSharp more_cursor_colors — the tinted copies go with them.
+    for (int Kind = 0; Kind < 2; ++Kind)
+        for (int Set = 0; Set < 2; ++Set)
+        {
+            delete G_TintCopies[Kind][Set];
+            G_TintCopies[Kind][Set] = nullptr;
+        }
+    for (int Source = 0; Source < 6; ++Source)
+        G_TintSources[Source] = nullptr;
     G_CursorCount = 0;
     G_MouseShapeDB.Clear(); // FUN_00425a20
     G_bCursorsReady = false;

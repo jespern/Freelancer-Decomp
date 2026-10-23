@@ -9,6 +9,7 @@
 // solar activate hook FUN_005484c0. Rewritten against the listing 2026-09-26 (claude-code:exe-w3a).
 
 #include "tradelane_fx.h"
+#include "hd_plugins.h"
 
 #include "cli_projectile_fx.h"
 #include "client_equip_fx.h"
@@ -197,14 +198,15 @@ namespace
         --List->Count;
     }
 
-    // The watched ring gameobj: RingWatcher's Watchable minus 8, or null.
+    // The watched ring gameobj: RingWatcher's Watchable minus 8 (retail; FlWatchableOffset, the
+    // same offset TradeLaneRingFindOrCreate adds, on LP64), or null.
     FClientGameobj* TlWatchedGameobj(FTradeLaneRingRuntime const* Ring)
     {
         Watchable const* const Watched = Ring->RingWatcher.target();
         if (Watched == nullptr)
             return nullptr;
         return reinterpret_cast<FClientGameobj*>(
-            reinterpret_cast<unsigned char*>(const_cast<Watchable*>(Watched)) - 8);
+            reinterpret_cast<unsigned char*>(const_cast<Watchable*>(Watched)) - FlWatchableOffset());
     }
 
     // The CSolar narrowing every function here inlines: null gameobj, null object or a class
@@ -235,29 +237,30 @@ namespace
 
     FTradeLaneRingRuntime*& TlShipRingPtr(FClientGameobj* Ship)
     {
-        return *reinterpret_cast<FTradeLaneRingRuntime**>(
-            reinterpret_cast<unsigned char*>(Ship) + kTlShipRingRuntime);
+        return reinterpret_cast<FTradeLaneRingRuntime*&>(static_cast<FClientShipGameobj*>(Ship)->Field_0x160); // +0x160
     }
 
     unsigned char& TlShipFlags184(FClientGameobj* Ship)
     {
-        return *(reinterpret_cast<unsigned char*>(Ship) + kTlShipFlags184);
+        return reinterpret_cast<unsigned char*>(&static_cast<FClientShipGameobj*>(Ship)->Field_0x184)[0]; // +0x184
     }
 
     unsigned char& TlShipFlags185(FClientGameobj* Ship)
     {
-        return *(reinterpret_cast<unsigned char*>(Ship) + kTlShipFlags185);
+        return reinterpret_cast<unsigned char*>(&static_cast<FClientShipGameobj*>(Ship)->Field_0x184)[1]; // +0x185
     }
 
     // The +0x184 dword store (0x00513b23, 0x005138b8, ...).
     void TlShipClearFlags(FClientGameobj* Ship)
     {
-        *reinterpret_cast<unsigned*>(reinterpret_cast<unsigned char*>(Ship) + kTlShipFlags184) = 0;
+        static_cast<FClientShipGameobj*>(Ship)->Field_0x184 = 0; // +0x184
     }
 
     void* TlShipCompanion(FClientGameobj* Ship, unsigned Offset)
     {
-        return reinterpret_cast<unsigned char*>(Ship) + Offset;
+        // The two companions by member (retail +0x164 / +0x174).
+        FClientShipGameobj* const S = static_cast<FClientShipGameobj*>(Ship);
+        return Offset == kTlShipFxBinder164 ? static_cast<void*>(S->Field_0x164) : static_cast<void*>(S->Field_0x174);
     }
 
     // FUN_0054baf0 -- the player's gameobj (the watchable at DAT_00679744 minus eight) or null.
@@ -502,7 +505,7 @@ namespace
         }
         void* const Lane = TlShipCompanion(Ship, kTlShipFxBinder164);
         if (CreateEffectCompanionAlive(Lane) != 0)
-            CliEffectListRemove(reinterpret_cast<unsigned char*>(Ship) + 0x28, Lane);
+            CliEffectListRemove(&Ship->EffectList, Lane);
         TlShipClearFlags(Ship);
         TlShipRingPtr(Ship) = nullptr;
     }
@@ -634,7 +637,7 @@ namespace
         }
         void* const Lane = TlShipCompanion(Ship, kTlShipFxBinder164);
         if (CreateEffectCompanionAlive(Lane) != 0)
-            CliEffectListRemove(reinterpret_cast<unsigned char*>(Ship) + 0x28, Lane);
+            CliEffectListRemove(&Ship->EffectList, Lane);
         if (bPlayer && !TlCompanionId(Companion, kTlPlayerExit)->IsEmpty())
         {
             TlPlayerCameraOneShot(Ship, TlCompanionId(Companion, kTlPlayerExit));
@@ -669,7 +672,7 @@ namespace
         }
         void* const Lane = TlShipCompanion(Ship, kTlShipFxBinder164);
         if (CreateEffectCompanionAlive(Lane) != 0)
-            CliEffectListRemove(reinterpret_cast<unsigned char*>(Ship) + 0x28, Lane);
+            CliEffectListRemove(&Ship->EffectList, Lane);
         FClientSolarGameobj const* const ShipRingGo =
             static_cast<FClientSolarGameobj const*>(TlWatchedGameobj(TlShipRingPtr(Ship)));
         if (ShipRingGo->Field_0x1f0 != 0)
@@ -1100,7 +1103,7 @@ FTradeLaneRingRuntime* TradeLaneRingFindOrCreate(FClientGameobj* RingGameobj,
     Ring->bActive = 1;
     Watchable const* WatchTarget = nullptr;
     if (RingGameobj != nullptr)
-        WatchTarget = reinterpret_cast<Watchable const*>(reinterpret_cast<unsigned char*>(RingGameobj) + 8);
+        WatchTarget = reinterpret_cast<Watchable const*>(reinterpret_cast<unsigned char*>(RingGameobj) + FlWatchableOffset());
     Ring->RingWatcher.set(WatchTarget);
     Ring->SideKey = Side;
 
@@ -1422,8 +1425,19 @@ unsigned char TradeLaneSolarLaneSwitch(FClientGameobj* SolarGo, unsigned char bS
     // 0x00516965..0x00516978: ships still on it -> the host's effect list cleared of the effects
     // whose arch holds 0x28 (FUN_004fd0d0(0x28)); none left -> the lane one-shots again
     // (FUN_00516d10).
-    if (*ShipCount != 0)
-        CliEffectListClear(reinterpret_cast<unsigned char*>(Wrapper->Host) + 0x28,
+    // HD: FLSharp trade_lane_lights_fix — both cases switch the ring's light equipment instead
+    // (0x00516965 jmp, 0x00516978 hooked): the re-create path never brings the lights back.
+    static const bool bToggleLights = HdPlugins::FlSharp("trade_lane_lights_fix");
+    if (bToggleLights)
+    {
+        CEqObj* const Solar = Wrapper->Equip->Owner;
+        CEquipTraverser Walk(1);
+        while (CEquip* const Equip = Solar->EquipManager.Traverse(Walk))
+            if (CELightEquip* const Light = CELightEquip::cast(Equip))
+                Light->Activate(*ShipCount == 0);
+    }
+    else if (*ShipCount != 0)
+        CliEffectListClear(&Wrapper->Host->EffectList, // the host's retail +0x28 list
                            reinterpret_cast<void*>(static_cast<std::uintptr_t>(0x28)));
     else
         CliTradeLaneEquipFxAttachLaneEffects(Wrapper);

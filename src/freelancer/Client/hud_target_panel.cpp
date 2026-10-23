@@ -13,6 +13,9 @@
 // run shows the press arriving.
 
 #include "hud_target.h"
+#include "hd_client.h"
+#include "hd_hudless.h"
+#include "hd_plugins.h"
 
 #include "character_select_equip.h" // GetPlayerStarSystemIdRetail (FUN_004c4830)
 #include "chat_init.h"              // ChatFindPlayerName (FUN_0046b400), ChatAcquireEntry, ...
@@ -59,6 +62,7 @@
 #include "DALib.h"
 #include "dacom.h"                  // FDUMP
 #include "engine/engbase.h"
+#include "hd_plugins.h"
 
 #include <math.h>
 #include <stdint.h>
@@ -74,6 +78,16 @@ namespace
     // DAT_00674ad4 -- static initializer LAB_004e0860: CreateID("scanning_cargo"). Only reader:
     // FUN_004e54c0 (0x004e552a), the voice line of a cargo scan.
     unsigned const G_ScanningCargoVoiceId = CreateID("scanning_cargo");
+
+    // HD: no_target_typing — the target / sub-target names appear at once: the middle argument
+    // of SetProperty(0x50, 1, 0x14) is 0 at 0x004e111b, 0x004e11af, 0x004e1a61, 0x004e21cf,
+    // 0x004e32b6, 0x004e32ca, 0x004e47b2 and 0x004e47c6 (not the next / previous sub-target
+    // keys at 0x004e2b7c / 0x004e2bb1).
+    uintptr_t TargetNameTypeFx()
+    {
+        static const uintptr_t TypeFx = HdPlugins::Feature("no_target_typing") ? 0 : 1;
+        return TypeFx;
+    }
 
     // DAT_00674afc -- the 3DMathEngine FUN_004e4f70 acquires lazily (FUN_005b73e0).
     I3DMathEngine* G_HudTargetHardpointMath = nullptr;
@@ -474,8 +488,9 @@ HudTarget::HudTarget(INI_Reader& /*Reader*/)
     HudTarget::Create(nullptr, nullptr);
     Win3D::SetName("HUD_Target");
 
-    HitCenter.X = -0.387f;     // 0xbec624dd
-    HitCenter.Y = -0.29f;      // 0xbe947ae1
+    // HD: HudShift.ini bases (the Advanced Widescreen HUD moves the wireframe next to the list).
+    HitCenter.X = HdHudShiftBase(0x004e0a80, -0.387f);     // 0xbec624dd
+    HitCenter.Y = HdHudShiftBase(0x004e0a94, -0.29f);      // 0xbe947ae1
     HitCenter.Z = -1.0f;
     ClassName = "HUD_Target";
     HitHalfWidth = 0.11f;      // 0x3de147ae
@@ -544,31 +559,35 @@ bool HudTarget::Create(Win3D* NewParent, void* Data)
                                        nullptr, ToggleHalf, 0, 1, 0, 0, 0x3fe, 0, 0);
     ToggleButton->SetProperty(0x36, 1, 0);
 
-    float const ShipNamePos[3] = {-0.488f, -0.2f, 0.0f};
+    float const ShipNamePos[3] = {HdHudShiftBase(0x004e10ff, -0.488f), HdHudShiftBase(0x004e1107, -0.2f),
+                                  0.0f};
     ShipName = CreateTextControl("TargetShipName", "HudSmall", ShipNamePos, nullptr, 0.205f,
                                  0.03f, 1.0f, 0, 1, 0, 1);
-    ShipName->SetProperty(0x50, 1, 0x14);
+    ShipName->SetProperty(0x50, TargetNameTypeFx(), 0x14);
     ShipName->HomeOffset[0] = ShipNamePos[0];
     ShipName->HomeOffset[1] = ShipNamePos[1];
     ShipName->HomeOffset[2] = ShipNamePos[2];
 
-    float const SubNamePos[3] = {-0.488f, -0.218f, 0.0f};
+    float const SubNamePos[3] = {HdHudShiftBase(0x004e1180, -0.488f), HdHudShiftBase(0x004e1188, -0.218f),
+                                 0.0f};
     SubtargetName = CreateTextControl("SubtargetName", "HudSmall", SubNamePos, nullptr, 0.205f,
                                       0.03f, 1.0f, 0, 1, 0, 1);
-    SubtargetName->SetProperty(0x50, 1, 0x14);
+    SubtargetName->SetProperty(0x50, TargetNameTypeFx(), 0x14);
     SubtargetName->HomeOffset[0] = SubNamePos[0];
     SubtargetName->HomeOffset[1] = SubNamePos[1];
     SubtargetName->HomeOffset[2] = SubNamePos[2];
 
     float const SmallHalf[3] = {0.014f, 0.014f, 0.0f}; // 0x3c656042
 
-    float const PreviousPos[3] = {-0.262f, -0.237f, 0.0f};
+    float const PreviousPos[3] = {HdHudShiftBase(0x004e1247, -0.262f), HdHudShiftBase(0x004e124f, -0.237f),
+                                  0.0f};
     PreviousButton = CreateButtonControl("TargetPreviousButton",
                                          "interface\\hud\\HUD_previoussub.3db", nullptr,
                                          "ui_item_select", nullptr, PreviousPos, nullptr,
                                          SmallHalf, 0, 1, 0, 0, 0x420, 0, 0);
 
-    float const NextPos[3] = {-0.262f, -0.268f, 0.0f};
+    float const NextPos[3] = {HdHudShiftBase(0x004e12b4, -0.262f), HdHudShiftBase(0x004e12bc, -0.268f),
+                              0.0f};
     NextButton = CreateButtonControl("TargetNextButton", "interface\\hud\\HUD_nextsub.3db",
                                      nullptr, "ui_item_select", nullptr, NextPos, nullptr,
                                      SmallHalf, 0, 1, 0, 0, 0x41f, 0, 0);
@@ -588,14 +607,15 @@ bool HudTarget::Create(Win3D* NewParent, void* Data)
     CommButton = CreateButtonControl("TargetCommButton",
                                      "interface\\hud\\HUD_communication.3db", nullptr,
                                      "ui_item_select", nullptr, CommPos, nullptr, SmallHalf, 0,
-                                     1, 0, 0, 0x3fd, 0, 0);
+                                     1, 0, 0, 0x3fd, 0,
+                                     HdPlugins::Enabled("Hail.dll") ? 0x5c : 0); // HD: Hail 0x004e13ae
 
     RequestGroupButton = CreateButtonControl("TargetRequestGroupButton",
                                              "interface\\hud\\HUD_grouprequest.3db", nullptr,
                                              "ui_item_select", nullptr, CommPos, nullptr,
                                              SmallHalf, 0, 1, 0, 0, 0x621, 0, 0);
 
-    float const TradePos[3] = {-0.202f, -0.37f, 0.0f};
+    float const TradePos[3] = {HdHudShiftBase(0x004e14db, -0.202f), -0.37f, 0.0f};
     TradeButton = CreateButtonControl("TargetTradeButton", "interface\\hud\\HUD_trade.3db",
                                       nullptr, "ui_item_select", nullptr, TradePos, nullptr,
                                       SmallHalf, 0, 1, 0, 0, 0xbc3, 0, 0);
@@ -616,7 +636,11 @@ bool HudTarget::Create(Win3D* NewParent, void* Data)
     TargetButton = CreateButtonControl("SwitchToTarget",
                                        "interface\\HUD\\HUD_targetedobject.3db", nullptr,
                                        "ui_select_item", nullptr, TargetPos, nullptr, SmallHalf,
-                                       0, 1, 0, 0, 0x5ff, 0, 0x58);
+                                       0, 1, 0, 0,
+                                       // HD: wide_hud_target_ids -- "Toggle Top-Down Target"
+                                       // (0x004e15d3, HDEResources IDS 458790).
+                                       HdPlugins::Feature("wide_hud_target_ids") ? 458790 : 0x5ff,
+                                       0, 0x58);
 
     float const NextEnemyPos[3] = {-0.479f, -0.37f, 0.0f};
     NextEnemyButton = CreateButtonControl("NextEnemyButton",
@@ -631,7 +655,15 @@ bool HudTarget::Create(Win3D* NewParent, void* Data)
                                           SmallHalf, 0, 1, 0, 0, 0x60c, 0, 0x59);
     FormationButton->SetProperty(1, 1, 0);
 
-    float const RankPos[3] = {-0.49f, -0.361f, 0.0f};
+    float const RankPos[3] = {HdHudShiftBase(0x004e175c, -0.49f), -0.361f, 0.0f};
+    // HD: top_down_target_view -- the installer's default of option 0xc (.data 0x00614470).
+    static bool bTopDownDefault = false;
+    if (!bTopDownDefault)
+    {
+        bTopDownDefault = true;
+        if (HdPlugins::Feature("top_down_target_view"))
+            SetGameOption(0xc, 1);
+    }
     RankText = CreateTextControl("TargetRankText", "HudSmall", RankPos, nullptr, 0.228f, 0.03f,
                                  0.9f, 0, 1, 0x574, 1);
 
@@ -695,8 +727,8 @@ void HudTarget::Slot12()
         }
 
         LabelRefreshTimer = kOne;
-        ShipName->SetProperty(0x50, 1, 0x14);
-        SubtargetName->SetProperty(0x50, 1, 0x14);
+        ShipName->SetProperty(0x50, TargetNameTypeFx(), 0x14);
+        SubtargetName->SetProperty(0x50, TargetNameTypeFx(), 0x14);
         return;
     }
 
@@ -719,7 +751,11 @@ void HudTarget::Slot13(bool bHide)
     RankText->SetProperty(1, Hide, 0);
     PreviousButton->SetProperty(1, Hide, 0);
     NextButton->SetProperty(1, Hide, 0);
-    TradeButton->SetProperty(1, Hide, 0);
+    // HD: trade_button_no_flicker — the trade button's own logic alone shows it (0x004e19c6
+    // `push 0` -> JMP 0x004e19d1, the epilogue).
+    static const bool bHdTradeNoFlicker = HdPlugins::Feature("trade_button_no_flicker");
+    if (!bHdTradeNoFlicker)
+        TradeButton->SetProperty(1, Hide, 0);
 }
 
 void HudTarget::Slot14()
@@ -738,7 +774,15 @@ void HudTarget::Slot14()
     {
         return;
     }
-    if (Mode != 1)
+    // HD: HudTarget (Advanced Widescreen HUD) NOPs this test (0x004e3ce0) so the wireframe
+    // draws in contact-list mode too; HUDless hides it while the HUD is hidden, except in
+    // target mode when HudTarget is on.
+    static const bool bAdvTarget = HdPlugins::Enabled("HudTarget.dll");
+    if (HdHudless::Hidden() && (!bAdvTarget || Mode != 1))
+    {
+        return;
+    }
+    if (!bAdvTarget && Mode != 1)
     {
         return;
     }
@@ -860,7 +904,9 @@ void HudTarget::Slot15()
     wchar_t SubName[0x100];   // [ESP+0x128]
 
     // 0x004e4094..0x004e4134: an unvisited solar shows only its type caption.
-    if (HudIsUnvisitedSolar(Simple)) // FUN_004d4c70
+    // HD: FLSharp waypoint_name_fixes — a waypoint is never "unvisited" here (0x004e4094).
+    static const bool bWaypointNames = HdPlugins::FlSharp("waypoint_name_fixes");
+    if (HudIsUnvisitedSolar(Simple) && !(bWaypointNames && HudIsWaypointObject(Simple))) // FUN_004d4c70
     {
         SubName[0] = 0;
         if (GetIdsStringWWithRawFallback(HudObjectTypeIds(Simple), IdsText, 0x80) == 0) // FUN_004d4d50
@@ -1037,8 +1083,8 @@ void HudTarget::Slot16()
             ShipName->SetProperty(0x33, reinterpret_cast<uintptr_t>(&Colour), 1);
             SubtargetName->SetProperty(0x33, reinterpret_cast<uintptr_t>(&Colour), 1);
         }
-        ShipName->SetProperty(0x50, 1, 0x14);
-        SubtargetName->SetProperty(0x50, 1, 0x14);
+        ShipName->SetProperty(0x50, TargetNameTypeFx(), 0x14);
+        SubtargetName->SetProperty(0x50, TargetNameTypeFx(), 0x14);
 
         SubTargetCount = RebuildSubTargets(&SubTargets);
 
@@ -1117,7 +1163,7 @@ intptr_t HudTarget::SetProperty(int Msg, uintptr_t A, uintptr_t B)
                     SelectPreviousSubTarget();
                 }
                 Slot15();
-                SubtargetName->SetProperty(0x50, 1, 0x14);
+                SubtargetName->SetProperty(0x50, TargetNameTypeFx(), 0x14);
                 return 1;
             }
             if (A == reinterpret_cast<uintptr_t>(RequestGroupButton))
@@ -1167,14 +1213,19 @@ void HudTarget::Draw()
     {
         return;
     }
-    if ((ButtonMover::IsActive() || ButtonScaler::IsActive()) && TradeButton != nullptr &&
-        (TradeButton->Flags & 2) != 0)
+    // HD: FLSharp target_trade_blink_fix — the trade button is drawn by hand only with the
+    // panel background while the scaler runs (0x004e1bf1 jmp, 0x004e1c07), not twice.
+    static const bool bTradeBlinkFix = HdPlugins::FlSharp("target_trade_blink_fix");
+    if (!bTradeBlinkFix && (ButtonMover::IsActive() || ButtonScaler::IsActive()) &&
+        TradeButton != nullptr && (TradeButton->Flags & 2) != 0)
     {
         TradeButton->Draw();
     }
     if (ButtonScaler::IsActive())
     {
         ViewPanel->Draw();
+        if (bTradeBlinkFix && TradeButton != nullptr && (TradeButton->Flags & 2) != 0)
+            TradeButton->Draw();
         return;
     }
     HudTargetBase::Draw();
@@ -1324,7 +1375,11 @@ void HudTarget::Update()
         }
     }
 
-    if (Mode != ShownMode)
+    // HD: HudTarget (Advanced Widescreen HUD) keeps the contact list and the target view up
+    // together: the radio buttons every update (0x004e1f91 NOP), and neither the leaving nor the
+    // entering block below (0x004e203e / 0x004e20ff je -> jmp).
+    static const bool bAdvTarget = HdPlugins::Enabled("HudTarget.dll");
+    if (bAdvTarget || Mode != ShownMode)
     {
         ContactListButton->SetProperty(0xc, Mode == 0 ? 1 : 0, 0);
         TargetButton->SetProperty(0xc, Mode == 1 ? 1 : 0, 0);
@@ -1343,7 +1398,7 @@ void HudTarget::Update()
         }
     }
 
-    if (bExpanded != 0 && Mode != 1)
+    if (!bAdvTarget && bExpanded != 0 && Mode != 1)
     {
         if (ShownMode == 1)
         {
@@ -1367,7 +1422,7 @@ void HudTarget::Update()
         return;
     }
 
-    if (bExpanded != 0 && ShownMode != 1)
+    if (!bAdvTarget && bExpanded != 0 && ShownMode != 1)
     {
         ShownMode = Mode;
         SetFlagBits(ShipName);
@@ -1389,7 +1444,7 @@ void HudTarget::Update()
         if (bExpanded != 0 && bChanged)
         {
             Slot15();
-            SubtargetName->SetProperty(0x50, 1, 0x14);
+            SubtargetName->SetProperty(0x50, TargetNameTypeFx(), 0x14);
         }
         UpdateButtons(true);
         return;
@@ -1507,7 +1562,14 @@ void HudTarget::OnScaleFinished()
         SetFlagBits(ContactListButton);
         SetFlagBits(TargetButton);
         SetFlagBits(NextEnemyButton);
-        SetFlagBits(TargetButton); // retail sets +0x63c twice (0x004e36c2 / 0x004e36d4)
+        // retail sets +0x63c twice (0x004e36c2 / 0x004e36d4). HD: HudTarget turns the second
+        // into an XOR, hiding the button (0x004e36da = 30); TargetScreen keeps the OR.
+        static const bool bHideTargetButton =
+            HdPlugins::Enabled("HudTarget.dll") && !HdPlugins::Enabled("TargetScreen.dll");
+        if (bHideTargetButton)
+            TargetButton->Flags ^= 3;
+        else
+            SetFlagBits(TargetButton);
         FormationButton->SetProperty(1, bFormationAvailable == 0 ? 1 : 0, 0);
         ContactListButton->SetProperty(0xc, Mode == 0 ? 1 : 0, 0);
         TargetButton->SetProperty(0xc, Mode == 1 ? 1 : 0, 0);
@@ -1580,6 +1642,8 @@ bool HudTarget::OnEvent(unsigned MsgId)
     CShip* const PlayerShipObject = static_cast<CShip*>(PlayerObject);
     // The player's gameobj; FUN_005449f0 / 00544b90 / 00544c30 are called on it directly.
     FClientShipGameobj* const PlayerShip = static_cast<FClientShipGameobj*>(PlayerGameobj);
+    static const bool bSubTargetFix = HdPlugins::FlSharp("sub_target_fix");
+    static const bool bFormationListFix = HdPlugins::FlSharp("formation_list_fix");
 
     switch (MsgId)
     {
@@ -1652,12 +1716,18 @@ bool HudTarget::OnEvent(unsigned MsgId)
         return false;
 
     case 0x21:
+        // HD: FLSharp sub_target_fix — only with the Target View's button shown (jump table
+        // 0x004e2eec to 0x004e2b86 otherwise), so the Contact List is not written over.
+        if (bSubTargetFix && !(NextButton != nullptr && (NextButton->Flags & 3u) == 3u))
+            return true;
         SelectNextSubTarget();
         Slot15();
         SubtargetName->SetProperty(0x50, 1, 0x14);
         return true;
 
     case 0x22:
+        if (bSubTargetFix && !(PreviousButton != nullptr && (PreviousButton->Flags & 3u) == 3u))
+            return true; // HD: FLSharp sub_target_fix (0x004e2ef0 to 0x004e2bbb)
         SelectPreviousSubTarget();
         Slot15();
         SubtargetName->SetProperty(0x50, 1, 0x14);
@@ -1672,6 +1742,15 @@ bool HudTarget::OnEvent(unsigned MsgId)
         return true;
 
     case 0x59:
+        // HD: FLSharp formation_list_fix — nothing unless the player flies in formation
+        // (behaviour 10; 0x004e2f0c to 0x004e2c19): the button and +0x650 are stale when the
+        // panel is minimised.
+        if (bFormationListFix)
+        {
+            IBehaviorManager* const Behavior = PlayerShipObject->get_behavior_interface();
+            if (Behavior != nullptr && Behavior->CurrentBehaviorIndex != 10)
+                return true;
+        }
         Mode = 2;
         if (bExpanded == 0)
         {
@@ -1686,7 +1765,17 @@ bool HudTarget::OnEvent(unsigned MsgId)
         return true;
 
     case 0x58:
-        Mode = 1;
+    {
+        // HD: TargetScreen (0x004e2c25) -- with the panel open in target view (any view with
+        // HudTarget) the key toggles the top-down wireframe, option 0xc; with HudTarget it no
+        // longer switches the view (0x004e2c2d NOP).
+        static const bool bTargetScreen = HdPlugins::Enabled("TargetScreen.dll");
+        static const bool bAdv = HdPlugins::Enabled("HudTarget.dll");
+        if (bTargetScreen && bExpanded != 0 && (bAdv || Mode == 1))
+            SetGameOption(0xc, GetGameOption(0xc) == 0 ? 1 : 0);
+        if (!(bTargetScreen && bAdv))
+            Mode = 1;
+    }
         if (bExpanded == 0)
         {
             Slot12();
@@ -1870,7 +1959,9 @@ void HudTarget::UpdateButtons(bool bFull)
     // The sub-target arrows: a view with live sub-targets, and a ship only with type bit
     // 0x200000.
     bool bSubTargets = WatchedObjRw(ViewObject) != nullptr && SubTargetCount > 0;
-    if (ViewShip != nullptr && (ViewShip->TypeBits & 0x200000) == 0)
+    // HD: subtarget_buttons_all_ships — every ship keeps them (0x004e241e JNE -> JMP).
+    static const bool bHdSubTargetsAll = HdPlugins::Feature("subtarget_buttons_all_ships");
+    if (!bHdSubTargetsAll && ViewShip != nullptr && (ViewShip->TypeBits & 0x200000) == 0)
     {
         bSubTargets = false;
     }

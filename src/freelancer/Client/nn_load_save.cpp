@@ -7,6 +7,7 @@
 // Retail NN_LoadSave (NN_LoadSave.cpp). See nn_load_save.h.
 
 #include "nn_load_save.h"
+#include "hd_plugins.h"
 
 #include "client_state.h"          // QueueLoadGameCharacter (FUN_005b2c70)
 #include "fade_to_black.h"         // FadeIn (FUN_004120d0)
@@ -32,6 +33,7 @@
 #include "common_server.h"         // IServer::SaveGame
 #include "common_universe.h"       // Universe::get_system
 #include "dacom.h"                 // FDUMP
+#include "hd_plugins.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -157,7 +159,10 @@ bool NnLoadSave::Create(Win3D* NewParent, void* Data)
     // tooltip ids 0x58c..0x590, 0, 0) -> +0x5ac..+0x5bc.
     float const ButtonX = NnFloatBits(0xbea8f5c2);
     float const ButtonY = NnFloatBits(0x3e8a3d71);
-    float const ButtonHalf[3] = {NnFloatBits(0x3db645a2), NnFloatBits(0x3cac0831), 0.0f};
+    // HD: loadsave_buttons — the full visible width is clickable (0x00485d5d 0.089 -> 0.13).
+    float const ButtonHalf[3] = {HdPlugins::Feature("loadsave_buttons") ? 0.13f
+                                                                        : NnFloatBits(0x3db645a2),
+                                 NnFloatBits(0x3cac0831), 0.0f};
     float const SavePosition[3] = {ButtonX, ButtonY, ZFar};
     Buttons[0] = CreateButtonControl("LoadSave_SaveGame", kButtonMesh, nullptr, nullptr, nullptr,
                                      SavePosition, nullptr, ButtonHalf, 0, 0, 1, 0, 0x58c, 0, 0);
@@ -495,7 +500,7 @@ void NnLoadSave::Draw()
         bSaveAllowed = 1;
 }
 
-bool NnLoadSave::Slot23(unsigned Msg, unsigned A, unsigned B)
+bool NnLoadSave::Slot23(unsigned Msg, uintptr_t A, uintptr_t B)
 {
     // LAB_00486c50 (RET 0xc): the list clicks (0xf001 / 0xf002), NN_Confirm's answer (0x3006)
     // and USER_CANCEL / USER_ENTER relays (0xf003 / 0xf004) go on to slot 42; always false.
@@ -977,7 +982,11 @@ void NnLoadSave::SelectSave(int Index)
     if (Info->ShipArchetype != 0)
     {
         Archetype::Ship const* const Ship = Archetype::GetShip(Info->ShipArchetype);
-        InfoValues[3]->SetProperty(0x1e, static_cast<uintptr_t>(Ship->IdsName), 0);
+        // HD: FLSharp save_crash_fix — an unknown ship shows ids 0 (0x00487ebf).
+        unsigned const ShipIds = (Ship == nullptr && HdPlugins::FlSharp("save_crash_fix"))
+                                     ? 0u
+                                     : static_cast<unsigned>(Ship->IdsName);
+        InfoValues[3]->SetProperty(0x1e, static_cast<uintptr_t>(ShipIds), 0);
     }
     else
     {

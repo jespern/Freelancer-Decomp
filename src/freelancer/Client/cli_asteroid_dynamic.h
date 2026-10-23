@@ -59,7 +59,7 @@ public:
     void Place(Vector const* Pos, float MaxVelocity, float MaxAngularVelocity);
 
     // +0xa8 -- the owning manager. Retail stores the dword over GameObject's bWatchListed byte
-    // and its three pad bytes (0x00526693); the port keeps that storage.
+    // and its three pad bytes (0x00526693); the port keeps it in OwnerPtr instead.
     FCliDynamicAsteroid* GetOwner() const;
     void SetOwner(FCliDynamicAsteroid* Owner);
 
@@ -70,6 +70,10 @@ public:
     float Alpha;             // +0xb0  FUN_00525c80's fade, the draw's material alpha
     ID_String Nickname;      // +0xb4  slot 90: the archetype's nickname
     void* Companion[4];      // +0xb8  effect companion {arch, ISoundSource*, particle, light}
+    // Port: the owning manager. Retail's +0xa8 dword (bWatchListed and its pad) cannot hold an
+    // LP64 pointer; the 8-byte copy ran into bActive / bPlaced, whose later writes corrupted
+    // the pointer's high half (the crash in Slot194 at Owner->CmnField).
+    FCliDynamicAsteroid* OwnerPtr = nullptr;
 };
 static_assert(offsetof(FCliDynamicAsteroidGameobj, bActive) == 0xac, "DynamicAsteroid +0xac");
 static_assert(offsetof(FCliDynamicAsteroidGameobj, Alpha) == 0xb0, "DynamicAsteroid +0xb0");

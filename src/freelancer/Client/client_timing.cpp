@@ -6,11 +6,15 @@
 
 #include "globals.h"
 #include "common_misc.h"   // SinglePlayer
+#include "common_newchar.h" // RtcSlider
 #include "common_timing.h" // Timing::Delta
+#include "hd_plugins.h"
 #include "dalib_net.h"
 #include "menu_sound_arch.h" // PauseAllClientSounds / ResumePausedClientSounds (FUN_00428550 / 80)
 
 #include <windows.h>
+
+#include <cstdlib>
 
 namespace
 {
@@ -48,6 +52,15 @@ namespace
     void TickFrameTimer()
     {
         // FUN_0042d770.
+        // HD: flplusplus max_fps replaces the 200 .data ships (0x00610a0c); the plugin writes it
+        // at load, before the first frame and before any SetClientFpsCap.
+        static bool bHdFpsCap = false;
+        if (!bHdFpsCap)
+        {
+            bHdFpsCap = true;
+            if (HdPlugins::Enabled("flplusplus.dll"))
+                G_FpsCap = RtcSlider::get_default_fps_cap();
+        }
         const double MinFrameSeconds = 1.0 / static_cast<double>(G_FpsCap);
         double Dt = 0.0;
         while (true)
@@ -66,6 +79,16 @@ namespace
         // 0042d7e3: FCOM + TEST AH,5 + JNP — keep Dt only when Dt < Max (C0 alone), take Max
         // otherwise, including the unordered case (C0|C2|C3 -> even parity -> no jump).
         G_FrameDtCapped = (Dt < MaxFrameSeconds) ? Dt : MaxFrameSeconds;
+
+        // Dev aid: FLWIN_TIME_SCALE=N runs the game clock N times faster (read every frame so
+        // input scripts can change it with timescale:N). Applied after the clamp so the 1.0s
+        // cap still bounds a real-time hitch.
+        if (char const* const Scale = getenv("FLWIN_TIME_SCALE"))
+        {
+            double const Factor = atof(Scale);
+            if (Factor > 0.0 && Factor <= 16.0)
+                G_FrameDtCapped *= Factor;
+        }
 
         G_ElapsedTime += G_FrameDtCapped;
         G_FrameCount += 1;

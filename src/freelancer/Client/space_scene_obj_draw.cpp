@@ -53,6 +53,7 @@
 
 #include "DALib.h"
 #include "dacom.h"
+#include "hd_plugins.h"
 #include "dacom_iids.h"
 #include "engine/engbase.h"
 #include "common_csys.h"
@@ -96,8 +97,13 @@ namespace
     // DAT_006752f0.. — five growable pointer vectors (sort walks until > 0x675343).
     constexpr unsigned kDrawBucketCount = 5;
     constexpr unsigned kObjDbTypeMask = 0xfdffu;
-    // DAT_00613ec8 — Fill query radius (listing 0051c43d).
-    constexpr float kObjDbFillRange = 10000.0f;
+    // DAT_00613ec8 — Fill query radius (listing 0051c43d). HD: flplusplus multiplies it by
+    // lod_scale.
+    float ObjDbFillRange()
+    {
+        static const float Range = 10000.0f * HdPlugins::FlppScale("lod_scale", 1000000.0f);
+        return Range;
+    }
     // DAT_005dc35c — DistSq threshold for near/far bucket bit.
     constexpr float kNearBucketDistSq = 40000.0f;
     // DAT_006164d0 default (FUN_00410130); distance gate in FUN_0051f2c0.
@@ -474,7 +480,7 @@ namespace
                 Ifl->Release();
             return false;
         }
-        bool const bOk = Ifl->SetInstanceValue(static_cast<int>(reinterpret_cast<intptr_t>(InstId)), ArchPath) >= 0;
+        bool const bOk = Ifl->SetInstanceValue(static_cast<int>(FL_PTR_TO_U32(InstId)), ArchPath) >= 0;
         if (Ifl != nullptr)
             Ifl->Release();
         return bOk;
@@ -920,7 +926,8 @@ namespace
 
         // 00555578: EBX = &DAT_0067986c; 00555576/0055557d: no nebula -> straight to the tail.
         unsigned char const* AmbientPtr = G_AmbientWorkRgb;
-        FNebulaEffect* const Nebula = (FNebulaEffect*)(uintptr_t)DrawStateA;
+        // DrawStateA holds the nebula as a 32-bit token on LP64 (FClientGameobj +0x38).
+        FNebulaEffect* const Nebula = FL_U32_TO_PTR(FNebulaEffect, DrawStateA);
         if (Nebula != nullptr)
         {
 
@@ -974,8 +981,11 @@ namespace
         // FUN_004102c0(buf, count, a2, a0).
         EngineLightSetAmbientRgbBytes(AmbientPtr);
 
-        void* LightSlots[4] = {};
-        int const Count = CollectNearbyLights(LightSlots, 4, Pos3, Radius, Flag);
+        // HD: FLSharp increased_light_limit — the device's MaxActiveLights (capped at 10) instead
+        // of 4 (0x0055566e); DXVK reports 8 under both RP8 and RP9.
+        static const int MaxLights = HdPlugins::FlSharp("increased_light_limit") ? 8 : 4;
+        void* LightSlots[8] = {};
+        int const Count = CollectNearbyLights(LightSlots, MaxLights, Pos3, Radius, Flag);
         EngineLightApplyList(reinterpret_cast<FEngineLight* const*>(LightSlots),
                              static_cast<unsigned>(Count), static_cast<ICamera*>(Camera), Pos3);
     }
@@ -1001,12 +1011,18 @@ namespace
     // is unlinked (prev->next = next, next->prev = prev), its companion cleared (FUN_00502d90),
     // the node freed (FUN_005b7e1d), and the count (+8) decremented. A kept node with a particle
     // gets particle +8 |= 1 and FUN_004f7af0. No test of the list or the sentinel.
+    // The particle's +8 state byte (retail offset; FEffectBase::Flags08).
+    unsigned char& EffectFlags08(unsigned char* Particle)
+    {
+        return reinterpret_cast<FEffectBase*>(Particle)->Flags08;
+    }
+
     void GameobjSweepEffectList(FGameobjEffectList* List)
     {
         FSweepEffectNode* Node = static_cast<FSweepEffectNode*>(List->Head)->Next;
         while (Node != static_cast<FSweepEffectNode*>(List->Head))
         {
-            bool bKeep = Node->Particle != nullptr && (Node->Particle[8] & 2u) == 0;
+            bool bKeep = Node->Particle != nullptr && (EffectFlags08(Node->Particle) & 2u) == 0;
             if (!bKeep && Node->Sound != nullptr && Node->Sound->IsActive() != 0)
                 bKeep = true;
             if (!bKeep && Node->Light != nullptr && Node->Light->Anim.Keys == nullptr)
@@ -1026,7 +1042,7 @@ namespace
 
             if (Node->Particle != nullptr)
             {
-                Node->Particle[8] = static_cast<unsigned char>(Node->Particle[8] | 1u);
+                EffectFlags08(Node->Particle) = static_cast<unsigned char>(EffectFlags08(Node->Particle) | 1u);
                 EffectTypeListLink(Node->Particle);
             }
             Node = Node->Next;
@@ -1201,7 +1217,7 @@ namespace
             memcpy(&Enclose, &EncloseBits, sizeof(float));
 
             float E;
-            if (reinterpret_cast<void*>(static_cast<uintptr_t>(DrawStateA)) != G_FieldController)
+            if (FL_U32_TO_PTR(void, DrawStateA) != G_FieldController)
             {
                 // 0x0051f4c3..0x0051f4de: another enclosure -- above 0.25 (double 0x005cbf58)
                 // is dropped (TEST AH,0x41 / JZ); otherwise E = 0.0f.
@@ -1509,13 +1525,13 @@ namespace
         while (Node != nullptr)
         {
             unsigned char* const N = static_cast<unsigned char*>(Node);
-            void* const Next = *reinterpret_cast<void**>(N + 4);
-            void* const Effect = *reinterpret_cast<void**>(N + 8);
+            void* const Next = reinterpret_cast<void**>(N)[1];
+            void* const Effect = reinterpret_cast<void**>(N)[2];
             Node = Next;
 
             // 0x004f783b: no null test on the node's effect or on anything read through it.
             unsigned char* const E = static_cast<unsigned char*>(Effect);
-            if ((*reinterpret_cast<unsigned char*>(E + 8) & 2u) != 0)
+            if ((reinterpret_cast<FEffectBase*>(E)->Flags08 & 2u) != 0)
             {
                 // LAB_004f7910 — already dead: unlink + release (signed DEC, slot +0x20 at <= 0).
                 EffectTypeListUnlinkAndRelease(Effect);
@@ -1525,10 +1541,10 @@ namespace
             // 0x004f7849..0x004f787d: EngineIndex == -1 -> translation (+0x34) += Dt * velocity
             // (+0x4c). The x and y products stay on the FPU (exact in double); the z product is
             // stored to a float local first (FSTP [local_4]) and then added.
-            if (*reinterpret_cast<int*>(E + 0x40) == -1)
+            if (reinterpret_cast<FEffectBase*>(E)->EngineIndex == -1)
             {
-                float* const Pos = reinterpret_cast<float*>(E + 0x34);
-                float const* const Vel = reinterpret_cast<float const*>(E + 0x4c);
+                float* const Pos = &reinterpret_cast<FEffectBase*>(E)->LocalXform.Translation.X;
+                float const* const Vel = reinterpret_cast<float const*>(reinterpret_cast<FEffectBase*>(E)->Pad4C);
                 float const StepZ = Dt * Vel[2];
                 Pos[0] = static_cast<float>(static_cast<double>(Dt) * Vel[0] + Pos[0]);
                 Pos[1] = static_cast<float>(static_cast<double>(Dt) * Vel[1] + Pos[1]);
@@ -1545,14 +1561,14 @@ namespace
 
             // 0x004f7897: FUN_004fd560(+0x5c)->+0x14 (EXIST_OFFSCREEN), read without a null test.
             FEffectTypeInfo const* const Info =
-                EffectTypeInfoByIndex(*reinterpret_cast<int*>(E + 0x5c));
+                EffectTypeInfoByIndex(static_cast<int>(reinterpret_cast<FEffectBase*>(E)->EffectTypeId));
             if (Info->VisibilityOffscreen == 0 && UpdateOk == 0)
             {
                 // 0x004f78aa..0x004f78ce: the inlined FUN_004f7af0 link (same two tests).
                 EffectTypeListLink(Effect);
                 EffectFreezeToWorld(static_cast<FEffectBase*>(Effect));   // 0x004f78d3
-                *reinterpret_cast<unsigned char*>(E + 8) =
-                    static_cast<unsigned char>(*reinterpret_cast<unsigned char*>(E + 8) | 2u);
+                reinterpret_cast<FEffectBase*>(E)->Flags08 =
+                    static_cast<unsigned char>(reinterpret_cast<FEffectBase*>(E)->Flags08 | 2u);
             }
             else
             {
@@ -1570,7 +1586,7 @@ namespace
             // 0x004f78ff: a dead effect goes straight to the unlink; a live one asks slot +0x10
             // (AlwaysAlive/IsAlive) and is unlinked only when that returns 0. The vtable is
             // re-read (MOV EDX,[ESI]) as retail does.
-            if ((*reinterpret_cast<unsigned char*>(E + 8) & 2u) == 0)
+            if ((reinterpret_cast<FEffectBase*>(E)->Flags08 & 2u) == 0)
             {
                 if (TypedEffect->IsAlive() != 0)
                     continue;
@@ -2256,8 +2272,8 @@ unsigned* GameobjPickLodRetail(FClientGameobj* Self, unsigned* OutLod, void* Cam
         if (Self->Object != nullptr && Self->Object->get_archetype() != nullptr)
             Companion = reinterpret_cast<unsigned char const*>(
                 Self->Object->get_archetype()->Companion);
-        const float DistRender = *reinterpret_cast<float const*>(Companion + 0x08);
-        const float DistLod = *reinterpret_cast<float const*>(Companion + 0x0c);
+        const float DistRender = *reinterpret_cast<float const*>(Archetype::CliCompanionAt(Companion, 0x08));
+        const float DistLod = *reinterpret_cast<float const*>(Archetype::CliCompanionAt(Companion, 0x0c));
 
         // 0x0053990c..0x00539932: +0x08 > 0 (TEST AH,0x41 / JNZ skips <= and unordered):
         // DistSq strictly below its square ends the pick (TEST AH,5 / JNP); otherwise high = 1.
@@ -2604,7 +2620,7 @@ void SpaceObjDrawPass(FSpaceCamera* Cam, unsigned LayerFlags, unsigned Param2)
         if (Bucket != nullptr)
         {
             Geometry::Sphere Query;
-            Query.Radius = kObjDbFillRange;
+            Query.Radius = ObjDbFillRange();
             float const* const CamPos = Camera->GetPosition();
             Query.Center.x = CamPos[0];
             Query.Center.y = CamPos[1];
@@ -2864,8 +2880,17 @@ int SpaceCollectNearbyLights(void** OutSlots, int MaxSlots, float const* Pos3, f
 void SpaceResetFarClip()
 {
     // FUN_00410130: DAT_006164d0 = 20000 (DAT_005c8910), DAT_006164d4 = 1000 + 20000.
-    G_SpaceDrawRange = 20000.0f;
-    G_SpaceDrawFar = 1000.0f + 20000.0f;
+    // HD: flplusplus raises DAT_005c8910 by a tenth per pbubble_scale step above 2, to 40000.
+    static const float Range = []
+    {
+        const float Scale = HdPlugins::FlppScale("pbubble_scale", 1000000.0f);
+        float Value = 20000.0f;
+        if (Scale > 2.0f)
+            Value += (Value / 10.0f) * (Scale - 2.0f);
+        return Value > 40000.0f ? 40000.0f : Value;
+    }();
+    G_SpaceDrawRange = Range;
+    G_SpaceDrawFar = 1000.0f + Range;
 }
 
 void SpaceSetFarClip(float FarClip)

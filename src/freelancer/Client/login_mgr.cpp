@@ -18,6 +18,7 @@
 #include "server_filter.h" // ServerFilter::Match (GetFilteredServers)
 #include "reg_key_stack.h" // FRegKeyStack (login history)
 #include "vc6_sort.h"      // Vc6Sort::Sort (GetFilteredServers' inlined VC6 std::sort)
+#include "hd_plugins.h"
 
 #include <algorithm>
 #include <malloc.h>        // _alloca (ReadRegHexString)
@@ -574,6 +575,11 @@ void CLoginMgr::OnAddHost(_DPNMSG_ENUM_HOSTS_RESPONSE* Response)
     char AddressText[0x80];
     sprintf(AddressText, "%S", Info.Address.c_str());
     Info.IpAddress = static_cast<int>(ntohl(inet_addr(AddressText))); // 005acf78
+    // HD: hide_ipv6_servers — an address inet_addr cannot read (INADDR_NONE, e.g. an IPv6
+    // literal) drops the reply (0x005acf6a: `inc eax; je 0x5acfd0` -> LAB_005ad212).
+    static const bool bHdHideIpv6 = HdPlugins::Feature("hide_ipv6_servers");
+    if (bHdHideIpv6 && Info.IpAddress == -1)
+        return;
 
     DWORD PortValue = 0;                                               // 005acf84
     Size = sizeof(PortValue);                                          // 005acf8b

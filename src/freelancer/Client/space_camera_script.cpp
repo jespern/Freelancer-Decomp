@@ -35,7 +35,7 @@ namespace
 {
     // Same convention as the other cameras: a watcher holds the Watchable subobject, which sits
     // eight bytes into the IObjRW, which is where retail's ubiquitous `- 8` comes from.
-    const int kWatchableOffset = 8;
+    const int kWatchableOffset = FlWatchableOffset(); // retail 8
 
     // The name literal at .rdata 0x005dc1e4, returned by slot 0x54.
     const char kScriptCameraClassName[] = "ScriptCamera";
@@ -494,6 +494,15 @@ bool ScriptCameraIsFinished(const FScriptCamera* Cam)
 {
     // 0x0051e816: no script at all counts as finished, and AL is already 1 at that point.
     if (Cam->Script == nullptr)
+        return true;
+
+    // Dev aid: FLWIN_SKIP_CUTSCENES=2 also ends in-space cutscenes at once (the camera goes back
+    // to the player; the script's own effects are left to run out).
+    static bool const bSkipSpace = [] {
+        char const* const Value = getenv("FLWIN_SKIP_CUTSCENES");
+        return Value != nullptr && atoi(Value) >= 2;
+    }();
+    if (bSkipSpace)
         return true;
 
     // 0x0051e81f: slot 21, then `== 4`. This is what lets the camera controller take the view

@@ -8,6 +8,8 @@
 // freelancer.exe .text 0x00552b60..0x00555760. See star_sys.h for the globals map.
 
 #include "star_sys.h"
+#include "hd_client.h"
+#include "hd_plugins.h"
 
 #include "cli_asteroid.h"
 #include "cli_nebula.h"
@@ -589,7 +591,7 @@ namespace
                 continue;
             // The watcher points at the Watchable sub-object at IObjRW+8.
             IObjRW const* const Target = reinterpret_cast<IObjRW const*>(
-                reinterpret_cast<unsigned char const*>(Watched) - 8);
+                reinterpret_cast<unsigned char const*>(Watched) - FlWatchableOffset());
             if (Target == nullptr)
                 continue;
             // 005552a1..005552a8: PUSH target, PUSH player -> FUN_0045a490(player, target):
@@ -852,6 +854,7 @@ void StarSysEnter(unsigned SystemId)
     G_MusicDangerScanTime = 1000.0f;
     G_bMusicDanger = 0;
 
+    HdZoneReset(); // HD: Zone.dll (0x00554687)
     PreloadSystemObjectArchetypes(&SystemId); // FUN_005547c0
 
     PhySys::m_pCollisionFilter = &StarSysCollisionFilter; // LAB_005544e0
@@ -1214,7 +1217,21 @@ void StarSysSuppressPlayerCollisions(double Seconds)
     G_PlayerCollisionsSuppressedUntil = GetClientElapsedTime() + Seconds;
 }
 
-int GetAttitudeClass(IObjInspect const* Target, IObjInspect const* Viewer)
+bool HdSameGroup(IObjInspect const* A, IObjInspect const* B)
+{
+    if (A == nullptr || B == nullptr)
+        return false;
+    CObject const* const ObjA = A->cobject();
+    CObject const* const ObjB = B->cobject();
+    if (ObjA == nullptr || ObjB == nullptr ||
+        (static_cast<unsigned>(ObjA->ObjectClass) & 0x503u) != 0x503u ||
+        (static_cast<unsigned>(ObjB->ObjectClass) & 0x503u) != 0x503u)
+        return false;
+    unsigned const Group = static_cast<CShip const*>(ObjA)->GroupId;
+    return Group != 0 && Group == static_cast<CShip const*>(ObjB)->GroupId;
+}
+
+int GetAttitudeClass(IObjInspect const* Target, IObjInspect const* Viewer, bool bGroupFix)
 {
     // FUN_0045a490: -1 hostile (<= -0.6), 1 friendly (>= 0.6), 0 otherwise / on failure.
     if (Target == nullptr || Viewer == nullptr)
@@ -1224,7 +1241,17 @@ int GetAttitudeClass(IObjInspect const* Target, IObjInspect const* Viewer)
         return 0;
     // FCOMP -0.6f / TEST AH,0x41 / JP: -1 unless Attitude > -0.6 (or unordered).
     if (Attitude <= -0.6f)
+    {
+        // HD: FLSharp unhostile_group_members — towards the player, another player of the
+        // player's group is neutral (every FUN_0045a490 caller but 0x00475770).
+        static const bool bUnhostile = HdPlugins::FlSharp("unhostile_group_members");
+        if (bUnhostile && bGroupFix && Viewer->is_player() &&
+            static_cast<void const*>(Target) == static_cast<void const*>(static_cast<IObjInspect const*>(
+                                                    static_cast<IObjRW const*>(GetPlayerObjRW()))) &&
+            Target != Viewer && HdSameGroup(Target, Viewer))
+            return 0;
         return -1;
+    }
     // FCOMP 0.6f / TEST AH,0x1 / JNZ: 0 when below (or unordered).
     if (!(Attitude >= 0.6f))
         return 0;

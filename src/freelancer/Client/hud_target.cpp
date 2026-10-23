@@ -5,6 +5,8 @@
 // Author: Giperion.
 
 #include "hud_target.h"
+#include "hd_plugins.h"
+#include "hud_waypoint.h"           // HUD_Waypoint::GetWaypointEntry (waypoint_name_fixes)
 
 #include "character_select_equip.h" // GetPlayerBaseIdRetail (DAT_00673358)
 #include "client_gameobj.h"         // FClientGameobj : IObjInspectImpl
@@ -38,6 +40,7 @@
 
 #include "DALib.h"
 #include "engine/engbase.h"
+#include "hd_plugins.h"
 
 #include <math.h>
 #include <stdlib.h>
@@ -596,7 +599,7 @@ namespace
     unsigned HudShipGroupId(CObject const* Ship)
     {
         unsigned Value = 0;
-        memcpy(&Value, reinterpret_cast<unsigned char const*>(Ship) + 0x1b4, sizeof(Value));
+        Value = static_cast<CShip const*>(Ship)->GroupId; // CShip +0x1b4
         return Value;
     }
 }
@@ -812,6 +815,41 @@ unsigned GetShipPilotName(CObject const* Object, FHudWideText* Out)
     return static_cast<unsigned>(wcslen(Out->Text));
 }
 
+bool HudIsWaypointObject(CObject const* Object)
+{
+    return Object != nullptr && (static_cast<unsigned>(Object->ObjectClass) & 0x303u) == 0x303u &&
+           static_cast<CSolar const*>(Object)->is_waypoint();
+}
+
+unsigned GetObjectIdsNameForWaypoint(CObject const* Object)
+{
+    // HD: FLSharp waypoint_name_fixes — "Waypoint" (1090) becomes "Mission Waypoint" (1091) when
+    // the HUD's current waypoint is not a player one.
+    static const bool bFix = HdPlugins::FlSharp("waypoint_name_fixes");
+    unsigned const Ids = GetObjectIdsName(Object);
+    if (!bFix || Ids != 0x442u || !HudIsWaypointObject(Object))
+        return Ids;
+    HUD_Waypoint* const Waypoint = GetHudWaypoint(); // DAT_00674bc8
+    unsigned char bUser = 0;
+    int Index = 0;
+    if (Waypoint != nullptr && Waypoint->GetWaypointEntry(&bUser, &Index) && bUser == 0)
+        return 0x443u;
+    return Ids;
+}
+
+unsigned GetShipPilotNameFull(CObject const* Object, FHudWideText* Out)
+{
+    // HD: FLSharp pilot_names_fix — FUN_004e8100 mode 1 gives the uncut name.
+    static const bool bFix = HdPlugins::FlSharp("pilot_names_fix");
+    if (!bFix || Object == nullptr || (static_cast<unsigned>(Object->ObjectClass) & 0x503u) != 0x503u)
+        return GetShipPilotName(Object, Out);
+    bool const bOk = HudBuildObjectCaption(static_cast<CSimple const*>(Object), Out, 1, false);
+    G_NnTextScratchA[0] = L'\0';
+    G_NnTextScratchB[0] = L'\0';
+    return bOk && Out->Text != nullptr ? static_cast<unsigned>(wcslen(Out->Text))
+                                       : GetShipPilotName(Object, Out);
+}
+
 void NavMapSectorName(Vector const* Pos, wchar_t* Out)
 {
     // FUN_0048dc10 (cdecl).
@@ -860,7 +898,13 @@ void NavMapSectorName(Vector const* Pos, wchar_t* Out)
     wchar_t ColumnText[0x10];
     GetIdsStringWWithRawFallback(0x515 + Row, RowText, 0x10);
     GetIdsStringWWithRawFallback(0x506 + Column, ColumnText, 0x10);
-    _swprintf(Out, Format, RowText, ColumnText);
+    // HD: jflp puts the sector letter first, "C4" (0x0048dcf5 / 0x0048dd01: the two pushes
+    // swapped).
+    static const bool bJflpLetterFirst = HdPlugins::Enabled("jflp.dll");
+    if (bJflpLetterFirst)
+        _swprintf(Out, Format, ColumnText, RowText);
+    else
+        _swprintf(Out, Format, RowText, ColumnText);
 }
 
 unsigned HudObjectKindIds(unsigned TypeBits)
@@ -988,7 +1032,9 @@ bool HudTradelaneCaption(CSimple const* Object, wchar_t* Out, int Capacity)
         return false;
     }
     wcscpy(Out, Text);
-    wcscat(Out, L"->"); // DAT_005cef58
+    // HD: jflp writes L"\x2013>" (en dash) into the shared DAT_005cef58.
+    static const wchar_t* const kArrow = HdPlugins::Enabled("jflp.dll") ? L"\x2013>" : L"->";
+    wcscat(Out, kArrow); // DAT_005cef58
     GetIdsStringWWithRawFallback(Second, Text, 0xff);
     if (static_cast<int>(wcslen(Text)) + FirstLength >= Capacity)
     {
@@ -1008,7 +1054,7 @@ bool HudBuildObjectCaption(CSimple const* Object, FHudWideText* Out, int Mode,
     // 0x004e811f..0x004e8165: the type bits, the ids_name, an empty line, and the watch-list
     // byte (+0xa8) of the object's client gameobj when TypeBits & 0xfdff.
     unsigned const TypeBits = Object->TypeBits;
-    unsigned const Name = GetObjectIdsName(Object); // FUN_005472a0
+    unsigned const Name = GetObjectIdsNameForWaypoint(Object); // FUN_005472a0; HD: 0x004e8131
     Line[0] = 0;
     unsigned char bWatched = 0;
     FClientGameobj* const Gameobj = ClientObjDb_FindObject(Object->Id, 0); // FUN_005416c0

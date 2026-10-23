@@ -44,6 +44,10 @@ HUD_Status* GetHudStatus();
 bool HudStatusIsTurretView();
 bool HudStatusIsRearView();
 
+// HD: FLSharp flight_controls_fix -- sets the auto-level toggle (DAT_00612700) without the
+// OnEvent 0x3e side effect, to resync it with a new ship's behaviour manager.
+void HudStatusSetAutoLevelState(bool bOn);
+
 // DAT_00674b04 -- the one HUD_Target (the target panel, W3-C). Its ctor FUN_004e08b0 writes it
 // (0x004e0983) and its dtor clears it (0x004e0d29); HUD_Core::OnEvent, 0x004c19bf and nine other
 // sites read it without a null test. Defined in hud_status_core.cpp; the HUD_Target ctor / dtor
@@ -169,6 +173,9 @@ public:
     // HUDItem slot 13 LAB_004db120 (RET 4) -- SetProperty(1, bHide, 0) on the weapon rows and
     // the scroll bar (while Field5a0), then on ViewPanel and CloseButton.
     void Slot13(bool bHide) override;
+    // HD: HudStatus.dll fills HUDItem slot 14 (0x005d85f4, retail RET) with the player ship's
+    // wireframe, which HudTargetBase::Draw draws right after the view panel.
+    void Slot14() override;
 
     // WinControl slot 19 LAB_004db8f0 (RET 4) -- a right click (-1, 2) on a sub-target toggles
     // that launcher.

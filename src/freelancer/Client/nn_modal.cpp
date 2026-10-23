@@ -5,6 +5,8 @@
 // Author: Giperion.
 
 #include "nn_modal.h"
+#include "font_string.h"
+#include "hd_client.h"
 
 #include "character_select_equip.h" // GetPlayerBaseIdRetail (DAT_00673358), GetPlayerStarSystemIdRetail
 #include "client_base_market.h" // GetClientCurrentLocationBaseData (FUN_0043b630)
@@ -39,8 +41,12 @@
 #include "common_goods.h"  // BaseData::get_base_id
 #include "common_id.h"     // CreateID, MakeLocationID
 #include "common_universe.h"
+#include "common_ini.h"
+#include "hd_plugins.h"
 
+#include <map>
 #include <stdio.h>
+#include <string>
 #include <wchar.h>
 #include <windows.h>
 
@@ -78,6 +84,142 @@ namespace
         if (System == nullptr)
             return 0;
         return System->GetStridName();
+    }
+
+    // HD: Territory.dll's [Systems] part (DATA\UNIVERSE\Territory.ini): a system-entry format
+    // per system ("%s System, Border Worlds."), keyed by the system's nickname id or its
+    // strid_name; "Bw01-10" / "196609-13" are ranges. HD leaves [Houses] (nav map labels) and
+    // [Settings] commented out and uses no multi-line formats, so those parts are not here.
+    struct FTerritory
+    {
+        int FormatIds;            // format_id, or 0
+        std::wstring Format;      // format, when FormatIds is 0
+    };
+
+    // adoxa's get_first_range / get_next_range.
+    struct FTerritoryRange
+    {
+        int Pos = 0;
+        int Last = 0;
+        int DigitIndex = 0;
+        char Nickname[128] = {0};
+
+        static int Number(char const*& Text)
+        {
+            int Value = 0;
+            for (; *Text >= '0' && *Text <= '9'; ++Text)
+                Value = Value * 10 + *Text - '0';
+            return Value;
+        }
+
+        int First(char const* Text)
+        {
+            Nickname[0] = '\0';
+            Last = 0;
+            char const* const Start = Text;
+            Pos = Number(Text);
+            if (Text != Start)
+            {
+                if (*Text == '\0')
+                    return Pos;
+                int Prefix = static_cast<int>(Text - Start);
+                if (*Text == '-' && Prefix <= 10)
+                {
+                    char Full[32];
+                    Prefix -= static_cast<int>(strlen(++Text));
+                    if (Prefix > 0)
+                    {
+                        snprintf(Full, sizeof(Full), "%.*s%s", Prefix, Start, Text);
+                        Text = Full;
+                    }
+                    Last = Number(Text);
+                    if (*Text == '\0' && Last >= Pos)
+                        return Pos;
+                }
+            }
+            char const* Dash = strchr(Start, '-');
+            int const Length = Dash != nullptr ? static_cast<int>(Dash - Start) : 0;
+            if (Length < 3 || Length >= static_cast<int>(sizeof(Nickname)) || Dash[-1] < '0' ||
+                Dash[-1] > '9' || Dash[-2] < '0' || Dash[-2] > '9')
+                return static_cast<int>(CreateID(Start));
+            Pos = (Dash[-2] - '0') * 10 + Dash[-1] - '0';
+            char const* Tail = Dash + 1;
+            Last = Number(Tail);
+            if (*Tail != '\0' || Last < Pos)
+                return static_cast<int>(CreateID(Start));
+            DigitIndex = Length - 1;
+            memcpy(Nickname, Start, Length);
+            Nickname[Length] = '\0';
+            return static_cast<int>(CreateID(Nickname));
+        }
+
+        int Next()
+        {
+            if (++Pos > Last)
+                return 0;
+            if (Nickname[0] != '\0')
+            {
+                if (++Nickname[DigitIndex] > '9')
+                {
+                    Nickname[DigitIndex] = '0';
+                    ++Nickname[DigitIndex - 1];
+                }
+                return static_cast<int>(CreateID(Nickname));
+            }
+            return Pos;
+        }
+    };
+
+    std::map<int, FTerritory> const* HdTerritories()
+    {
+        static std::map<int, FTerritory>* Territories = nullptr;
+        static bool bLoaded = false;
+        if (bLoaded)
+            return Territories;
+        bLoaded = true;
+        INI_Reader Reader;
+        if (!HdPlugins::Enabled("Territory.dll") ||
+            !Reader.open("..\\data\\universe\\territory.ini", false))
+            return nullptr;
+        Territories = new std::map<int, FTerritory>;
+        while (Reader.read_header())
+        {
+            if (!Reader.is_header("Systems"))
+                continue;
+            FTerritory Current = {0, std::wstring()};
+            while (Reader.read_value())
+            {
+                if (Reader.is_value("format"))
+                {
+                    // ANSI as the plugin's default code page; at most 63 characters.
+                    wchar_t Wide[64] = {0};
+                    MultiByteToWideChar(CP_ACP, 0, Reader.get_value_string(), -1, Wide, 64);
+                    Wide[63] = 0;
+                    Current.FormatIds = 0;
+                    Current.Format = Wide;
+                }
+                else if (Reader.is_value("format_id"))
+                {
+                    Current.FormatIds = Reader.get_value_int(0);
+                    Current.Format.clear();
+                }
+                else if (Reader.is_value("systems") && (Current.FormatIds != 0 || !Current.Format.empty()))
+                {
+                    for (int Param = Reader.get_num_parameters(); --Param >= 0;)
+                    {
+                        FTerritoryRange Range;
+                        for (int Id = Range.First(Reader.get_value_string(Param)); Id != 0; Id = Range.Next())
+                            (*Territories)[Id] = Current;
+                    }
+                }
+            }
+        }
+        if (Territories->empty())
+        {
+            delete Territories;
+            Territories = nullptr;
+        }
+        return Territories;
     }
 
     // .rdata 0x005ce928: the typing time per character ShowBaseArrival reserves.
@@ -119,6 +261,9 @@ bool NnArrivalText::Create(Win3D* NewParent, void* Data)
     // 0x0045ac34..0x0045ac3a: the caption hidden (flags &= 0xfc).
     Caption->Flags = static_cast<unsigned char>(Caption->Flags & 0xfc);
 
+    // HD: Zone / Territory let the caption wrap onto several lines (0x0045ac3e).
+    if (HdArrivalTextMultiLine())
+        Caption->FontString->bMultiLine = 1;
     // 0x0045ac3e..0x0045ac73: slot 31 SetOffset(0, 0, -1.0f), the vector passed by value.
     SetOffset(0.0f, 0.0f, -1.0f);
     // 0x0045ac76..0x0045ac7e: slot 5 SetPosition(this + 0x60).
@@ -281,7 +426,32 @@ void NnArrivalText::ShowSystemArrival(bool bResetDelay)
         return;
 
     wchar_t Format[kArrivalFormatChars];
-    if (RegionIds != 0)
+    // HD: Territory.dll (0x0045b020) looks the system up by nickname id, then strid_name; a
+    // [Systems] entry takes the single-name path below with its own format.
+    FTerritory const* Territory = nullptr;
+    if (std::map<int, FTerritory> const* const Territories = HdTerritories())
+    {
+        std::map<int, FTerritory>::const_iterator It =
+            Territories->find(static_cast<int>(GetPlayerStarSystemIdRetail()));
+        if (It == Territories->end())
+            It = Territories->find(SystemIds);
+        if (It != Territories->end())
+            Territory = &It->second;
+    }
+    if (Territory != nullptr)
+    {
+        if (Territory->FormatIds != 0)
+            GetIdsStringWWithRawFallback(static_cast<unsigned>(Territory->FormatIds), Format, 0x40);
+        else
+            wcscpy(Format, Territory->Format.c_str());
+        GetIdsStringWWithRawFallback(static_cast<unsigned>(SystemIds), G_NnTextScratchA,
+                                     G_NnTextScratchCapacity / 2);
+        _swprintf(G_NnTextScratchB, Format, G_NnTextScratchA);
+        CharUpperW(G_NnTextScratchB);
+        Caption->SetProperty(0x1d, reinterpret_cast<uintptr_t>(G_NnTextScratchB), 0);
+        Delay = 2.0f;
+    }
+    else if (RegionIds != 0)
     {
         // 0x0045b071..0x0045b0fb: ids 0x55e, the system and the region into the two halves.
         GetIdsStringWWithRawFallback(0x55e, Format, kArrivalFormatChars);

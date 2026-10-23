@@ -8,6 +8,7 @@
 // Retail Client\Interface\NeuroNet\NavMap.cpp, 0x0048d700..0x004a3f90.
 
 #include "nn_navmap.h"
+#include "hd_client.h"
 #include "best_path.h"               // BestPathGetWaypointCount (FUN_004c4fb0)
 #include "character_select_equip.h"  // GetPlayerStarSystemIdRetail, GetPlayerVisitFlagsRetail
 #include "font_string.h"             // FFontString (the item label's dtor)
@@ -233,8 +234,8 @@ NeuroNetNavMap::NeuroNetNavMap()
     ScreenRectMin[0] = 0.0f;
     ScreenRectMin[1] = 0.0f;
     ScreenRectMin[2] = 0.0f;
-    MapOrigin[0] = -0.234f;
-    MapOrigin[1] = -0.234f;
+    MapOrigin[0] = HdHudShiftBase(0x0048e2a7, -0.234f); // HD: HudShift.ini bases
+    MapOrigin[1] = HdHudShiftBase(0x0048e2c3, -0.234f);
     MapOrigin[2] = 0.0f;
     MapSize[0] = 0.468f;
     MapSize[1] = 0.468f;
@@ -969,7 +970,7 @@ bool NeuroNetNavMap::Create(Win3D* NewParent, void* Data)
     return Win3D::Create(NewParent, Data);
 }
 
-bool NeuroNetNavMap::Slot23(unsigned Msg, unsigned A, unsigned B)
+bool NeuroNetNavMap::Slot23(unsigned Msg, uintptr_t A, uintptr_t B)
 {
     // LAB_004945e0.
     (void)A;

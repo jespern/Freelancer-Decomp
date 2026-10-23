@@ -150,7 +150,8 @@ IVP_SurfaceBuilder_Polygon_Convex::~IVP_SurfaceBuilder_Polygon_Convex()
 // this path) and c_ledge = that block.
 void IVP_SurfaceBuilder_Polygon_Convex::init_surface_manager_polygon()
 {
-    tetras->edge_hash = new IVP_Hash(0x1f4, 8, 0);
+    // Retail key length 8: add_edge_to_hash's two point pointers (uintptr_t[2], wider on LP64).
+    tetras->edge_hash = new IVP_Hash(0x1f4, 2 * sizeof(uintptr_t), 0);
     const char* const Error = tetras->make_triangles();
     IVP_Hash* const EdgeHash = tetras->edge_hash;
     if (EdgeHash != nullptr)

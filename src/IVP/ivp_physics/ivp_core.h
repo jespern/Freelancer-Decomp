@@ -706,7 +706,7 @@ public:
     // type was not determined this pass -- every confirmed call site only
     // ever touches a candidate's +0x8 field, never anything deeper -- so they
     // stay void* rather than guessing a struct layout.
-    void* find_object_hash_entry(unsigned Key) const;
+    void* find_object_hash_entry(uintptr_t Key) const;
     void register_object_hash_entry(void* Candidate);
     void unregister_object_hash_entry(void* Candidate);
 

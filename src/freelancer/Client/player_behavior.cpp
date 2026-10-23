@@ -7,6 +7,7 @@
 // FUN_0054baf0 and the player behaviour command family at 0x004c7950 .. 0x004c7b8b.
 
 #include "player_behavior.h"
+#include "client_gameobj.h"
 
 #include "player_spawn.h"
 
@@ -21,12 +22,16 @@
 #include "nn_modal.h" // NnMainButtonHasActivePanel (FUN_0045a470)
 #include "space_letterbox.h"
 #include "win3d.h" // Win3DGetHover (FUN_0059daa0)
+#include "hd_plugins.h"
+
+#include <cstdint>
+#include <cstring>
 
 namespace
 {
     // 0x0051eac1 and every other camera in the file use the same eight: a BaseWatcher stores a
     // Watchable*, which is the IObjRW plus eight.
-    const int kWatchableOffset = 8;
+    const int kWatchableOffset = FlWatchableOffset(); // retail 8
 
     // .data:00673564. Retail keeps the clamped throttle here rather than on any object, and
     // FUN_004c7a00 both refreshes and returns it.
@@ -89,7 +94,7 @@ namespace
             return nullptr;
 
         CEqObj* const EqObj =
-            *reinterpret_cast<CEqObj**>(static_cast<unsigned char*>(ObjRW) + 0x10);
+            static_cast<CEqObj*>(ClientGameobjObject(ObjRW));
         if (EqObj == nullptr)
             return nullptr;
 
@@ -236,24 +241,50 @@ float GetLastPlayerThrottle()
     return G_PlayerThrottle;
 }
 
-void SetPlayerBehaviorDirectionGated(float X, float Y, float Z)
+namespace
 {
-    // 0x004c78d0..0x004c790c: X and Y both compare equal to zero (TEST AH,0x44: NaN is not
-    // zero), OR -- read only when they do not -- the HUD_Status bytes DAT_00674aa0+0x5b9 (turret
-    // view) and +0x5ba (rear view) are both clear. HUD_Status is read without a null test.
-    bool const bDirIsZero = (X == 0.0f) && (Y == 0.0f);
-    if (bDirIsZero || (!HudStatusIsTurretView() && !HudStatusIsRearView()))
+    // HD: jflp's patched immediate 0x004c7f14 (the mouse-flight copy's z, retail 0): the roll a
+    // keyboard-only steer last sent.
+    float G_JflpKeyRoll = 0.0f;
+
+    // The body of FUN_004c78d0. bOwnCall: retail's own call site (0x004c7940), which jflp hooks;
+    // the mouse-flight copy inlined at 0x004c7ef9 calls the manager directly.
+    void SetPlayerBehaviorDirectionGatedImpl(float X, float Y, float Z, bool bOwnCall)
     {
-        IBehaviorManager* const Manager = PlayerBehaviorManager();
-        if (Manager != nullptr)
+        // 0x004c78d0..0x004c790c: X and Y both compare equal to zero (TEST AH,0x44: NaN is not
+        // zero), OR -- read only when they do not -- the HUD_Status bytes DAT_00674aa0+0x5b9
+        // (turret view) and +0x5ba (rear view) are both clear. HUD_Status is read without a null
+        // test.
+        bool const bDirIsZero = (X == 0.0f) && (Y == 0.0f);
+        if (bDirIsZero || (!HudStatusIsTurretView() && !HudStatusIsRearView()))
         {
-            Vector Dir;
-            Dir.x = X;
-            Dir.y = Y;
-            Dir.z = Z;
-            Manager->update_current_behavior_direction(Dir);
+            IBehaviorManager* const Manager = PlayerBehaviorManager();
+            if (Manager != nullptr)
+            {
+                Vector Dir;
+                Dir.x = X;
+                Dir.y = Y;
+                Dir.z = Z;
+                // HD: jflp Roll_Hook (the 0x004c7940 call re-pointed): X and Y both exactly -0.0f
+                // (keyboard steering with roll only) keep Z for mouse flight, anything else 0.
+                static const bool bJflpRoll = HdPlugins::Enabled("jflp.dll");
+                if (bJflpRoll && bOwnCall)
+                {
+                    uint32_t BitsX = 0;
+                    uint32_t BitsY = 0;
+                    memcpy(&BitsX, &X, sizeof(BitsX));
+                    memcpy(&BitsY, &Y, sizeof(BitsY));
+                    G_JflpKeyRoll = (BitsX == 0x80000000u && BitsY == 0x80000000u) ? Z : 0.0f;
+                }
+                Manager->update_current_behavior_direction(Dir);
+            }
         }
     }
+}
+
+void SetPlayerBehaviorDirectionGated(float X, float Y, float Z)
+{
+    SetPlayerBehaviorDirectionGatedImpl(X, Y, Z, true);
 }
 
 bool GetPlayerEngineCruiseActive()
@@ -409,7 +440,8 @@ void UpdateMouseFlightDirection()
         // 0x004c7eab..0x004c7f18: both zero (TEST AH,0x44 / JP|JNP: ordered-equal), or the
         // HUD_Status turret / rear view bytes clear -> the behavior manager's direction
         // {x, y, 0}. That is FUN_004c78d0's body, inlined here byte for byte.
-        SetPlayerBehaviorDirectionGated(NormX, NormY, 0.0f);
+        // HD: jflp sends the keyboard roll as z instead of 0 (0x004c7f14; 0 without jflp).
+        SetPlayerBehaviorDirectionGatedImpl(NormX, NormY, G_JflpKeyRoll, false);
 
         // 0x004c7f20: DAT_00673554 = 1.
         G_MouseFlightEngaged = true;

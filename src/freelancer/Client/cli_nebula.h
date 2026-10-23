@@ -23,12 +23,28 @@
 
 // FUN_00550180 — Clouds subobject (SpaceTerrainRenderComp), sizeof 0x12c.
 // Also allocated by TexturePanels::Load for nested [Clouds] / Exterior panels.
+//
+// The code works in retail offsets (`Clouds->Raw + 0x..`). Retail keeps pointers in five of its
+// dwords (+0x00 puff table, +0x18 four lightning shapes, +0x28 eight puff shapes, +0xc4 zone);
+// those cannot hold LP64 pointers, so Raw maps them onto native members and every other offset
+// onto the retail byte image.
+struct FTexShape;
 struct FNebulaClouds
 {
-    unsigned char Raw[0x12c];
+    struct FRaw
+    {
+        unsigned char Bytes[0x12c];
+        unsigned char* operator+(int RetailOffset);
+        unsigned char& operator[](int RetailOffset) { return *(*this + RetailOffset); }
+    };
+    FRaw Raw;                         // must stay first: FRaw finds its owner through it
+    void** PuffTable;                 // retail +0x00
+    FTexShape* LightningShapes[4];    // retail +0x18
+    FTexShape* PuffShapes[8];         // retail +0x28
+    Universe::IZone* Zone;            // retail +0xc4
 };
 
-static_assert(sizeof(FNebulaClouds) == 0x12c, "Clouds component 0x12c");
+static_assert(offsetof(FNebulaClouds, Raw) == 0, "Clouds raw image first");
 
 // DAT_00679860 -- SpaceTerrainRenderComp.cpp's lazily filled I3DMathEngine (FUN_005b73e0 on
 // first use). Readers: FUN_0054c8b0 (0x0054cb06, the band rings in cli_asteroid.cpp),
@@ -74,10 +90,7 @@ struct FNebulaCloudsListStorage
     FNebulaCloudsListNode* Sentinel;
     unsigned Count;
 };
-static_assert(sizeof(FNebulaEffectCompanion) == 0x10, "Nebula companion size");
 static_assert(sizeof(FNebulaCloudsListStorage) == 0xc, "Nebula clouds list size");
-static_assert(sizeof(FShapeDB) < 0x18, "ShapeDB fits reserved storage");
-static_assert(sizeof(FNebulaZoneShellMap) < 0x14, "zone shell map fits reserved storage");
 
 struct INebula
 {
@@ -106,7 +119,6 @@ struct INebula
     virtual ~INebula() {}
 };
 
-#pragma pack(push, 1)
 struct FNebulaEffect : INebula
 {
     FNebulaEffect();
@@ -134,41 +146,41 @@ struct FNebulaEffect : INebula
     void Detail(float DetailLevel) override;
     ~FNebulaEffect() override;
 
+    // The members retail keeps at fixed offsets. cli_nebula.cpp reads the object in retail
+    // offsets through FNebulaBytes (NebulaRetailAt), which maps these offsets onto the members
+    // and every other offset onto Image -- retail's 0x2d0 bytes, of which only the unnamed
+    // scalars are used. The pointers retail keeps in dwords get pointer-sized members here.
     FShapeDB Shapes;                                 // +0x04
-    unsigned char ShapePadding[0x18 - sizeof(FShapeDB)];
     float FrameDelta;                                // +0x1c
     Universe::IZone* Zone;                            // +0x20
-    unsigned Field24;                                // +0x24 TODO: exclusion state
-    unsigned Field28;                                // +0x28 TODO: exclusion state
+    Exclusion::NebulaExclusionZone* Field24;          // +0x24 the exclusion zone the camera is in
+    unsigned Field28;                                // +0x28 immersion (float bits)
     unsigned char Flag2C;                            // +0x2c
-    unsigned char Pad2D[3];
-    unsigned Field30;                                // +0x30 TODO: exclusion state
+    FNebulaZoneShell* Field30;                        // +0x30 that zone's shell
     Exclusion::NebulaExclusionZoneMgr* ExclusionMgr;  // +0x34
     FNebulaZoneShellMap ZoneShells;                  // +0x38
-    unsigned char MapPadding[0x14 - sizeof(FNebulaZoneShellMap)];
-    unsigned char Pad4C[0x98];                       // +0x4c
+    FTexShape* FogShape;                              // +0x5c
+    FTexShape* BoltShapes[8];                         // +0x60
+    float* BoltSegments;                              // +0xe0
     FNebulaEffectCompanion Companion;                // +0xe4
     FNebulaCloudsListStorage Clouds;                  // +0xf4
-    unsigned char Pad100[0x198];                      // +0x100
+    Universe::IZone* Zone248;                         // +0x248
+    struct FGameLight* AmbientLight;                  // +0x270
     float FogDistance;                                // +0x298
     float FogNear;                                    // +0x29c
-    unsigned char Pad2A0[0x20];                       // +0x2a0
     unsigned char FlagLoaded;                         // +0x2c0
-    unsigned char Pad2C1[0x0f];                       // +0x2c1
+    unsigned char Image[0x2d0];
 };
-#pragma pack(pop)
 
-static_assert(sizeof(FNebulaEffect) == 0x2d0, "Nebula 0x2d0");
-static_assert(offsetof(FNebulaEffect, Shapes) == 0x04, "Shapes +0x04");
-static_assert(offsetof(FNebulaEffect, FrameDelta) == 0x1c, "FrameDelta +0x1c");
-static_assert(offsetof(FNebulaEffect, Companion) == 0xe4, "Companion +0xe4");
-static_assert(offsetof(FNebulaEffect, Clouds) == 0xf4, "Clouds list +0xf4");
-static_assert(offsetof(FNebulaEffect, Zone) == 0x20, "Zone +0x20");
-static_assert(offsetof(FNebulaEffect, ExclusionMgr) == 0x34, "ExclusionMgr +0x34");
-static_assert(offsetof(FNebulaEffect, ZoneShells) == 0x38, "zone_shell map +0x38");
-static_assert(offsetof(FNebulaEffect, Clouds) + offsetof(FNebulaCloudsListStorage, Sentinel) == 0xf8, "CloudsList +0xf8");
-static_assert(offsetof(FNebulaEffect, FogDistance) == 0x298, "FogDistance +0x298");
-static_assert(offsetof(FNebulaEffect, FlagLoaded) == 0x2c0, "FlagLoaded +0x2c0");
+// The native home of retail offset Off of a nebula (cli_nebula.cpp).
+unsigned char* NebulaRetailAt(FNebulaEffect* Nebula, int Off);
+struct FNebulaBytes
+{
+    FNebulaEffect* Nebula;
+    unsigned char* operator+(int Off) const { return NebulaRetailAt(Nebula, Off); }
+    unsigned char& operator[](int Off) const { return *NebulaRetailAt(Nebula, Off); }
+};
+
 
 FNebulaEffect* NebulaConstruct(FNebulaEffect* This);
 FNebulaEffect* NebulaCreate();

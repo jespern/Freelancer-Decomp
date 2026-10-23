@@ -561,7 +561,8 @@ GENRESULT DACOM_API FMaterialLibrary::FindOrCreate(const char* Name, const char*
 GENRESULT DACOM_API FMaterialLibrary::FindMaterialByCrc(void* Query, IMaterial** Out)
 {
     // LAB_06ecd5c0: a miss leaves the caller's output untouched.
-    const unsigned long Crc = ((unsigned long*)Query)[1];
+    // {const char* Name; unsigned long Crc}: the CRC follows the name pointer.
+    const unsigned long Crc = *(unsigned long*)((unsigned char*)Query + sizeof(const char*));
     FCrcSlot* Slot = FindByCrc(Crc);
     if (Slot == nullptr)
         return (GENRESULT)-1;
@@ -572,7 +573,7 @@ GENRESULT DACOM_API FMaterialLibrary::FindMaterialByCrc(void* Query, IMaterial**
 
 GENRESULT DACOM_API FMaterialLibrary::AddMaterial(int GroupId, void* Record, IMaterial* Material)
 {
-    const unsigned long Crc = ((unsigned long*)Record)[1];
+    const unsigned long Crc = *(unsigned long*)((unsigned char*)Record + sizeof(const char*)); // {name, CRC}
     FMaterialGroup* Group = nullptr;
     if (GroupId != 0)
     {
@@ -603,7 +604,7 @@ GENRESULT DACOM_API FMaterialLibrary::AddMaterial(int GroupId, void* Record, IMa
 
 GENRESULT DACOM_API FMaterialLibrary::RemoveMaterial(unsigned long GroupId, void* Record)
 {
-    const unsigned long Crc = ((unsigned long*)Record)[1];
+    const unsigned long Crc = *(unsigned long*)((unsigned char*)Record + sizeof(const char*)); // {name, CRC}
     FCrcSlot* Slot = FindByCrc(Crc);
     GENRESULT Result = GR_OK;
     if (GroupId != 0)

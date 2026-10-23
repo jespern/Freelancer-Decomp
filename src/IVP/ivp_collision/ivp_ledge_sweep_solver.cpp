@@ -68,6 +68,7 @@
 // side as retail's mask/jump pair (unordered sets C3, C2 and C0).
 // ============================================================================
 
+#include <cstdio>
 #include "ivp_ledge_sweep_solver.h"
 
 #include "../ivp_physics/ivp_real_object.h"
@@ -375,6 +376,21 @@ int IVP_Ledge_Sweep_Evaluator::SearchContactTime(float Threshold,
         }
 
         Slot = Slot + StepCount;
+        if (Slot > 20)
+        {
+            // Retail never gets here (see CACHE-SLOT BOUND above); an interval past 21/200 s
+            // means the caller's times are wrong. Report it once and find no contact rather
+            // than index past FrameAtSlot[].
+            static bool bReported = false;
+            if (!bReported)
+            {
+                bReported = true;
+                std::fprintf(stderr, "[ivp] sweep interval overruns the frame cache: cur %g+%g end %g+%g slot %d\n",
+                             (double)CurTimeBase, (double)CurTimeOffset, (double)EndTimeBase,
+                             (double)EndTimeOffset, Slot);
+            }
+            return 0;
+        }
 
         // :063695ae-:063695d2. FILD count / FMUL 0.005f / FADD local_4 on the
         // x87 stack, FST dword param_3, FCOMP 1.0f on the unrounded sum.
@@ -629,6 +645,21 @@ int IVP_Ledge_Sweep_Evaluator::SearchContactTimeFromContact(float Threshold, flo
         // bound rests entirely on Advance never exceeding the remaining
         // interval (both branches above are capped by Remaining).
         Slot = Slot + StepCount;
+        if (Slot > 20)
+        {
+            // Retail never gets here (see CACHE-SLOT BOUND above); an interval past 21/200 s
+            // means the caller's times are wrong. Report it once and find no contact rather
+            // than index past FrameAtSlot[].
+            static bool bReported = false;
+            if (!bReported)
+            {
+                bReported = true;
+                std::fprintf(stderr, "[ivp] sweep interval overruns the frame cache: cur %g+%g end %g+%g slot %d\n",
+                             (double)CurTimeBase, (double)CurTimeOffset, (double)EndTimeBase,
+                             (double)EndTimeOffset, Slot);
+            }
+            return 0;
+        }
 
         IVP_Time SlotTime;
         SlotTime.time_base = WorkTimeBase;
@@ -746,6 +777,11 @@ int IVP_Ledge_Sweep_Evaluator::SearchContactTimeFromContact(float Threshold, flo
 // sizeof(IVP_U_Matrix), not sizeof(this project's own Csys) -- see the
 // header's note on the retail name collision.
 // ============================================================================
+static_assert(offsetof(FIVP_Sweep_Cache_Source, Object) == offsetof(IVP_NarrowPhaseCacheSlot, Owner),
+              "sweep source mirrors the cache slot (Owner)");
+static_assert(offsetof(FIVP_Sweep_Cache_Source, Frame) == offsetof(IVP_NarrowPhaseCacheSlot, WorldTransform),
+              "sweep source mirrors the cache slot (WorldTransform)");
+
 void IVP_Sweep_Frame_Cache::Init(FIVP_Sweep_Cache_Source *Source)
 {
     // :0635de95-:0635dea2. Object first, then Core through it -- retail
@@ -3363,10 +3399,11 @@ namespace
     static_assert(sizeof(FIVP_Sweep_Mindist_Side) == 0x1c,
                   "mindist side slot must be retail's 0x1c-byte stride");
 
-    FIVP_Sweep_Mindist_Side *SweepMindistSide(IVP_Ledge_Mindist *Mindist, uint32_t Index)
+    // Retail +0x18 + Index * 0x1c is IVP_Mindist_Base::synapse[Index]; the overlay above is
+    // its retail layout (Object = l_obj, Feature = edge, ShapeType = status).
+    IVP_Synapse_Real *SweepMindistSide(IVP_Ledge_Mindist *Mindist, uint32_t Index)
     {
-        return reinterpret_cast<FIVP_Sweep_Mindist_Side *>(
-            reinterpret_cast<char *>(Mindist) + 0x18 + Index * 0x1c);
+        return Mindist->synapse + Index;
     }
 
     // Retail's own "this cannot happen" store, `MOV dword ptr [0x00000000],0x0`.
@@ -3538,11 +3575,11 @@ void IVP_SweepEstimate_LedgeVsLedge(IVP_Sweep_Estimator_Context *Ctx)
     const uint32_t TagA = (Mindist->StateFlags >> 8) & 3;
     const uint32_t TagB = ((Mindist->StateFlags ^ 0x100) >> 8) & 3;
 
-    FIVP_Sweep_Mindist_Side *const SlotA = SweepMindistSide(Mindist, TagA);
-    FIVP_Sweep_Mindist_Side *const SlotB = SweepMindistSide(Mindist, TagB);
+    IVP_Synapse_Real *const SlotA = SweepMindistSide(Mindist, TagA);
+    IVP_Synapse_Real *const SlotB = SweepMindistSide(Mindist, TagB);
 
-    IVP_Real_Object *const ObjectA = SlotA->Object;
-    IVP_Compact_Edge *const FeatureA = SlotA->Feature;
+    IVP_Real_Object *const ObjectA = SlotA->l_obj;
+    IVP_Compact_Edge *const FeatureA = SlotA->edge;
 
     // :0635ff3c-:0635ff6b. Side A's record: ledge from the tagged edge, points
     // from the ledge, source from the object.
@@ -3558,8 +3595,8 @@ void IVP_SweepEstimate_LedgeVsLedge(IVP_Sweep_Estimator_Context *Ctx)
     // :0635ff6f-:0635ffa4. Side B's record, the same four fields. Note retail
     // reads SlotB's feature back out of its own frame spill at :0635ff6f rather
     // than from the mindist again; same value.
-    IVP_Real_Object *const ObjectB = SlotB->Object;
-    IVP_Compact_Edge *const FeatureB = SlotB->Feature;
+    IVP_Real_Object *const ObjectB = SlotB->l_obj;
+    IVP_Compact_Edge *const FeatureB = SlotB->edge;
     IVP_Compact_Ledge *const LedgeB = FeatureB->GetCompactLedge();
 
     FIVP_Sweep_Ledge_Side SideB;
@@ -3572,16 +3609,16 @@ void IVP_SweepEstimate_LedgeVsLedge(IVP_Sweep_Estimator_Context *Ctx)
     // :0635ffa8.
     Ctx->OutCode = 0;
 
-    // :0635ffaf-:06360060. Two nested switches, on SlotA->ShapeType and then
-    // SlotB->ShapeType. Every combination retail does not handle is its own
+    // :0635ffaf-:06360060. Two nested switches, on SlotA->status and then
+    // SlotB->status. Every combination retail does not handle is its own
     // null-store trap, and there are three of them: shape tag 1 on side A
     // accepts only tag 1 on side B, and tag 2 or 3 on side A is rejected
     // outright. That asymmetry is the mindist's own normalization showing
     // through -- the lower-dimensional feature is always put on side A.
-    switch (SlotA->ShapeType)
+    switch (SlotA->status)
     {
     case 0:
-        switch (SlotB->ShapeType)
+        switch (SlotB->status)
         {
         case 0:
             // :0636004c-:06360060.
@@ -3602,7 +3639,7 @@ void IVP_SweepEstimate_LedgeVsLedge(IVP_Sweep_Estimator_Context *Ctx)
         }
         break;
     case 1:
-        if (SlotB->ShapeType == 1)
+        if (SlotB->status == 1)
         {
             // :0635ffe0-:0635fff4.
             Ctx->EstimateLedgeEdgeVsLedgeEdgeContact(FeatureA, FeatureB, &SideA, &SideB);

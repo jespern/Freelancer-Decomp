@@ -1020,7 +1020,7 @@ void NeuroNetStoryStar::SetMissionMode(bool bMission)
     RebuildHistoryText();
 }
 
-bool NeuroNetStoryStar::Slot23(unsigned Msg, unsigned A, unsigned B)
+bool NeuroNetStoryStar::Slot23(unsigned Msg, uintptr_t A, uintptr_t B)
 {
     // LAB_004bc090 (RET 0xc). Neither message reaches WinControl's slot 23.
     (void)A;

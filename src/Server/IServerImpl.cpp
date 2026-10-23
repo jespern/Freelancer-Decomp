@@ -5,6 +5,7 @@
 // Author: Giperion.
 
 #include "../include/common_server.h"
+#include "../include/hd_plugins.h"
 #include "../include/server_iserverimpl.h"   // IServerImpl, Server
 #include "../include/server_cobject.h"
 #include "../include/server_gameobject.h"
@@ -3240,9 +3241,19 @@ unsigned int Server_ControllerCreate(const char* dll_path, const char* instance_
     if (flid == 0) return 0;
 
     HMODULE hMod = pub::DLL_LoadLibrary(dll_path);
+    // HD: FLSharp freelancer_dll_crash_fix — a DLL that does not load returns 0 here (0x06d43d6b,
+    // 0x06d43e6d jump to the epilogue 0x06d43f54) instead of calling a null CreateInstance.
+    static const bool bDllCrashFix = HdPlugins::FlSharp("freelancer_dll_crash_fix");
     if (hMod == nullptr) {
         FDUMP(0x100001, "%s(%d) : *** ERROR: failed create DLL instance '%s' (make sure file exists)\n",
               "E:\\FL\\Scratch\\Source\\Server\\dlls.cpp", 0xa7, dll_path);
+        if (bDllCrashFix) return 0;
+    }
+    // HD: beyond FLSharp, same key — a Windows plugin DLL loads here as resources only (no
+    // CreateInstance); it is let go the same way.
+    if (bDllCrashFix && GetProcAddress(hMod, "CreateInstance") == nullptr) {
+        FreeLibrary(hMod);
+        return 0;
     }
 
     FControllerNode* node = (FControllerNode*)malloc(sizeof(FControllerNode));

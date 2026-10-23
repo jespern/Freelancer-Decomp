@@ -687,7 +687,7 @@ void PageCharacterSelect::FillRow(unsigned Row, CCharacterSet::CharacterInfo con
     Data->Release();
 }
 
-bool PageCharacterSelect::Slot23(unsigned Msg, unsigned A, unsigned B)
+bool PageCharacterSelect::Slot23(unsigned Msg, uintptr_t A, uintptr_t B)
 {
     // FUN_00569670.
     if (Msg == 0x3004)
@@ -1098,10 +1098,16 @@ void PageCharacterSelect::Update()
         {
             float const Along[3] = {static_cast<float>(SlideT), 0.0f, 0.0f};
             float const Negated = static_cast<float>(-SlideT);
+            // HD: FLSharp slide_ui_anim_fix — the text hidden before it slides out (ui_anim.cpp).
+            UiTextMsgButtonHideSlidingText(LoadCharacter);
             LoadCharacter->SetProperty(6, reinterpret_cast<uintptr_t>(Along), 0);
+            UiTextMsgButtonHideSlidingText(NewCharacter);
             NewCharacter->SetProperty(6, reinterpret_cast<uintptr_t>(Along), 0);
+            UiTextMsgButtonHideSlidingText(DeleteCharacter);
             DeleteCharacter->SetProperty(6, reinterpret_cast<uintptr_t>(Along), 0);
+            UiTextMsgButtonHideSlidingText(Back);
             Back->SetProperty(6, reinterpret_cast<uintptr_t>(Along), 0);
+            UiTextMsgButtonHideSlidingText(MainMenu);
             MainMenu->SetProperty(6, reinterpret_cast<uintptr_t>(Along), 0);
             // 0x0056a8cd..0x0056a9d7: the same three positions built with FUN_00422b80 (float
             // sums): CharacterBox home + {-1.2 SlideT, 0, 0}, MOTDBox home + {0, SlideT, 0},

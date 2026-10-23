@@ -126,11 +126,14 @@ int DrasticEvadeBehavior::Slot7()
 // Slot 10, LAB_062c87c0 (Common.dll.txt 195559-195584), all 26 instructions.
 bool DrasticEvadeBehavior::Slot10(void* DirectiveOp)
 {
-    unsigned char const* const Op = static_cast<unsigned char const*>(DirectiveOp);
-    std::memcpy(&TargetKind40, Op + 0xc, sizeof(TargetKind40));             // 062c87c9
+    // The pub::AI::DirectiveDrasticEvadeOp; retail reads +0xc, +0x10..+0x18 and +0x1c. Read by
+    // member: on LP64 the op's vptr is 8 bytes and every field sits 4 bytes further on.
+    pub::AI::DirectiveDrasticEvadeOp const* const Op =
+        static_cast<pub::AI::DirectiveDrasticEvadeOp const*>(DirectiveOp);
+    std::memcpy(&TargetKind40, &Op->ThreatId, sizeof(TargetKind40));              // 062c87c9
     if (TargetKind40 == 0)
-        std::memcpy(&TargetOffset, Op + 0x10, sizeof(TargetOffset));         // 062c87d0-062c87e4
-    Flags28 = static_cast<unsigned char>(Flags28 | 0x2);                     // 062c87f0
-    std::memcpy(&DurationThreshold30, Op + 0x1c, sizeof(DurationThreshold30)); // 062c87f3
+        std::memcpy(&TargetOffset, &Op->Field_10, sizeof(TargetOffset));          // 062c87d0-062c87e4
+    Flags28 = static_cast<unsigned char>(Flags28 | 0x2);                          // 062c87f0
+    std::memcpy(&DurationThreshold30, &Op->Field_1C, sizeof(DurationThreshold30)); // 062c87f3
     return true;
 }

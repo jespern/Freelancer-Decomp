@@ -8,6 +8,7 @@
 // Listing: freelancer.exe.txt 0x00484090–0x004854d8. Table: docs/re/dealer_equip_stats.md
 
 #include "dealer_equip_stats.h"
+#include "hd_plugins.h"
 
 #include "ids_rdl.h"
 #include "ids_strings.h"
@@ -15,6 +16,10 @@
 
 #include "common_archetype.h"
 #include "common_goods.h"
+#include "hd_plugins.h"
+
+#include <cstdarg>
+#include <cwchar>
 
 #include <cstdio>
 #include <cstring>
@@ -228,7 +233,18 @@ namespace
         const HpAttachmentType Hp = Gen->get_hp_type();
         EmitClassAndLevel(OutRdl, Hp, bEmitLabels, bEmitValues);
 
-        EmitIntStat(OutRdl, 0x6d8, Gen->MaxCapacity, bEmitLabels, bEmitValues);
+        // HD: FLSharp shield_capacity_fix — the usable capacity: max less the offline threshold's
+        // share (truncated), at least 0 (0x0048505b).
+        static const bool bUsable = HdPlugins::FlSharp("shield_capacity_fix");
+        float Capacity = Gen->MaxCapacity;
+        if (bUsable)
+        {
+            Capacity = Gen->MaxCapacity -
+                       static_cast<float>(FtolTrunc(Gen->OfflineThreshold * Gen->MaxCapacity));
+            if (Capacity < 0.0f)
+                Capacity = 0.0f;
+        }
+        EmitIntStat(OutRdl, 0x6d8, Capacity, bEmitLabels, bEmitValues);
         EmitIntStat(OutRdl, 0x6d9, Gen->RegenerationRate, bEmitLabels, bEmitValues);
         EmitIntStat(OutRdl, 0x6da, Gen->RebuildPowerDraw, bEmitLabels, bEmitValues);
     }
@@ -405,6 +421,117 @@ namespace
         wcscpy(G_DealerStatLine, L"\n");
         FlushLine(OutRdl);
     }
+
+    // HD: jflp get_stat_line -- label (flags 1), value (flags 2) or "n/a" (flags 4), then '\n',
+    // appended to the line buffer at *Len.
+    void JflpStatLine(unsigned Flags, unsigned* Len, unsigned NameIds, const wchar_t* Format,
+                      unsigned SuffixIds, ...)
+    {
+        wchar_t* const Buf = G_DealerStatLine;
+        if (Flags & 1)
+            *Len += GetIdsStringWWithRawFallback(NameIds, Buf + *Len, 128);
+        if (Flags & 2)
+        {
+            if (Flags & 4)
+            {
+                wcscpy(Buf + *Len, L"n/a");
+                *Len += 3;
+            }
+            else
+            {
+                va_list Args;
+                va_start(Args, SuffixIds);
+                const int Written = vswprintf(Buf + *Len, 128, Format, Args);
+                va_end(Args);
+                if (Written > 0)
+                    *Len += static_cast<unsigned>(Written);
+                if (SuffixIds != 0)
+                    *Len += GetIdsStringWWithRawFallback(SuffixIds, Buf + *Len, 128);
+            }
+        }
+        Buf[(*Len)++] = L'\n';
+    }
+
+    // HD: jflp Stats (its Stats_Hook on the class switch at 0x004840c9): the stat lines for the
+    // classes retail leaves blank, written into the line buffer and appended by the common tail
+    // (0x004854c0). HD has no MultiCruise.dll, so the engine's cruise speed line is a blank one.
+    void BuildJflpStats(RenderDisplayList& OutRdl, Archetype::Equipment* Equip,
+                        Archetype::AClassType ClassType, bool bEmitLabels, bool bEmitValues)
+    {
+        unsigned Flags = (bEmitLabels ? 1u : 0u) | (bEmitValues ? 2u : 0u);
+        unsigned Len = 0;
+        const wchar_t* const IntFormat = L"%d";
+        // A name with a non-breaking space shows every value as "n/a".
+        if (bEmitValues)
+        {
+            G_DealerStatLine[0] = L'\0';
+            GetIdsStringWWithRawFallback(static_cast<unsigned>(Equip->IdsName), G_DealerStatLine,
+                                         128);
+            G_DealerStatLine[127] = L'\0';
+            if (wcschr(G_DealerStatLine, L'\x00a0') != nullptr)
+                Flags |= 4;
+        }
+        switch (ClassType)
+        {
+        case Archetype::AClassPower:
+        {
+            const Archetype::Power* const Power = static_cast<const Archetype::Power*>(Equip);
+            JflpStatLine(Flags, &Len, 1758, IntFormat, 0, (int)Power->Capacity);
+            JflpStatLine(Flags, &Len, 1753, IntFormat, 0, (int)Power->ChargeRate);
+            G_DealerStatLine[Len++] = L'\n';
+            JflpStatLine(Flags, &Len, 1698, IntFormat, 0, (int)Power->ThrustCapacity);
+            JflpStatLine(Flags, &Len, 1753, IntFormat, 0, (int)Power->ThrustChargeRate);
+            break;
+        }
+        case Archetype::AClassEngine:
+        {
+            const Archetype::Engine* const Engine = static_cast<const Archetype::Engine*>(Equip);
+            const float TopSpeed = Engine->ThrustMultiplier / Engine->LinearDrag;
+            JflpStatLine(Flags, &Len, 945, IntFormat, 1760, (int)TopSpeed);
+            JflpStatLine(Flags, &Len, 1699, IntFormat, 1760,
+                         (int)(TopSpeed * Engine->ReverseFraction));
+            JflpStatLine(Flags, &Len, 1755, IntFormat, 0, (int)Engine->PowerDrawFactor);
+            G_DealerStatLine[Len++] = L'\n';
+            JflpStatLine(Flags, &Len, 1762, L"%.2f", 1764,
+                         static_cast<double>(Engine->CruiseChargeTime));
+            JflpStatLine(Flags, &Len, 1763, IntFormat, 0, (int)Engine->CruisePowerUsage);
+            break;
+        }
+        case Archetype::AClassScanner:
+        {
+            const Archetype::Scanner* const Scanner = static_cast<const Archetype::Scanner*>(Equip);
+            JflpStatLine(Flags, &Len, 1745, IntFormat, 1759, (int)Scanner->RadarRange);
+            JflpStatLine(Flags, &Len, 1697, IntFormat, 1759, (int)Scanner->CargoScanRange);
+            break;
+        }
+        case Archetype::AClassTractor:
+        {
+            const Archetype::Tractor* const Tractor = static_cast<const Archetype::Tractor*>(Equip);
+            JflpStatLine(Flags, &Len, 1745, IntFormat, 1759, (int)Tractor->MaxLength);
+            JflpStatLine(Flags, &Len, 1696, IntFormat, 1760, (int)Tractor->ReachSpeed);
+            break;
+        }
+        case Archetype::AClassArmor:
+        {
+            const Archetype::Armor* const Armor = static_cast<const Archetype::Armor*>(Equip);
+            JflpStatLine(Flags, &Len, 1695, L"%.0f%%", 0,
+                         static_cast<double>((Armor->HitPtsScale - 1.0f) * 100.0f));
+            break;
+        }
+        default:
+            break;
+        }
+        G_DealerStatLine[Len] = L'\0';
+        AppendTextMaybeXmlRdl(G_DealerStatLine, Len, OutRdl, false);
+        ClearLine();
+    }
+}
+
+bool DealerJflpExtraStats()
+{
+    static const bool bStats =
+        HdPlugins::Enabled("jflp.dll") && !HdPlugins::Flag("jflp.dll", "nostats");
+    return bStats;
 }
 
 void BuildDealerEquipmentStatText(RenderDisplayList& OutRdl, unsigned ArchId, bool bEmitLabels,
@@ -450,6 +577,19 @@ void BuildDealerEquipmentStatText(RenderDisplayList& OutRdl, unsigned ArchId, bo
     case Archetype::AClassCounterMeasure:
         BuildCounterMeasureStats(OutRdl, static_cast<Archetype::CounterMeasure*>(Equip),
                                  bEmitLabels, bEmitValues);
+        break;
+    case Archetype::AClassPower:
+    case Archetype::AClassEngine:
+    case Archetype::AClassScanner:
+    case Archetype::AClassTractor:
+    case Archetype::AClassArmor:
+        // HD: jflp's stats for these (stats_jump_index -> Stats_Hook at 0x004840c9).
+        if (DealerJflpExtraStats())
+        {
+            BuildJflpStats(OutRdl, Equip, ClassType, bEmitLabels, bEmitValues);
+            break;
+        }
+        BuildDefaultNewline(OutRdl);
         break;
     default:
         BuildDefaultNewline(OutRdl);

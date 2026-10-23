@@ -28,12 +28,19 @@ namespace
         unsigned long Offset;
     };
 
+    // Retail facet offsets 0x00..0x20 (one vptr per base); taken from the class so they hold
+    // on LP64. Offsets are relative to the ICompoundControl base, which is at 0.
     FThornFacetEntry const G_ThornFacetTable[] = {
-        {Iids::CompoundControl, 0x00},     {Iids::SoundControl, 0x04},
-        {Iids::IKControl, 0x08},           {Iids::GeoTransformControl, 0x0c},
-        {Iids::CameraControl, 0x10},       {Iids::D3DLightControl, 0x14},
-        {Iids::PSysControl, 0x18},         {Iids::FogControl, 0x1c},
-        {Iids::ReverbControl, 0x20},       {nullptr, 0},
+        {Iids::CompoundControl, (unsigned long)FlFacetOffset<FThornComponent, ICompoundControl>()},
+        {Iids::SoundControl, (unsigned long)FlFacetOffset<FThornComponent, ISoundControl>()},
+        {Iids::IKControl, (unsigned long)FlFacetOffset<FThornComponent, IIKControl>()},
+        {Iids::GeoTransformControl, (unsigned long)FlFacetOffset<FThornComponent, IGeoTransformControl>()},
+        {Iids::CameraControl, (unsigned long)FlFacetOffset<FThornComponent, ICameraControl>()},
+        {Iids::D3DLightControl, (unsigned long)FlFacetOffset<FThornComponent, ID3DLightControl>()},
+        {Iids::PSysControl, (unsigned long)FlFacetOffset<FThornComponent, IPSysControl>()},
+        {Iids::FogControl, (unsigned long)FlFacetOffset<FThornComponent, IFogControl>()},
+        {Iids::ReverbControl, (unsigned long)FlFacetOffset<FThornComponent, IReverbControl>()},
+        {nullptr, 0},
     };
 
     long InstanceHandle(void* Instance)

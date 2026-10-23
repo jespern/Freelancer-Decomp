@@ -19,6 +19,9 @@
 //   FUN_0046b0d0 / FUN_0046b0e0 / FUN_0046b0f0   the MOTD
 
 #include "chat_init.h"
+#include <stdio.h>
+#include "hd_console.h"
+#include "hd_hudless.h"
 #include "event_handler.h"
 
 #include "character_select_equip.h"   // GetPlayerSpawnSystemIdRetail (FUN_004c4670)
@@ -40,6 +43,7 @@
 #include "common_misc.h"              // SinglePlayer
 #include "common_universe.h"           // Universe::get_system / get_base, Archetype::GetShip
 #include "dacom.h"
+#include "hd_plugins.h"
 
 #include <ctime>
 #include <string>
@@ -561,7 +565,10 @@ void ChatInit()
     G_ChatNameCache78 = new std::map<unsigned, RenderDisplayList*>();
 
     // 0x004691a5..0x00469207
-    G_ChatMessageStore = new FChatMessageStore(kChatMessageStoreCapacity,
+    // HD: chat_history_127 — the pool capacity is 0x7f (0x004691d1 push 0x20 -> 0x7f).
+    G_ChatMessageStore = new FChatMessageStore(HdPlugins::Feature("chat_history_127")
+                                                   ? 0x7f
+                                                   : kChatMessageStoreCapacity,
                                                kChatMessageStoreMaxCount,
                                                kChatMessageStoreMaxAgeMs);
     G_ChatAllMessages = &G_ChatMessageStore->All;
@@ -678,7 +685,8 @@ void ChatPlayerJoined(wchar_t const* Name, unsigned PlayerId, bool bNotify)
         RdlAppendNode(Label, Text.Clone());
         G_ChatChannelTable->AddChannel(ChatIdForPlayer(PlayerId), Label);
     }
-    if (!bNotify)
+    // HD: HUDless skips the notice while the HUD is hidden (0x0046aaf8).
+    if (!bNotify || HdHudless::Hidden())
         return;
 
     // 0x0046aafe..0x0046ad1b
@@ -701,7 +709,8 @@ void ChatPlayerLeft(unsigned PlayerId, bool bNotify)
     if (Name == nullptr)
         return;
 
-    if (bNotify)
+    // HD: HUDless skips the notice while the HUD is hidden (0x0046af1e).
+    if (bNotify && !HdHudless::Hidden())
     {
         // 0x0046af24..0x0046b05e
         FChatMessageEntry* const Entry = ChatAcquireEntry();
@@ -808,7 +817,8 @@ void ChatSetInputOpen(bool bOpen)
         Line->bCloseAfterSend = 1;
         Line->SetTarget(G_ChatInputTarget);
         Line->Activate();
-        Line->SetMaxLength(0x50);
+        // HD: chat_input_127 — 127 characters (0x0046a440 push 0x50 -> 0x7f).
+        Line->SetMaxLength(HdPlugins::Feature("chat_input_127") ? 0x7f : 0x50);
         Line->SetLayoutFlag(true);
         Line->SetKeepScrolledToEnd(true);
         return;
@@ -857,7 +867,8 @@ namespace
         // (DAT_0066da88) -> FUN_0046a3c0(1) and consume; anything else is not handled.
         if (MsgId != kChatOpenCommand)
             return false;
-        if (SinglePlayer())
+        // HD: console.dll opens the chat line in single player too (0x0046a117).
+        if (SinglePlayer() && !HdConsoleEnabled())
             return false;
         if (!G_bChatMsgWinWanted)
             return false;
@@ -928,6 +939,10 @@ void ChatShowMsgWin(bool bShow)
 {
     // FUN_0046a4a0
     G_bChatMsgWinWanted = bShow;
+    // HD: console.dll needs the chat window in single player, where retail never makes one
+    // (FUN_0046b580 runs on the multiplayer menu).
+    if (bShow && G_ChatMsgWin == nullptr && HdConsoleEnabled())
+        ChatCreateMsgWin();
     if (bShow)
     {
         if (G_ChatMsgWin != nullptr)

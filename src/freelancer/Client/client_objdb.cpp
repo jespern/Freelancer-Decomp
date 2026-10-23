@@ -5,6 +5,7 @@
 // Author: Giperion.
 
 #include "client_objdb.h"
+#include "hd_plugins.h"
 
 #include "client_gameobj.h"
 #include "client_tick_profile.h" // Port-only owner-requested collision profiling
@@ -21,6 +22,7 @@
 #include "star_sys.h"
 #include "x86math.h"          // I3DMathEngine::MatrixToQuaternion
 
+#include <cmath>
 #include <cstdarg>
 #include <cstddef>
 #include <cstdint>
@@ -875,6 +877,87 @@ namespace
     // DAT_00678adc -- this file's lazily acquired 3DMathEngine (FUN_005b73e0 on first use at
     // 0x005415dd); FUN_00541580 is its only user.
     I3DMathEngine* G_RemotePhysMathEngine = nullptr;
+
+    // HD: FLSharp better_updates (update.cpp) -- multiplayer sync pacing for the player's ship:
+    // at least 40 ms between updates (750 ms in a trade lane), one at least every 2 s, one on an
+    // engine-kill toggle or a turn past the ship's threshold, a missed one as soon as allowed.
+    bool BetterUpdates()
+    {
+        static const bool bOn = HdPlugins::FlSharp("better_updates");
+        return bOn;
+    }
+    float G_SecSinceUpdate = 0.0f;
+    bool G_bUpdateAsap = true;
+    bool G_bEngineKillLast = false;
+    float G_TurnThreshold = 30.0f;
+    float G_LastOrient[4] = {1.0f, 0.0f, 0.0f, 0.0f}; // w, x, y, z
+
+    // FLSharp's MatrixToQuaternion (fl_math.cpp), w x y z.
+    void OrientationQuaternion(Matrix const& M, float* Out)
+    {
+        float const (*D)[3] = reinterpret_cast<float const(*)[3]>(&M);
+        auto const SafeSqrt = [](float V) { return sqrtf(V > 0.0f ? V : 0.0f); };
+        Out[0] = SafeSqrt(1 + D[0][0] + D[1][1] + D[2][2]) / 2;
+        Out[1] = copysignf(SafeSqrt(1 + D[0][0] - D[1][1] - D[2][2]) / 2, D[2][1] - D[1][2]);
+        Out[2] = copysignf(SafeSqrt(1 - D[0][0] + D[1][1] - D[2][2]) / 2, D[0][2] - D[2][0]);
+        Out[3] = copysignf(SafeSqrt(1 - D[0][0] - D[1][1] + D[2][2]) / 2, D[1][0] - D[0][1]);
+    }
+
+    bool EngineKilled(CShip const* Ship)
+    {
+        CEquip const* const Equip = Ship->EquipManager.FindFirst(EquipTypeEngine);
+        CEEngine const* const Engine = Equip != nullptr ? CEEngine::cast(Equip) : nullptr;
+        return Engine != nullptr && !Engine->IsActive();
+    }
+
+    // The update decision around CheckForSync's answer (0x00541602).
+    bool PaceSync(CShip const* Ship, bool bSync)
+    {
+        bool const bEngineKill = EngineKilled(Ship);
+        bool const bEkToggled = bEngineKill != G_bEngineKillLast;
+        G_bEngineKillLast = bEngineKill;
+        bool bExtra = G_SecSinceUpdate >= 2.0f;
+        if (!bExtra && G_SecSinceUpdate >= 0.25f)
+        {
+            float Now[4];
+            OrientationQuaternion(Ship->Orientation, Now);
+            float Dot = Now[0] * G_LastOrient[0] + Now[1] * G_LastOrient[1] +
+                        Now[2] * G_LastOrient[2] + Now[3] * G_LastOrient[3];
+            Dot = Dot > 1.0f ? 1.0f : (Dot < -1.0f ? -1.0f : Dot);
+            bExtra = acosf(fabsf(Dot)) * 2.0f * (180.0f / 3.14159265358979323846f) >= G_TurnThreshold;
+        }
+        float const MinInterval = Ship->is_using_tradelane() ? 0.75f : 0.04f;
+        if (G_SecSinceUpdate < MinInterval)
+        {
+            if (!G_bUpdateAsap)
+                G_bUpdateAsap = bSync || bEkToggled || bExtra;
+            return false;
+        }
+        return G_bUpdateAsap || bSync || bEkToggled || bExtra;
+    }
+}
+
+void ClientObjDb_ResetSyncPacing(CShip const* Ship)
+{
+    // HD: FLSharp better_updates -- after the player ship spawns (0x0054b8b9), multiplayer only:
+    // an update forced, and the turn threshold from the ship's agility.
+    if (!BetterUpdates() || SinglePlayer())
+        return;
+    G_bEngineKillLast = false;
+    G_SecSinceUpdate = 2.0f;
+    G_bUpdateAsap = true;
+    G_TurnThreshold = 30.0f;
+    if (Ship == nullptr)
+        return;
+    Archetype::Ship const* const Arch = Ship->shiparch();
+    float const AvgDrag = (Arch->AngularDragX + Arch->AngularDragY) / 2.0f;
+    float const AvgTorque = (Arch->SteeringTorqueX + Arch->SteeringTorqueY) / 2.0f;
+    float const Radius = Ship->get_radius();
+    if (AvgDrag <= 0.0f || AvgTorque <= 0.0f || Radius <= 0.0f)
+        return;
+    float const MaxTurnSpeed = (AvgTorque / AvgDrag) * (180.0f / 3.14159265358979323846f);
+    float const Threshold = 15.0f * sqrtf(MaxTurnSpeed) / sqrtf(Radius);
+    G_TurnThreshold = Threshold < 30.0f ? Threshold : 30.0f;
 }
 
 void ClientObjDb_UpdateRemotePhysics(float Dt)
@@ -883,6 +966,8 @@ void ClientObjDb_UpdateRemotePhysics(float Dt)
     // 0x0054158c..0x00541594: single player -> nothing.
     if (SinglePlayer())
         return;
+    if (BetterUpdates())
+        G_SecSinceUpdate += Dt; // HD: FLSharp better_updates (0x0054b16d)
 
     // 0x0054159a..0x005416ab: every node of DAT_00678a30, head DAT_00678a34.
     std::list<FRemotePhysBlock*>::iterator It = G_RemotePhysBlocks.begin();
@@ -908,8 +993,11 @@ void ClientObjDb_UpdateRemotePhysics(float Dt)
 
         // 0x005415f6..0x00541609: CheckForSync(position, position, orientation) -- the ship's
         // +0x2c position passed twice. False -> next node.
-        if (!Block->Simulation.CheckForSync(Ship->WorldPosition, Ship->WorldPosition,
-                                            Orientation))
+        bool bSync = Block->Simulation.CheckForSync(Ship->WorldPosition, Ship->WorldPosition,
+                                                    Orientation);
+        if (BetterUpdates())
+            bSync = PaceSync(Ship, bSync); // HD: FLSharp better_updates (0x00541602)
+        if (!bSync)
             continue;
 
         // 0x0054160f..0x0054167c: the SSPObjUpdateInfo on the stack at [ESP+0x28] -- the ship's
@@ -927,8 +1015,20 @@ void ClientObjDb_UpdateRemotePhysics(float Dt)
         Info.Pad_0x2d[0] = 0;
         Info.Pad_0x2d[1] = 0;
         Info.Pad_0x2d[2] = 0;
+        // HD: FLSharp better_updates — the real throttle (0 under engine kill), not 0 (0x0054167c).
+        if (BetterUpdates())
+        {
+            float const Throttle = G_bEngineKillLast ? 0.0f : Ship->get_throttle();
+            memcpy(&Info.Field_0x28, &Throttle, sizeof(Throttle));
+        }
         static_cast<IServer*>(GetLocalServerInterface())->SPObjUpdate(Info,
                                                                        GetPlayerConnectionId());
+        if (BetterUpdates())
+        {
+            G_SecSinceUpdate = 0.0f;
+            G_bUpdateAsap = false;
+            OrientationQuaternion(Ship->Orientation, G_LastOrient);
+        }
 
         // 0x00541682..0x00541698: the simulation's vt+0x4 RemoteUpdate(position, orientation,
         // the Timestamp just sent -- re-read from the info as a double).

@@ -12,6 +12,7 @@
 #include "common_net.h"
 #include "server_savefile.h"  // ISave (declared once, Server implements it)
 #include "dacom.h"
+#include "hd_plugins.h"
 
 #include <algorithm>
 #include <cmath>
@@ -63,6 +64,22 @@ namespace CmnReputation
     {
         if (!GStoryFactionIds.empty())
             return;
+
+        // HD: storyfactions.dll replaces the list with the names in the first section of
+        // DATA\storyfactions.ini (HD's shows the Nomads and the Order on the reputation list).
+        if (HdPlugins::Enabled("storyfactions.dll"))
+        {
+            char Names[0x2000];
+            if (GetPrivateProfileSectionA("StoryFactions", Names, sizeof(Names), "..\\DATA\\storyfactions.ini") > 0)
+            {
+                for (char const* Name = Names; *Name != '\0'; Name += std::strlen(Name) + 1)
+                {
+                    unsigned short Id = MakeId(Name); // as below
+                    GStoryFactionIds.push_back(Id);
+                }
+                return;
+            }
+        }
 
         unsigned Index = 0;
         while (kStoryFactionNames[Index] != nullptr)

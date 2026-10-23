@@ -483,7 +483,7 @@ int FRenderManager::MultiLevel(int Id, void* FileArg)
         }
         for (FPluginNode* Walk = PluginSentinel.Next; Walk != &PluginSentinel; Walk = Walk->Next)
         {
-            const int Claimed = Walk->Plugin->Claim(Level);
+            const intptr_t Claimed = Walk->Plugin->Claim(Level);
             if (Claimed != -1)
             {
                 Set.Entries[Index].Handle = (void*)((intptr_t)Claimed);
@@ -524,7 +524,7 @@ int FRenderManager::WalkPlugins(int Id, void* File)
         return -1;
     for (FPluginNode* Walk = PluginSentinel.Next; Walk != &PluginSentinel; Walk = Walk->Next)
     {
-        const int Claimed = Walk->Plugin->Claim(File);
+        const intptr_t Claimed = Walk->Plugin->Claim(File);
         if (Claimed == -1)
             continue;
         FLodSet& Set = Found->second;
@@ -1082,7 +1082,7 @@ int FRenderManager::SetParentFromDesc(FAggDesc18* Desc)
 GENRESULT DACOM_API RenderManagerFactoryCreate(FDacomFactory* This, AGGDESC* Desc, void** Out)
 {
     FAggDesc18* Extended = (FAggDesc18*)Desc;
-    if (Extended->Size != 0x18 || std::strcmp(Extended->Name, This->Name) != 0)
+    if (!FL_DESC_SIZE_IS(Extended->Size, decltype(*Extended), 0x18) || std::strcmp(Extended->Name, This->Name) != 0)
     {
         *Out = nullptr;
         return GR_INTERFACE_UNSUPPORTED;

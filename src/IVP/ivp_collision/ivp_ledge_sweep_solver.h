@@ -416,13 +416,11 @@ class IVP_Time;
 // ----------------------------------------------------------------------------
 struct FIVP_Sweep_Cache_Source
 {
-    const void *Field_0x00;             // +0x00 -- copied into the cache's +0x10
-    int Field_0x04;                     // +0x04 -- never read by Init
+    // IVP_NarrowPhaseCacheSlot's layout: LastRefreshTick, RefCount, Owner, Quat, WorldTransform.
+    int32_t Field_0x00;                 // +0x00 -- copied into the cache's +0x10 (LastRefreshTick)
+    int32_t Field_0x04;                 // +0x04 -- never read by Init
     IVP_Real_Object *Object;            // +0x08
-    int Field_0x0c;                     // +0x0c -- never read by Init
-    int Field_0x10;                     // +0x10 -- never read by Init
-    int Field_0x14;                     // +0x14 -- never read by Init
-    int Field_0x18;                     // +0x18 -- never read by Init
+    float Field_0x0c[4];                // +0x0c..+0x1b -- the slot's quaternion, never read by Init
     IVP_U_Matrix Frame;                 // +0x1c
 };
 static_assert(offsetof(FIVP_Sweep_Cache_Source, Object) == 0x08, "FIVP_Sweep_Cache_Source::Object");
@@ -434,7 +432,7 @@ struct IVP_Sweep_Frame_Cache
     IVP_Core *Core;                     // +0x04
     int Field_0x08;                     // +0x08 -- purpose unknown, never written by the ctor
     int Field_0x0c;                     // +0x0c -- purpose unknown, never written by the ctor
-    const void *Field_0x10;             // +0x10 -- ctor: `= *CtorArg`
+    int32_t Field_0x10;                 // +0x10 -- ctor: `= *CtorArg`
     IVP_U_Matrix *FrameAtSlot[21];      // +0x14
     IVP_U_Matrix FrameStorage[21];      // +0x68
 

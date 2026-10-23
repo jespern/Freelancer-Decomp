@@ -5,6 +5,7 @@
 // Author: Giperion.
 
 #include "nn_help.h"
+#include "hd_plugins.h"
 
 #include "best_path.h"              // BestPathGetWaypoint (FUN_004c4ff0), FBestPathWaypoint
 #include "character_select_equip.h" // GetPlayerStarSystemIdRetail (FUN_004c4830),
@@ -35,6 +36,7 @@
 #include "nn_navmap.h"              // NavMapZoneAt (FUN_004a1b50)
 #include "nn_text_scratch.h"        // G_NnTextScratchA / B, G_NnTextScratchCapacity
 #include "player_behavior.h"        // GetPlayerObjRW (FUN_0054baf0)
+#include "player_spawn.h"           // GetPlayerWaypointRetail (waypoint_name_fixes)
 #include "rich_text_win.h"
 #include "star_sys.h"               // GetAttitudeClass (FUN_0045a490)
 #include "win3d.h"                  // Win3DReparent (FUN_0059dd00), Win3DDeleteTree (FUN_0043d2a0)
@@ -49,6 +51,7 @@
                                     // Reputation::get_info_card
 #include "common_text.h"            // RenderDisplayList, StyleNode
 #include "common_universe.h"        // Universe::get_system, ISystem, IZone, FSystemObject
+#include "hd_plugins.h"
 
 #include <list>
 #include <stdio.h>
@@ -104,8 +107,28 @@ namespace
     // Not a retail function: the header FUN_00476080 writes before each of its four lists
     // (e.g. 0x00476177..0x0047628f) -- style 0xf64, a line break, the title ids, the title tail
     // and style 0x9ca4.
+    void IdsIntoOrEmpty(unsigned Ids, wchar_t* Out, int Chars);
+
     void AppendSectionTitle(RenderDisplayList& Card, unsigned TitleIds)
     {
+        // HD: FLSharp base_info_spacing_fix — the header unstyled with only its text in bold
+        // (RDL TRA), and the first item gets the same 5-space tail as the rest (0x00476177,
+        // 0x00476203 and the other three sections), so it is no longer misaligned.
+        static const bool bSpacingFix = HdPlugins::FlSharp("base_info_spacing_fix");
+        if (bSpacingFix)
+        {
+            AppendStyle(Card, 0x9ca4);
+            AppendText(Card, kLineBreak);
+            wchar_t Header[256];
+            IdsIntoOrEmpty(TitleIds, Header, 256);
+            swprintf(G_NnTextScratchB, G_NnTextScratchCapacity,
+                     L"<RDL><PUSH/><TRA bold=\"true\"/><TEXT>%s</TEXT><TRA bold=\"false\"/><POP/></RDL>",
+                     Header);
+            AppendScratchB(Card);
+            AppendText(Card, kItemTail);
+            AppendStyle(Card, 0x9ca4);
+            return;
+        }
         AppendStyle(Card, 0xf64);
         AppendText(Card, kLineBreak);
         LoadIdsIntoRdl(TitleIds, Card);
@@ -560,7 +583,7 @@ bool NnHelp::Create(Win3D* NewParent, void* Data)
     return Win3D::Create(NewParent, Data); // FUN_004b5060
 }
 
-bool NnHelp::Slot23(unsigned Msg, unsigned A, unsigned B)
+bool NnHelp::Slot23(unsigned Msg, uintptr_t A, uintptr_t B)
 {
     // LAB_00475430 (RET 0xc).
     if (Msg != 0xef02)
@@ -612,7 +635,12 @@ void NnHelp::ShowObjectInfo(IObjRW* Object)
     AppendStyle(Card, 0x9ca4);
 
     // 0x004755b7..0x004755c7
-    unsigned char const Visit = HudObjectVisitFlags(Target); // [ESP+0x17]
+    unsigned char Visit = HudObjectVisitFlags(Target); // [ESP+0x17]
+    // HD: FLSharp waypoint_name_fixes — a waypoint counts as visited (0x004755b8), so it is
+    // named rather than "Unknown Object".
+    static const bool bWaypointNames = HdPlugins::FlSharp("waypoint_name_fixes");
+    if (bWaypointNames && (Visit & 1) == 0 && HudIsWaypointObject(Target))
+        Visit |= 1;
     G_NnTextScratchB[0] = L'\0';
     wchar_t Name[0x80]; // [ESP+0x48]
 
@@ -632,7 +660,7 @@ void NnHelp::ShowObjectInfo(IObjRW* Object)
         int const Capacity = G_NnTextScratchCapacity;
 
         // 0x00475676..0x004756d4: the name as the title (upper case).
-        IdsIntoOrEmpty(GetObjectIdsName(Target), Name, 0x80);
+        IdsIntoOrEmpty(GetObjectIdsNameForWaypoint(Target), Name, 0x80); // HD: waypoint_name_fixes
         wcscat(G_NnTextScratchB, Name);
         CharUpperW(G_NnTextScratchB);
         Title->SetProperty(0x1d, reinterpret_cast<uintptr_t>(G_NnTextScratchB), 0);
@@ -641,7 +669,7 @@ void NnHelp::ShowObjectInfo(IObjRW* Object)
         // 0x004756db..0x0047574e: the pilot (ids 0x454).
         IObjRW* const Player = static_cast<IObjRW*>(GetPlayerObjRW()); // EBP
         FHudWideText Pilot = {nullptr, 0};                             // [ESP+0x38]
-        GetShipPilotName(Target, &Pilot);
+        GetShipPilotNameFull(Target, &Pilot); // HD: FLSharp pilot_names_fix (0x004756f8)
         if (Pilot.Text != nullptr && Pilot.Text[0] != L'\0')
         {
             GetIdsStringWWithRawFallback(0x454, G_NnTextScratchA, Capacity);
@@ -654,11 +682,18 @@ void NnHelp::ShowObjectInfo(IObjRW* Object)
         // hostile / 0x467 neutral / 0x468 friendly).
         if (Player != nullptr && (TypeBits & 0x7f0100u) != 0)
         {
-            int const Attitude = GetAttitudeClass(Player, Object); // FUN_0045a490
+            int const Attitude = GetAttitudeClass(Player, Object, false); // FUN_0045a490
             GetIdsStringWWithRawFallback(0x455, G_NnTextScratchA, Capacity);
             wcscat(G_NnTextScratchB, G_NnTextScratchA);
             unsigned AttitudeIds = 0;
-            if (Attitude == -1)
+            // HD: FLSharp group_member_attitude — "GROUP MEMBER" (1551) for a player of the
+            // player's group, else the capitalised 1589 - attitude (0x634..0x636) (0x004757a2).
+            static const bool bGroupAttitude = HdPlugins::FlSharp("group_member_attitude");
+            if (bGroupAttitude)
+                AttitudeIds = (Object->is_player() && HdSameGroup(Player, Object))
+                                  ? 1551u
+                                  : static_cast<unsigned>(1589 - Attitude);
+            else if (Attitude == -1)
                 AttitudeIds = 0x466;
             else if (Attitude == 0)
                 AttitudeIds = 0x467;
@@ -710,7 +745,12 @@ void NnHelp::ShowObjectInfo(IObjRW* Object)
             if ((static_cast<unsigned>(Target->ObjectClass) & 0x503u) == 0x503u)
             {
                 CShip const* const Ship = static_cast<CShip const*>(Target);
-                unsigned const Group = Ship->get_group_name();
+                unsigned Group = Ship->get_group_name();
+                // HD: FLSharp blank_faction_fix — fc_uk_grp's empty name (197510) reads "None"
+                // (3022) (0x00475950).
+                static const bool bNoneFaction = HdPlugins::FlSharp("blank_faction_fix");
+                if (bNoneFaction && Group == 197510u)
+                    Group = 3022u;
                 if (Group != 0)
                 {
                     GetIdsStringWWithRawFallback(0x456, G_NnTextScratchA, Capacity);
@@ -744,14 +784,38 @@ void NnHelp::ShowObjectInfo(IObjRW* Object)
             {
                 if (bUserWaypoint != 0)
                 {
-                    GetIdsStringWWithRawFallback(0x465, G_NnTextScratchA, Capacity);
+                    // HD: waypoint_name_case — "Player Waypoint" (0x00475a56 IDS 0x465 -> 0x44e).
+                    GetIdsStringWWithRawFallback(
+                        HdPlugins::Feature("waypoint_name_case") ? 0x44e : 0x465, G_NnTextScratchA,
+                        Capacity);
                     wcscat(G_NnTextScratchB, G_NnTextScratchA);
-                    FormatPercentLine(G_NnTextScratchA, WaypointIndex + 1);
+                    // HD: FLSharp waypoint_name_fixes — " %d" of the waypoint's own number, not
+                    // "%d" of index + 1 (0x00475a6c).
+                    if (bWaypointNames)
+                    {
+                        int Number = WaypointIndex + 1;
+                        if (FPlayerWaypointRecord* const Record = GetPlayerWaypointRetail(WaypointIndex))
+                            Number = static_cast<int>(Record->AutoId);
+                        _swprintf(G_NnTextScratchA, L" %d\n", Number);
+                    }
+                    else
+                        FormatPercentLine(G_NnTextScratchA, WaypointIndex + 1);
                     wcscat(G_NnTextScratchB, G_NnTextScratchA);
                 }
                 else
                 {
-                    FBestPathWaypoint* const Waypoint = BestPathGetWaypoint(WaypointIndex);
+                    // HD: FLSharp waypoint_name_fixes — the first space objective (flags & 0xf
+                    // == 0xa) rather than entry 0, so random missions show theirs (0x00475a94).
+                    FBestPathWaypoint* Waypoint = nullptr;
+                    if (bWaypointNames)
+                        for (int Entry = 0; FBestPathWaypoint* const Candidate = BestPathGetWaypoint(Entry); ++Entry)
+                            if ((Candidate->Field_0x18 & 0xfu) == 0xau)
+                            {
+                                Waypoint = Candidate;
+                                break;
+                            }
+                    if (Waypoint == nullptr)
+                        Waypoint = BestPathGetWaypoint(WaypointIndex);
                     if (Waypoint != nullptr)
                     {
                         FmtStrSprintf(&Waypoint->Marker, G_NnTextScratchA, Capacity);
@@ -797,7 +861,28 @@ void NnHelp::ShowObjectInfo(IObjRW* Object)
             CEqObj const* const EqObj = static_cast<CEqObj const*>(Owner);
             int const Vibe = static_cast<int>(EqObj->VibeId); // [ESP+0x34]
             unsigned Infocard = 0;                            // [ESP+0x10]
-            Reputation::Vibe::GetInfocard(Vibe, Infocard);
+            // HD: FLSharp dynamic_solar_infocards — a solar's infocard (0x00475bd8): a dynamic
+            // one's from MissionCreatedSolars.ini (by base, then nickname); otherwise, or with
+            // none, the archetype's ids_info or else ids_name.
+            static const bool bSolarInfocards = HdPlugins::FlSharp("dynamic_solar_infocards");
+            if (bSolarInfocards && (static_cast<unsigned>(Owner->ObjectClass) & 0x303u) == 0x303u)
+            {
+                CSolar const* const Solar = static_cast<CSolar const*>(Owner);
+                bool bFound = false;
+                if (Solar->is_dynamic())
+                    bFound = (Solar->is_base() &&
+                              HdFindMissionSolarInfocard(true, Solar->DockingBaseId, Infocard)) ||
+                             HdFindMissionSolarInfocard(false, Solar->Id, Infocard);
+                else
+                    bFound = Reputation::Vibe::GetInfocard(Vibe, Infocard) == 0 && Infocard != 0;
+                if (!bFound)
+                {
+                    Archetype::Solar const* const Arch = Solar->solararch();
+                    Infocard = static_cast<unsigned>(Arch->IdsInfo != 0 ? Arch->IdsInfo : Arch->IdsName);
+                }
+            }
+            else
+                Reputation::Vibe::GetInfocard(Vibe, Infocard);
             if (Infocard != 0)
             {
                 LoadIdsIntoRdl(Infocard, Card);

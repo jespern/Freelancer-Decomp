@@ -32,6 +32,10 @@
 #include "wire_controls.h"          // WireControlsJoinColumn (FUN_005a4b50)
 
 #include "DALib.h"
+#include <map>
+#include <vector>
+#include "common_ini.h"
+#include "hd_plugins.h"
 #include "render/IRenderPipeline.h"
 #include "render/rendcomp.h"
 
@@ -100,6 +104,157 @@ namespace
             Reputation::Vibe::GetAffiliation(PlayerVibe, Affiliation, false);
         }
         return Affiliation;
+    }
+
+    // HD: ranks.dll names the level ("%d - Rookie"), from DATA\MISSIONS\Ranks.ini: [SP Ranks]
+    // and [MP Ranks] (per faction with "group") give each rank's first level as next_rank =
+    // LEVEL[, ID] / set_ranks = INTERVAL, COUNT[, ID]; [Rank Settings] has offset / just_levels.
+    // The format (default id 0, "%%d - %s") and the names are string resources of the plugin's
+    // own DLL, which the mod profile copies into bin/ and which is only read here.
+    struct FHdRanks
+    {
+        struct FRank
+        {
+            int Level;
+            unsigned Id;
+        };
+        struct FGroup
+        {
+            unsigned Format;
+            std::vector<FRank> Ranks;
+        };
+        std::map<unsigned, FGroup*> Groups;
+        bool bJustLevels = false;
+        bool bOffset = false;
+        float StatX = 0.38f;
+        HMODULE Strings = nullptr;
+    };
+
+    FHdRanks const* HdRanks()
+    {
+        static FHdRanks* Ranks = nullptr;
+        static bool bLoaded = false;
+        if (bLoaded)
+            return Ranks;
+        bLoaded = true;
+        INI_Reader Reader;
+        if (!HdPlugins::Enabled("ranks.dll") || !Reader.open("..\\data\\missions\\Ranks.ini", false))
+            return nullptr;
+        Ranks = new FHdRanks;
+        Ranks->Strings = LoadLibraryExA("ranks.dll", nullptr, LOAD_LIBRARY_AS_DATAFILE);
+        FHdRanks::FRank Next = {1, 0};
+        while (Reader.read_header())
+        {
+            unsigned Group;
+            if (Reader.is_header("SP Ranks"))
+                Group = 0;
+            else if (Reader.is_header("MP Ranks"))
+                Group = 0xffffffffu;
+            else
+            {
+                if (Reader.is_header("Rank Settings"))
+                {
+                    while (Reader.read_value())
+                    {
+                        if (Reader.is_value("offset"))
+                        {
+                            Ranks->StatX = 0.38f - Reader.get_value_float(0) / 100;
+                            Ranks->bOffset = true;
+                        }
+                        else if (Reader.is_value("just_levels"))
+                            Ranks->bJustLevels = true;
+                    }
+                }
+                continue;
+            }
+            // As the plugin: the format takes the next id and the first rank the one after,
+            // unless format / first_rank_id say otherwise; ids run on across sections.
+            FHdRanks::FGroup* Ranked = new FHdRanks::FGroup;
+            Ranked->Format = Next.Id++;
+            Next.Level = 1;
+            Ranked->Ranks.push_back(Next);
+            ++Next.Id;
+            while (Reader.read_value())
+            {
+                if (Reader.is_value("format"))
+                {
+                    Next.Id = Reader.get_value_int(0);
+                    Ranked->Format = Next.Id++;
+                    Ranked->Ranks.front().Id = Next.Id++;
+                }
+                else if (Reader.is_value("first_rank_id"))
+                {
+                    Next.Id = Reader.get_value_int(0);
+                    Ranked->Ranks.front().Id = Next.Id++;
+                }
+                else if (Reader.is_value("next_rank"))
+                {
+                    Next.Level = Reader.get_value_int(0);
+                    if (!Reader.is_value_empty(1))
+                        Next.Id = Reader.get_value_int(1);
+                    Ranked->Ranks.push_back(Next);
+                    ++Next.Id;
+                }
+                else if (Reader.is_value("set_ranks"))
+                {
+                    int const Interval = Reader.get_value_int(0);
+                    int Count = Reader.get_value_int(1);
+                    if (!Reader.is_value_empty(2))
+                        Next.Id = Reader.get_value_int(2);
+                    while (Count-- > 0)
+                    {
+                        Next.Level += Interval;
+                        Ranked->Ranks.push_back(Next);
+                        ++Next.Id;
+                    }
+                }
+                else if (Reader.is_value("group"))
+                {
+                    if (Group == 0)
+                        continue;
+                    char const* const Faction = Reader.get_value_string(0);
+                    // The plugin's test is inverted: any group but "player" lands on the
+                    // default, "player" on its own id. Kept, as HD's ranks.ini has no groups.
+                    Group = _stricmp(Faction, "player") != 0 ? 0xffffffffu : MakeId(Faction);
+                    Ranks->Groups[Group] = Ranked;
+                }
+            }
+            if (Group == 0 || Group == 0xffffffffu)
+                Ranks->Groups[Group] = Ranked;
+        }
+        return Ranks;
+    }
+
+    // The level's format: kIntFormat, or "%d - <rank>" with HD's ranks.dll (0x004a8a9d).
+    wchar_t const* LevelFormat(int Level)
+    {
+        FHdRanks const* const Ranks = HdRanks();
+        if (Ranks == nullptr)
+            return kIntFormat;
+        if (Level == 0)
+            Level = 1;
+        unsigned const Group = SinglePlayer() ? 0u : PlayerAffiliation();
+        std::map<unsigned, FHdRanks::FGroup*>::const_iterator It = Ranks->Groups.find(Group);
+        if (It == Ranks->Groups.end())
+        {
+            if (Group == 0 || Ranks->bJustLevels)
+                return kIntFormat;
+            It = Ranks->Groups.find(0xffffffffu);
+            if (It == Ranks->Groups.end())
+                return kIntFormat;
+        }
+        FHdRanks::FGroup const* const Ranked = It->second;
+        size_t Rank = Ranked->Ranks.size();
+        while (Rank > 1 && Level < Ranked->Ranks[Rank - 1].Level)
+            --Rank;
+        wchar_t Format[128] = {0};
+        wchar_t Name[128] = {0};
+        LoadStringW(Ranks->Strings, Ranked->Format, Format, 128);
+        LoadStringW(Ranks->Strings, Ranked->Ranks[Rank - 1].Id, Name, 128);
+        static wchar_t Buffer[128];
+        _snwprintf(Buffer, 128, Format, Name);
+        Buffer[127] = 0;
+        return Buffer;
     }
 
     // The quad block of the Draw (0x004a83cc..0x004a8519 and 0x004a852d..0x004a8687): the
@@ -328,11 +483,16 @@ bool NnPlayerInfo::Create(Win3D* NewParent, void* Data)
             StatHeadings[Pair] = Heading;
 
             sprintf(ControlName,"PlayerInfoStat%d", Pair);
-            float const StatPosition[3] = {0.38f, PairY, 0.0f}; // 0x3ec28f5c
+            // HD: ranks.dll's [Rank Settings] offset moves the column left (0x004a7fda).
+            float const StatX = HdRanks() != nullptr ? HdRanks()->StatX : 0.38f;
+            float const StatPosition[3] = {StatX, PairY, 0.0f}; // 0x3ec28f5c
             StatValues[Pair] = CreateTextControl(ControlName,"ItemName", StatPosition, nullptr, 0.188f,
                                                  0.04f, 1.5f, 0, 0, 0, 0);
 
-            if (!SinglePlayer() && (TableIndex == 1 || TableIndex == 2))
+            // HD: mp_show_worth — the worth row (1) is laid out in multiplayer too (0x004a8004
+            // `je 0x4a800a` -> `je 0x4a801f`).
+            static const bool bHdMpWorth = HdPlugins::Feature("mp_show_worth");
+            if (!SinglePlayer() && ((TableIndex == 1 && !bHdMpWorth) || TableIndex == 2))
             {
                 Heading->Flags = static_cast<unsigned char>(Heading->Flags & 0xfc);
                 StatValues[Pair]->Flags = static_cast<unsigned char>(StatValues[Pair]->Flags & 0xfc);
@@ -386,7 +546,10 @@ intptr_t NnPlayerInfo::SetProperty(int Msg, uintptr_t A, uintptr_t B)
         CloseInfocardText->Flags = static_cast<unsigned char>(CloseInfocardText->Flags & 0xfc);
         for (int Stat = 0; Stat < 13; ++Stat)
         {
-            if (SinglePlayer() || (Stat != 1 && Stat != 2))
+            // HD: mp_show_worth — and shown again in multiplayer (0x004a8180 `je 0x4a8199` ->
+            // `je 0x4a8186`).
+            static const bool bHdMpWorth = HdPlugins::Feature("mp_show_worth");
+            if (SinglePlayer() || ((Stat != 1 || bHdMpWorth) && Stat != 2))
             {
                 StatValues[Stat]->Flags = static_cast<unsigned char>(StatValues[Stat]->Flags | 3);
                 StatHeadings[Stat]->Flags =
@@ -409,7 +572,7 @@ intptr_t NnPlayerInfo::SetProperty(int Msg, uintptr_t A, uintptr_t B)
     return 0;
 }
 
-bool NnPlayerInfo::Slot23(unsigned Msg, unsigned A, unsigned B)
+bool NnPlayerInfo::Slot23(unsigned Msg, uintptr_t A, uintptr_t B)
 {
     // LAB_00475430 (RET 0xc) -- the body NN_Help's slot 23 (nn_help.cpp) is folded with.
     if (Msg != 0xef02)
@@ -650,7 +813,8 @@ void NnPlayerInfo::OnPlayerStats(FNnPlayerStatsBlock const* Stats,
 
     // 0x004a8a70..0x004a8ae7: missions, level, worth (grouped digits).
     SetIntText(StatValues[3], Stats->TotalMissions); // +0x3a4
-    SetIntText(StatValues[0], Stats->Level);         // +0x398
+    _swprintf(G_NnTextScratchB, LevelFormat(Stats->Level), Stats->Level); // +0x398 (HD: ranks)
+    SetScratchText(StatValues[0]);
     FormatGroupedNumber(G_NnTextScratchB, Stats->Worth, -1); // FUN_004779a0
     SetScratchText(StatValues[1]);                   // +0x39c
 

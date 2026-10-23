@@ -5,6 +5,7 @@
 // Author: Giperion.
 
 #include "rich_text_win.h"
+#include "hd_plugins.h"
 
 #include "fl_ime_input_box.h"
 #include "globals.h"
@@ -441,18 +442,18 @@ void BaseRichTextWin::Draw()
     Slot39();
 }
 
-bool BaseRichTextWin::Slot23(unsigned Msg, unsigned A, unsigned B)
+bool BaseRichTextWin::Slot23(unsigned Msg, uintptr_t A, uintptr_t B)
 {
     // FUN_0057afd0 (RET 0xc). 0xf005 is a scrollbar's value change; A is the sender.
     if (Msg == 0xf005)
     {
-        if (A == static_cast<unsigned>(reinterpret_cast<uintptr_t>(ScrollBarV)))
+        if (A == reinterpret_cast<uintptr_t>(ScrollBarV))
         {
             int const OriginX = ScrollX;
             SetScrollOrigin(OriginX, static_cast<int>(ScrollBarV->GetValue()));
             return true;
         }
-        if (A == static_cast<unsigned>(reinterpret_cast<uintptr_t>(ScrollBarH)))
+        if (A == reinterpret_cast<uintptr_t>(ScrollBarH))
         {
             int OriginY;
             switch (AlignMode)
@@ -1326,6 +1327,58 @@ void RichTextEditWin::CreateSized(Win3D* NewParent, float Width, float Height)
     NormHeight = Height;
 }
 
+namespace
+{
+    bool CopyPasteEnabled()
+    {
+        static const bool bEnabled = HdPlugins::FlSharp("copy_paste_feature");
+        return bEnabled;
+    }
+}
+
+void RichTextEditWin::PasteFromClipboard()
+{
+    // HD: FLSharp copy_paste_feature (copy_paste.cpp Paste): each UTF-16 unit as a typed
+    // character, stopping at the box's maximum length (0 here = no limit).
+    if (!OpenClipboard(nullptr))
+        return;
+    HANDLE const Data = GetClipboardData(CF_UNICODETEXT);
+    wchar_t const* const Text = Data != nullptr ? static_cast<wchar_t const*>(GlobalLock(Data)) : nullptr;
+    if (Text != nullptr)
+    {
+        for (size_t Index = 0; Text[Index] != 0; ++Index)
+        {
+            if (MaxLength != 0 && static_cast<unsigned>(Cells.size()) >= static_cast<unsigned>(MaxLength))
+                break;
+            FHudCmdRecord Typed = {};
+            Typed.Arg10 = static_cast<unsigned short>(Text[Index]);
+            OnChar(&Typed);
+        }
+        GlobalUnlock(Data);
+    }
+    CloseClipboard();
+}
+
+void RichTextEditWin::CopyToClipboard()
+{
+    // HD: FLSharp copy_paste_feature (copy_paste.cpp Copy): every cell's character.
+    if (bPasswordMode != 0 || !OpenClipboard(nullptr))
+        return;
+    EmptyClipboard();
+    HGLOBAL const Mem = GlobalAlloc(GMEM_MOVEABLE, (Cells.size() + 1) * sizeof(wchar_t));
+    if (Mem != nullptr)
+    {
+        wchar_t* const Out = static_cast<wchar_t*>(GlobalLock(Mem));
+        for (size_t Index = 0; Index < Cells.size(); ++Index)
+            Out[Index] = Cells[Index].Ch;
+        Out[Cells.size()] = 0;
+        GlobalUnlock(Mem);
+        if (SetClipboardData(CF_UNICODETEXT, Mem) == nullptr)
+            GlobalFree(Mem);
+    }
+    CloseClipboard();
+}
+
 bool RichTextEditWin::OnKeyDown(FHudCmdRecord const* Record)
 {
     // FUN_0057c9b0 (RET 4).
@@ -1342,7 +1395,59 @@ bool RichTextEditWin::OnKeyDown(FHudCmdRecord const* Record)
     {
         unsigned const Key = Record->Key;
         bResult = true;
+        // HD: console.dll's word editing in every edit box (its edit-key jump table entries
+        // 0x0057ce00 .. 0x0057ce24): with Ctrl, Left / Right move by words, Backspace / Delete
+        // delete a word, Home / End delete to the start / end of the line. A word is letters,
+        // digits and '_'.
+        static const bool bConsole = HdPlugins::Enabled("console.dll");
+        bool bWordEdit = false;
+        if (bConsole && (Record->Modifiers & 4) != 0 && ImeBox == nullptr &&
+            (Key == 0x08 || Key == 0x2e || Key == 0x23 || Key == 0x24 || Key == 0x25 || Key == 0x27))
+        {
+            int const Count = static_cast<int>(Cells.size());
+            auto IsWord = [this](int Index) {
+                wchar_t const Ch = Cells[Index].Ch;
+                return iswalnum(Ch) || Ch == L'_';
+            };
+            auto PrevWord = [&](int Pos) {
+                while (Pos > 0 && !IsWord(Pos - 1))
+                    --Pos;
+                while (Pos > 0 && IsWord(Pos - 1))
+                    --Pos;
+                return Pos;
+            };
+            auto NextWord = [&](int Pos) {
+                while (Pos < Count && IsWord(Pos))
+                    ++Pos;
+                while (Pos < Count && !IsWord(Pos))
+                    ++Pos;
+                return Pos;
+            };
+            int const At = Caret < 0 ? 0 : (Caret > Count ? Count : Caret);
+            if (Key == 0x25)
+                SetCaret(PrevWord(At));
+            else if (Key == 0x27)
+                SetCaret(NextWord(At));
+            else
+            {
+                int From = At, To = At;
+                if (Key == 0x08)
+                    From = PrevWord(At);
+                else if (Key == 0x2e)
+                    To = NextWord(At);
+                else if (Key == 0x24)
+                    From = 0;
+                else
+                    To = Count;
+                if (To > From)
+                    Cells.erase(Cells.begin() + From, Cells.begin() + To);
+                SetCaret(From);
+                RebuildDisplay();
+            }
+            bWordEdit = true;
+        }
         // 0x0057c9ec..0x0057ca06: switch on Key - 8 through the byte table at 0x0057ce40.
+        if (!bWordEdit)
         switch (Key)
         {
         case 0x08:
@@ -1367,14 +1472,14 @@ bool RichTextEditWin::OnKeyDown(FHudCmdRecord const* Record)
             if (ImeBox != nullptr)
                 ImeBox->HandleKey(Key);
             if (Parent != nullptr)
-                Parent->Slot23(0xf004u, static_cast<unsigned>(reinterpret_cast<uintptr_t>(this)), 0u);
+                Parent->Slot23(0xf004u, reinterpret_cast<uintptr_t>(this), 0u);
             return true;
         case 0x1b:
             // Escape (0x0057cd75): the same with 0xf003.
             if (ImeBox != nullptr)
                 ImeBox->HandleKey(Key);
             if (Parent != nullptr)
-                Parent->Slot23(0xf003u, static_cast<unsigned>(reinterpret_cast<uintptr_t>(this)), 0u);
+                Parent->Slot23(0xf003u, reinterpret_cast<uintptr_t>(this), 0u);
             return true;
         case 0x23:
             // End (0x0057cc90).
@@ -1470,6 +1575,18 @@ bool RichTextEditWin::OnKeyDown(FHudCmdRecord const* Record)
             break;
         default:
             // 0x0057cdd5
+            // HD: FLSharp copy_paste_feature — Ctrl+V / Ctrl+C (jump-table entry 15 at
+            // 0x0057ce3c; the Mac's Cmd counts as Ctrl here).
+            if (CopyPasteEnabled() &&
+                ((Record->Modifiers & 4u) != 0 || (GetAsyncKeyState(VK_LWIN) & 0x8000) != 0 ||
+                 (GetAsyncKeyState(VK_RWIN) & 0x8000) != 0))
+            {
+                wint_t const Letter = towupper(static_cast<wint_t>(Record->Arg10));
+                if (Letter == L'V')
+                    PasteFromClipboard();
+                else if (Letter == L'C')
+                    CopyToClipboard();
+            }
             bResult = false;
             break;
         }

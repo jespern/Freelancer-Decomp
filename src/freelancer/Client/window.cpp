@@ -14,6 +14,7 @@
 #include "DALib.h"
 #include "common_misc.h" // SinglePlayer
 #include "render/IRenderPipeline.h"
+#include "hd_plugins.h"
 
 #include <windows.h>
 
@@ -28,6 +29,17 @@ bool G_bRenderSurfaceFullscreen = false;   // DAT_006679f0
 bool G_bRenderMgrShuttingDown = false;     // DAT_006679f9, FUN_004247c0's re-entry latch
 bool G_bRenderPostCreate = true;           // DAT_00610864 (initialised .data 01h)
 bool G_bRenderFrameBegun = false;          // DAT_006679f8 (.data, no initialiser)
+
+namespace
+{
+    // The windowed style 0x2CA0000 (WS_CLIPCHILDREN | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX). HD:
+    // borderless_window — style 0 (0x0042477a and 0x0042490d `push 0x02CA0000` -> 0).
+    DWORD GameWindowStyle()
+    {
+        static const DWORD Style = HdPlugins::Feature("borderless_window") ? 0 : 0x2CA0000;
+        return Style;
+    }
+}
 
 // FUN_004246e0 (.text:004246e0-00424791), cdecl(ClassName, Display, Title). A zero width or height
 // in the options object is replaced by 640/480 locally only -- retail never writes it back. The
@@ -44,18 +56,19 @@ HWND CreateGameWindow(const char* class_name, DisplaySettings* display, const ch
 
     int x = 0;
     int y = 0;
+    const DWORD Style = GameWindowStyle();
     if (display->fullscreen == 0)
     {
         RECT rc = {0, 0, width, height};
         x = CW_USEDEFAULT;
         y = CW_USEDEFAULT;
-        if (AdjustWindowRect(&rc, 0x2CA0000, FALSE))
+        if (AdjustWindowRect(&rc, Style, FALSE))
             width = rc.right - rc.left;
         // 0x00424758: the height is taken from the rect whether or not the call succeeded.
         height = rc.bottom - rc.top;
     }
 
-    G_RenderMgrWindow = CreateWindowExA(0, class_name, title, 0x2CA0000, x, y, width, height,
+    G_RenderMgrWindow = CreateWindowExA(0, class_name, title, Style, x, y, width, height,
                                         nullptr, nullptr, instance, nullptr);
     return G_RenderMgrWindow;
 }
@@ -87,7 +100,7 @@ void ApplyGameWindowLayout(HWND Hwnd, bool bFullscreen, unsigned Width, unsigned
     }
 
     // 0x00424906.
-    SetWindowLongA(Hwnd, GWL_STYLE, 0x2ca0000);
+    SetWindowLongA(Hwnd, GWL_STYLE, static_cast<LONG>(GameWindowStyle()));
     SetWindowPos(Hwnd, nullptr, 0, 0, 0, 0, 0x27);
     RECT Frame;
     Frame.left = 0;
@@ -145,7 +158,15 @@ namespace
         // DAT_00615ba8, which stays 1 whenever the app is not a fullscreen single-player
         // session (there is nothing to release then).
         const bool bFullscreen = g_display.fullscreen != 0;
-        if (!IsSinglePlayerSession() || (kActivateOverrideByte && !bFullscreen))
+        // HD: no_pause_on_alt_tab — the installer patches by display mode: a window stays
+        // "active" (0x005b264c `cmp edi,1; sete dl` -> `mov edx,1`; the mouse is still only
+        // taken while the window has the focus), fullscreen keeps the frame gate open
+        // (0x005b2665 JE -> JMP).
+        static const bool bHdNoPause = HdPlugins::Feature("no_pause_on_alt_tab");
+        if (bHdNoPause && !bFullscreen)
+            bActive = true;
+        if ((bHdNoPause && bFullscreen) || !IsSinglePlayerSession() ||
+            (kActivateOverrideByte && !bFullscreen))
             G_bPresentAllowed = true;
         else
             G_bPresentAllowed = bActive;

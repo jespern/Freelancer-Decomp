@@ -58,7 +58,10 @@ class IChatClient;
 
 // Packs the sender's raw argument dwords into the retail payload. Returns false when the
 // arguments cannot be marshalled (a null struct pointer, a payload that is too small).
-typedef bool (*FRpcMarshalFn)(FPacketBase* Packet, const unsigned int* Args, unsigned int ArgCount);
+// One argument-image slot per retail stack dword (rpc_client_proxy.cpp). Pointer-sized so a
+// by-reference argument's address survives on LP64; scalar values occupy the low bits.
+typedef uintptr_t FRpcArg;
+typedef bool (*FRpcMarshalFn)(FPacketBase* Packet, const FRpcArg* Args, unsigned int ArgCount);
 
 // Rebuilds the retail argument list out of the payload and makes the one call retail's
 // HandlePacket case makes. Returns false when the packet cannot be delivered.

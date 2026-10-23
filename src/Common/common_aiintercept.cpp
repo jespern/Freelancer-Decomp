@@ -1097,8 +1097,8 @@ IObjRW* SystemManagerTimerTable::FindObjectDockingAtBase(IObjInspect const* Base
     // FIterState (common_cescanner.cpp) and CAsteroidSystem::update's.
     struct FObjDbIterState
     {
-        unsigned Cursor0;
-        unsigned Cursor1;
+        void* Cursor0; // IObjDB cursor pointers (retail dwords)
+        void* Cursor1;
         unsigned TypeMask;
     } IterState = { 0, 0, 0x20u }; // OBJ_DOCKING_RING
 

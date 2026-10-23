@@ -5,6 +5,8 @@
 // Author: Giperion.
 
 #include "nav_bar.h"
+#include "hd_client.h"
+#include "hd_plugins.h"
 #ifdef FREELANCER_WALK_MODE
 #include "base_walk.h"
 #endif
@@ -46,6 +48,7 @@
 #include "dacom.h"                  // FDUMP
 #include "engine/engbase.h"
 #include "x86math.h"
+#include "hd_plugins.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -57,6 +60,13 @@ WINFACTORY<NavBar> G_NavBarFactory("NavBar");
 namespace
 {
     char const kNavBarCpp[] = "E:\\FL\\Scratch\\Source\\Client\\GF\\NavBar.cpp"; // 0x005cb860
+
+    // HD: FLSharp dealer_crash_fix (dealer_fixes.cpp), cached.
+    bool DealerCrashFix()
+    {
+        static const bool bFix = HdPlugins::FlSharp("dealer_crash_fix");
+        return bFix;
+    }
 
     // DAT_00668828 -- FUN_00441ea0's lazily acquired 3DMathEngine (FUN_005b73e0).
     I3DMathEngine* G_NavBarMath = nullptr;
@@ -655,12 +665,16 @@ void NavBar::Update()
 
     // 0x0043e72b..0x0043e810: everything hidden unless the cursor shows, no fade runs and no
     // NeuroNet screen is up; the tab mesh also needs an enabled tab; disabled buttons re-greyed.
+    // HD: navbar_no_flicker — always shown (0x0043e732 JE -> JMP 0x0043e751, `mov bl,1`), so it
+    // does not flicker when a dealer opens. The second test below (0x0043e812) is unchanged.
+    static const bool bHdNavBarAlways = HdPlugins::Feature("navbar_no_flicker");
 #ifdef FREELANCER_WALK_MODE
-    bool const bShow = (GetClientMouseCursorDrawFlag() != 0 || BaseWalkShouldDrawInterface()) &&
-                       bFadingOut == 0 && bFadingIn == 0 && !G_bNnScreenUp;
+    bool const bShow = bHdNavBarAlways ||
+                       ((GetClientMouseCursorDrawFlag() != 0 || BaseWalkShouldDrawInterface()) &&
+                        bFadingOut == 0 && bFadingIn == 0 && !G_bNnScreenUp);
 #else
-    bool const bShow = GetClientMouseCursorDrawFlag() != 0 && bFadingOut == 0 &&
-                       bFadingIn == 0 && !G_bNnScreenUp;
+    bool const bShow = bHdNavBarAlways || (GetClientMouseCursorDrawFlag() != 0 && bFadingOut == 0 &&
+                                           bFadingIn == 0 && !G_bNnScreenUp);
 #endif
     uintptr_t const Hide = bShow ? 0 : 1;
     ManeuverFrame->SetProperty(1, Hide, 0);
@@ -739,7 +753,9 @@ void NavBar::Update()
             {
                 bFadingIn = 0;
                 SetClientMouseCursorDrawFlag(1);
-                SelectRoomButton(Current);
+                // HD: FLSharp dealer_crash_fix — not without a Current (0x0043e9ca).
+                if (Current != nullptr || !DealerCrashFix())
+                    SelectRoomButton(Current);
             }
         }
     }
@@ -1163,7 +1179,10 @@ void NavBar::CameraToDesk()
     // FUN_0043ffa0. Current is not null-tested.
     FNavBarButton* const Button = Current;
     FRoomRuntime* const Room = CurrentRoomRuntime();
-    RoomButtonInfo const* const Hotspot = Button->Hotspot;
+    // HD: FLSharp dealer_crash_fix — no Current takes the no-hotspot path ("Camera_0", fade
+    // in) instead of crashing (0x0043ffb6).
+    RoomButtonInfo const* const Hotspot =
+        (Button == nullptr && DealerCrashFix()) ? nullptr : Button->Hotspot;
     bool bDefaultCamera = true;
     if (Hotspot != nullptr && Hotspot->RoomSwitch != nullptr)
     {
@@ -1288,7 +1307,9 @@ void NavBar::MakeServiceBackground(unsigned Type, float Scale)
     }
     case 7:
     {
-        float const Position[3] = {0.0f, NnFloatBits(0xbdb020c5), NnFloatBits(0xbfa4dd2f)};
+        // HD: HudShift.ini base of the ship dealer slide-in y (0x004409d7).
+        float const Position[3] = {0.0f, HdHudShiftBase(0x004409d7, NnFloatBits(0xbdb020c5)),
+                                   NnFloatBits(0xbfa4dd2f)};
         MakeScaledBackground(Scale, "Interface\\NeuroNet\\Inventory\\INV_biginforcard_center.cmp",
                              Position);
         return;
@@ -1690,6 +1711,15 @@ void NavBar::ActivateButton(FNavBarButton* From, FNavBarButton* To)
     // behaviour - 5); a track that does not start falls back to the button's action.
     FRoomRuntime* const Room = CurrentRoomRuntime();
     int const Behavior = To->Hotspot->Behavior;
+    // HD: FLSharp dealer_menu_open_fix — the equipment / commodity dealer's camera move counts
+    // as started while one is already running (+0x1338), so a quick second click still opens
+    // the menu when it ends (0x004417e7, 0x00441862).
+    static const bool bDealerOpenFix = HdPlugins::FlSharp("dealer_menu_open_fix");
+    auto const DealerTrackCamera = [this](FRoomRuntime* Runtime, char const* Camera) {
+        if (bDealerOpenFix && RoomControlGetField1338(Runtime) != 0)
+            return true;
+        return RoomControlTrackCamera(Runtime, Camera, &NavBar::ScriptDone, this, nullptr);
+    };
     switch (Behavior)
     {
     case 8:
@@ -1698,7 +1728,7 @@ void NavBar::ActivateButton(FNavBarButton* From, FNavBarButton* To)
         NnMainButtonOnModalOpen();
         NotifyServiceWindows();
         RoomControlSetField1340(Room, 1);
-        if (RoomControlTrackCamera(Room, "Camera_Track_1", &NavBar::ScriptDone, this, nullptr))
+        if (DealerTrackCamera(Room, "Camera_Track_1"))
         {
             SetClientMouseCursorDrawFlag(0);
             ToggleDealerTabs(true);
@@ -1720,7 +1750,7 @@ void NavBar::ActivateButton(FNavBarButton* From, FNavBarButton* To)
         if (VirtualRoom.size() != 0 && To->Hotspot->Behavior == 5)
             Camera = "Camera_Trader_Wide";
         RoomControlSetField1340(Room, 1);
-        if (!RoomControlTrackCamera(Room, Camera, &NavBar::ScriptDone, this, nullptr))
+        if (!DealerTrackCamera(Room, Camera))
         {
             OnButtonClicked(Current);
             return;
@@ -1894,7 +1924,9 @@ bool NavBar::CharacterClicked(FCharacterObject* Character, int Role)
         return false;
 
     // 0x00441d24..0x00441e88: the click held until the walk ends (Update), the room entered.
-    bCharacterPending = 1;
+    // HD: FLSharp dealer_crash_fix — the click is held only once the room transition has
+    // ended (the cursor-draw latch, DAT_006107dc), not during it (0x00441d28).
+    bCharacterPending = DealerCrashFix() ? GetClientMouseCursorDrawFlag() : 1;
     PendingCharacter = Character;
     if (Found->Hotspot != nullptr && Found->Hotspot->StateRead != 0)
     {

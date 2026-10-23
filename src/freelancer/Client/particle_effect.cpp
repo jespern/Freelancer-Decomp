@@ -444,7 +444,7 @@ unsigned char FParticleEffect::UpdateVisibility(float Dt, FSpaceCamera* Cam)
             else
             {
                 // 0x004f8798: inside another field than the camera's.
-                if (DrawStateA != static_cast<unsigned>(reinterpret_cast<uintptr_t>(Field)))
+                if (DrawStateA != FL_PTR_TO_U32(Field))
                     return 0;
 
                 // 0x004f87ae..0x004f8827: the world transform (FUN_004f7ef0 inlined; the
@@ -1004,19 +1004,19 @@ unsigned char CreateEffectCompanionAlive(void* CompanionLocal)
 {
     // FUN_00503330 — this = &{arch, sound, particle, light}. No test of `this` (0x00503333
     // reads +8 at once); every caller passes an embedded companion's address.
-    unsigned char* Base = static_cast<unsigned char*>(CompanionLocal);
-    FEffectBase* Particle = *reinterpret_cast<FEffectBase**>(Base + 8);
+    // Four pointer slots (retail +0/+4/+8/+0xc): void*[4] wherever a companion is embedded.
+    void* const* const Slots = static_cast<void* const*>(CompanionLocal);
+    FEffectBase* Particle = static_cast<FEffectBase*>(Slots[2]);
     if (Particle != nullptr && (Particle->Flags08 & 2u) == 0)
         return 1;
-    ISoundSource* Sound = *reinterpret_cast<ISoundSource**>(Base + 4);
+    ISoundSource* Sound = static_cast<ISoundSource*>(Slots[1]);
     if (Sound != nullptr && Sound->IsActive() != 0)
         return 1;
-    void* Light = *reinterpret_cast<void**>(Base + 0xc);
+    FGameLight* Light = static_cast<FGameLight*>(Slots[3]);
     if (Light != nullptr)
     {
-        // Light+0xd4 == 0 → alive. Gamelit layout not owned here.
-        int const FieldD4 = *reinterpret_cast<int*>(static_cast<unsigned char*>(Light) + 0xd4);
-        if (FieldD4 == 0)
+        // Light+0xd4 (the animation's private key copy) == 0 -> alive.
+        if (Light->Anim.Keys == nullptr)
             return 1;
     }
     return 0;
@@ -1103,12 +1103,8 @@ unsigned char CliCreateEffectOneShotOn(FCliEffectFactory const* Factory, FEffect
         }
     }
 
-    unsigned char LocalCompanion[0x10];
-    std::memset(LocalCompanion, 0, sizeof(LocalCompanion));
-    *reinterpret_cast<FEffectArch**>(LocalCompanion + 0) = EffectArch;
-    *reinterpret_cast<ISoundSource**>(LocalCompanion + 4) = Sound;
-    *reinterpret_cast<FEffectBase**>(LocalCompanion + 8) = Particle;
-    *reinterpret_cast<FGameLight**>(LocalCompanion + 0xc) = Light;
+    // {arch, sound, particle, light} (retail a 0x10-byte stack block).
+    void* LocalCompanion[4] = {EffectArch, Sound, Particle, Light};
 
     if (CreateEffectCompanionAlive(LocalCompanion) == 0)
     {
@@ -1124,12 +1120,13 @@ unsigned char CliCreateEffectOneShotOn(FCliEffectFactory const* Factory, FEffect
     if (CompanionOut != nullptr)
     {
         // FUN_00502d90 clear + store arch/particle/sound/light with AddRef.
-        unsigned char* Out = static_cast<unsigned char*>(CompanionOut);
-        std::memset(Out, 0, 0x10);
-        *reinterpret_cast<FEffectArch**>(Out + 0) = EffectArch;
-        *reinterpret_cast<ISoundSource**>(Out + 4) = Sound;
-        *reinterpret_cast<FEffectBase**>(Out + 8) = Particle;
-        *reinterpret_cast<FGameLight**>(Out + 0xc) = Light;
+        // The companion is four pointers (retail +0 / +4 / +8 / +0xc; FJumpFxCompanion).
+        void** Out = static_cast<void**>(CompanionOut);
+        std::memset(Out, 0, 4 * sizeof(void*));
+        Out[0] = EffectArch;
+        Out[1] = Sound;
+        Out[2] = Particle;
+        Out[3] = Light;
         if (Particle != nullptr)
             EffectAddRef(Particle);
         if (Sound != nullptr)
@@ -1140,7 +1137,7 @@ unsigned char CliCreateEffectOneShotOn(FCliEffectFactory const* Factory, FEffect
 
     // Listing 005032c7..005032d7: if ListOwner != 0 → FUN_004fcea0(ListOwner+0x28, &local).
     if (ListOwner != nullptr)
-        CliEffectListInsert(static_cast<unsigned char*>(ListOwner) + 0x28, LocalCompanion);
+        CliEffectListInsert(&static_cast<FClientGameobj*>(ListOwner)->EffectList, LocalCompanion); // +0x28
 
     if (Particle != nullptr)
         EffectRelease(Particle);
@@ -1261,12 +1258,8 @@ unsigned char CliCreateEffectWorldOneShotOn(FCliEffectFactory const* Factory,
         }
     }
 
-    unsigned char LocalCompanion[0x10];
-    std::memset(LocalCompanion, 0, sizeof(LocalCompanion));
-    *reinterpret_cast<FEffectArch**>(LocalCompanion + 0) = EffectArch;
-    *reinterpret_cast<ISoundSource**>(LocalCompanion + 4) = Sound;
-    *reinterpret_cast<FEffectBase**>(LocalCompanion + 8) = Particle;
-    *reinterpret_cast<FGameLight**>(LocalCompanion + 0xc) = Light;
+    // {arch, sound, particle, light} (retail a 0x10-byte stack block).
+    void* LocalCompanion[4] = {EffectArch, Sound, Particle, Light};
 
     if (CreateEffectCompanionAlive(LocalCompanion) == 0)
     {
@@ -1281,12 +1274,13 @@ unsigned char CliCreateEffectWorldOneShotOn(FCliEffectFactory const* Factory,
 
     if (CompanionOut != nullptr)
     {
-        unsigned char* Out = static_cast<unsigned char*>(CompanionOut);
-        std::memset(Out, 0, 0x10);
-        *reinterpret_cast<FEffectArch**>(Out + 0) = EffectArch;
-        *reinterpret_cast<ISoundSource**>(Out + 4) = Sound;
-        *reinterpret_cast<FEffectBase**>(Out + 8) = Particle;
-        *reinterpret_cast<FGameLight**>(Out + 0xc) = Light;
+        // The companion is four pointers (retail +0 / +4 / +8 / +0xc; FJumpFxCompanion).
+        void** Out = static_cast<void**>(CompanionOut);
+        std::memset(Out, 0, 4 * sizeof(void*));
+        Out[0] = EffectArch;
+        Out[1] = Sound;
+        Out[2] = Particle;
+        Out[3] = Light;
         if (Particle != nullptr)
             EffectAddRef(Particle);
         if (Sound != nullptr)

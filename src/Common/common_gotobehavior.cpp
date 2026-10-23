@@ -4,6 +4,7 @@
 // developed by Digital Anvil.
 // Author: Giperion.
 
+#include <cstdlib>
 #include "common_gotobehavior.h"
 #include "common_iface.h"   // IObjInspect / IObjRW, ObjInspectOf, ObjRwFromWatchable
 #include "common_csys.h"          // Transform, Matrix, Acquire3DMathEngine
@@ -187,21 +188,31 @@ GotoBehavior::~GotoBehavior()
 // FUN_062c29f0 (.text:062c29f0-062c2aa5, RET 0x14, item 1254). Ported 2026-10-08
 // (claude-code:cmn-ai5); its "blocked on the qhull cluster" note was stale -- the struct is
 // the shared proximity watcher and its only caller is GotoBehavior::Slot10.
+namespace
+{
+// The proximity block is {BaseWatcher, Near, Far, Ratio, Flags, SavedFlags} (retail 0x1C; see
+// DockProximityWatcher). Retail offsets past the watcher move by its native growth.
+unsigned char* ProxField(unsigned char* Watcher, unsigned RetailOffset)
+{
+    return Watcher + (RetailOffset < 8 ? RetailOffset : RetailOffset - 8 + sizeof(BaseWatcher));
+}
+} // namespace
+
 void ProxWatcherInit(unsigned char* Watcher, void* NavHelper, void* Target, float Near, float Far,
                      float CruiseRatio)
 {
     BaseWatcher* const W = reinterpret_cast<BaseWatcher*>(Watcher);
-    *reinterpret_cast<float*>(Watcher + 0x08) = Near;               // 062c29fb
-    *reinterpret_cast<float*>(Watcher + 0x0c) = Far;                // 062c2a05
+    *reinterpret_cast<float*>(ProxField(Watcher, 0x08)) = Near;               // 062c29fb
+    *reinterpret_cast<float*>(ProxField(Watcher, 0x0c)) = Far;                // 062c2a05
     // 062c29fe-062c2a18: Target + 8 (or 0), set_pointer only when it differs.
     IObjRW* const TargetObj = static_cast<IObjRW*>(Target);
     W->set(TargetObj != nullptr ? static_cast<Watchable const*>(TargetObj) : nullptr);
-    *reinterpret_cast<unsigned*>(Watcher + 0x14) = 0;               // 062c2a21
-    *reinterpret_cast<unsigned*>(Watcher + 0x18) = 0;               // 062c2a28
+    *reinterpret_cast<unsigned*>(ProxField(Watcher, 0x14)) = 0;               // 062c2a21
+    *reinterpret_cast<unsigned*>(ProxField(Watcher, 0x18)) = 0;               // 062c2a28
     IObjRW* const Watched = ObjRwFromWatchable(const_cast<Watchable*>(W->target()));
     if (Watched == nullptr)
         return;                                                     // 062c2a2f / 062c2a36
-    float* const Ratio = reinterpret_cast<float*>(Watcher + 0x10);
+    float* const Ratio = reinterpret_cast<float*>(ProxField(Watcher, 0x10));
     // 062c2a38-062c2a47: CruiseRatio against double 0.0 (DAT_0639c430); TEST AH,0x41 + JNZ ->
     // not-greater or NaN takes the speed quotient.
     if (CruiseRatio > 0.0)
@@ -231,12 +242,12 @@ void ProxWatcherRecomputeZoneFlags(unsigned char* Watcher, void* NavHelper, Vect
     // .text:062c2af6-062c2b05. Retail's second guard (`LEA ECX,[EAX-8]; TEST
     // ECX,ECX; JZ`) can only fire if the watched pointer is literally 8;
     // ObjRwFromWatchable's null return covers the first and, in practice, both.
-    IObjRW* const Obj = ObjRwFromWatchable(*reinterpret_cast<void**>(Watcher + 0x00));
+    IObjRW* const Obj = ObjRwFromWatchable(*reinterpret_cast<void**>(ProxField(Watcher, 0x00)));
     if (Obj == nullptr)
         return;
 
-    unsigned* const ZoneFlags = reinterpret_cast<unsigned*>(Watcher + 0x14);
-    unsigned* const SavedFlags = reinterpret_cast<unsigned*>(Watcher + 0x18);
+    unsigned* const ZoneFlags = reinterpret_cast<unsigned*>(ProxField(Watcher, 0x14));
+    unsigned* const SavedFlags = reinterpret_cast<unsigned*>(ProxField(Watcher, 0x18));
 
     // .text:062c2b0b-062c2b0e -- snapshot last tick's zones first; the
     // hysteresis bands below OR that snapshot back in.
@@ -266,24 +277,24 @@ void ProxWatcherRecomputeZoneFlags(unsigned char* Watcher, void* NavHelper, Vect
     // .text:062c2b81-062c2b95. Retail re-reads the watcher slot before each of
     // the next two calls (separately-inlined accessors) and re-guards neither:
     // a null head gives a null receiver, as here.
-    IObjRW* const ClearanceObj = ObjRwFromWatchable(*reinterpret_cast<void**>(Watcher + 0x00));
+    IObjRW* const ClearanceObj = ObjRwFromWatchable(*reinterpret_cast<void**>(ProxField(Watcher, 0x00)));
     // 062c2b95: `FSTP float` (into the RefPoint argument's home slot) rounds the ST0 return.
     float const InterceptClearance = static_cast<float>(GetInterceptClearanceOfIface(SteerElem, ClearanceObj)); // FUN_062e4bb0, item 1749
 
     // .text:062c2b99-062c2bb3. Slot +0x60 is is_cruise_active(bool&).
-    IObjRW* const CruiseObj = ObjRwFromWatchable(*reinterpret_cast<void**>(Watcher + 0x00));
+    IObjRW* const CruiseObj = ObjRwFromWatchable(*reinterpret_cast<void**>(ProxField(Watcher, 0x00)));
     bool bCruiseActive = false;
     ObjInspectOf(CruiseObj)->is_cruise_active(bCruiseActive);
 
     // Each limit is re-derived on the x87 stack before each compare and never stored:
     // FLD [+0x08/+0x0c], FMUL [+0x10] while cruising -- unrounded.
-    float const CruiseScale = *reinterpret_cast<float*>(Watcher + 0x10);
+    float const CruiseScale = *reinterpret_cast<float*>(ProxField(Watcher, 0x10));
     double const NearLimit = bCruiseActive
-        ? static_cast<double>(*reinterpret_cast<float*>(Watcher + 0x08)) * CruiseScale
-        : static_cast<double>(*reinterpret_cast<float*>(Watcher + 0x08));
+        ? static_cast<double>(*reinterpret_cast<float*>(ProxField(Watcher, 0x08))) * CruiseScale
+        : static_cast<double>(*reinterpret_cast<float*>(ProxField(Watcher, 0x08)));
     double const FarLimit = bCruiseActive
-        ? static_cast<double>(*reinterpret_cast<float*>(Watcher + 0x0c)) * CruiseScale
-        : static_cast<double>(*reinterpret_cast<float*>(Watcher + 0x0c));
+        ? static_cast<double>(*reinterpret_cast<float*>(ProxField(Watcher, 0x0c))) * CruiseScale
+        : static_cast<double>(*reinterpret_cast<float*>(ProxField(Watcher, 0x0c)));
 
     // .rdata:DAT_0639e6d4 == 0x42480000 == 50.0f -- the half-width of the
     // hysteresis band around each limit (FSUBR / FADD on the stack).
@@ -319,7 +330,7 @@ double ProxWatcherComputeSpeedCap(unsigned char* Watcher, void* OwnerContext, vo
     // .text:062c2c71-062c2c8d. `local_4` is pre-loaded with
     // .rdata:DAT_06399408 (0x00000000 == 0.0f) purely so the two early-return
     // paths have something on the FPU stack.
-    IObjRW* const Obj = ObjRwFromWatchable(*reinterpret_cast<void**>(Watcher + 0x00));
+    IObjRW* const Obj = ObjRwFromWatchable(*reinterpret_cast<void**>(ProxField(Watcher, 0x00)));
     if (Obj == nullptr)
         return 0.0f;
 
@@ -335,7 +346,7 @@ double ProxWatcherComputeSpeedCap(unsigned char* Watcher, void* OwnerContext, vo
     float const OwnerSpeed =
         Behavior_InvokeManagerSlotD8(ObjInspectOf(OwnerContext), QueryValue, ThrustType); // FUN_062e5af0, item 1762
 
-    unsigned const ZoneFlags = *reinterpret_cast<unsigned*>(Watcher + 0x14);
+    unsigned const ZoneFlags = *reinterpret_cast<unsigned*>(ProxField(Watcher, 0x14));
     double ZoneSpeed;
     if ((ZoneFlags & 3) != 0)
     {
@@ -344,7 +355,7 @@ double ProxWatcherComputeSpeedCap(unsigned char* Watcher, void* OwnerContext, vo
         // because Behavior_InvokeManagerSlotD8 itself returns 0.0f on a null
         // receiver -- item 1762's own confirmed null-fallback.
         ZoneSpeed = Behavior_InvokeManagerSlotD8(
-            ObjInspectOf(ObjRwFromWatchable(*reinterpret_cast<void**>(Watcher + 0x00))), 1.0f, ThrustType);
+            ObjInspectOf(ObjRwFromWatchable(*reinterpret_cast<void**>(ProxField(Watcher, 0x00)))), 1.0f, ThrustType);
     }
     else if ((ZoneFlags & 4) == 0)
     {
@@ -356,8 +367,8 @@ double ProxWatcherComputeSpeedCap(unsigned char* Watcher, void* OwnerContext, vo
         // .text:062c2cd7-062c2d45. Linear blend of the clearance across the
         // struct's own two thresholds -- UNSCALED here, unlike
         // ProxWatcherRecomputeZoneFlags, which cruise-scales the same pair.
-        float const NearThreshold = *reinterpret_cast<float*>(Watcher + 0x08);
-        float const FarThreshold = *reinterpret_cast<float*>(Watcher + 0x0c);
+        float const NearThreshold = *reinterpret_cast<float*>(ProxField(Watcher, 0x08));
+        float const FarThreshold = *reinterpret_cast<float*>(ProxField(Watcher, 0x0c));
         FAiTarget* const SteerElem = &((SystemManager*)NavHelper)->SelfTarget;
         // 062c2cf4-062c2d0c: FSUB / FLD / FSUB / FDIVP / FSUBR all run on the x87
         // stack straight off the ST0 return; the only rounding is the final
@@ -373,7 +384,7 @@ double ProxWatcherComputeSpeedCap(unsigned char* Watcher, void* OwnerContext, vo
         // a square, not a transcription slip; re-checked against the raw bytes.
         // Both FMULs run on the stack (no rounding until the caller's store).
         float const FullSpeed = Behavior_InvokeManagerSlotD8(
-            ObjInspectOf(ObjRwFromWatchable(*reinterpret_cast<void**>(Watcher + 0x00))), 1.0f, ThrustType);
+            ObjInspectOf(ObjRwFromWatchable(*reinterpret_cast<void**>(ProxField(Watcher, 0x00)))), 1.0f, ThrustType);
         ZoneSpeed = (static_cast<double>(FullSpeed) * Blend) * Blend;
 
         // .text:062c2d30-062c2d45: `FCOM DAT_0639e884; FNSTSW AX; TEST AH,0x5;
@@ -397,7 +408,7 @@ void ProxWatcherNotifyZoneChange(unsigned char* Watcher, void* NavHelper, void* 
                                  Vector const& RefPoint)
 {
     // .text:062c2d90-062c2da1
-    IObjRW* const Obj = ObjRwFromWatchable(*reinterpret_cast<void**>(Watcher + 0x00));
+    IObjRW* const Obj = ObjRwFromWatchable(*reinterpret_cast<void**>(ProxField(Watcher, 0x00)));
     if (Obj == nullptr)
         return;
 
@@ -405,8 +416,8 @@ void ProxWatcherNotifyZoneChange(unsigned char* Watcher, void* NavHelper, void* 
     // tick's snapshot (+0x18) and this tick's zones (+0x14); anything else
     // returns without notifying. Retail's third arm is reached by falling out
     // of the first, which is why the (Saved & 4) test appears twice.
-    unsigned const Saved = *reinterpret_cast<unsigned*>(Watcher + 0x18);
-    unsigned const ZoneFlags = *reinterpret_cast<unsigned*>(Watcher + 0x14);
+    unsigned const Saved = *reinterpret_cast<unsigned*>(ProxField(Watcher, 0x18));
+    unsigned const ZoneFlags = *reinterpret_cast<unsigned*>(ProxField(Watcher, 0x14));
 
     int Code;
     if ((Saved & 4) != 0 && (Saved & 2) == 0 && (ZoneFlags & 2) != 0)
@@ -504,7 +515,7 @@ namespace
     // identical triple-check.
     IObjRW* OwnerObjOf(SystemManager* Sys)
     {
-        return ObjRwFromWatchable(*reinterpret_cast<void**>(reinterpret_cast<unsigned char*>(Sys) + 0x8));
+        return ObjRwFromWatchable(const_cast<Watchable*>(Sys->Watcher.target())); // Sys+0x8
     }
 
     // .text:062ec05c-062ec083, repeated verbatim at .text:062ec154-062ec17b.
@@ -1029,6 +1040,13 @@ EvaluateResult GotoBehavior::evaluate(unsigned int Context)
     // 062fdad5-062fdb15: get_type (+0x88). Only a ZERO return with a 0x7f0000 type bit reaches
     // get_behavior_id (+0x148); ids 0xe / 0x11 / 0x8 -> 2. (The old port took the id branch on
     // a NONZERO return too: `JNZ LAB_062fdb23` skips it.)
+    // Port test aid: FLWIN_GOTO_MOVING=1 lets the player's Goto follow a moving ship (retail
+    // greys Goto out for a target over 5 m/s or in a goto / cruise behaviour), so scripted
+    // runs can chase without steering.
+    static bool const bGotoMoving = getenv("FLWIN_GOTO_MOVING") != nullptr;
+    if (bGotoMoving && Owner->is_player())
+        return EvalBlocked;
+
     unsigned int Type = 0;
     int const TypeResult = Target->get_type(Type);
     if (TypeResult == 0 && (Type & 0x7f0000) != 0)
@@ -1659,8 +1677,10 @@ bool GotoBehavior::Slot10(void* DirectiveOp)
 // thiscall(this, void* OutBuffer).
 extern "C" bool __fastcall FUN_062fe940(unsigned char* param_1, void* outBuffer)
 {
-    std::memcpy(outBuffer, param_1 + 0x38c, 0x70);
-    return (param_1[0x28] & 0x2) != 0;
+    // Retail +0x38c / +0x28; by member on LP64, where both sit elsewhere.
+    GotoBehavior const* const Self = reinterpret_cast<GotoBehavior const*>(param_1);
+    std::memcpy(outBuffer, static_cast<void const*>(&Self->GotoOp), sizeof(Self->GotoOp));
+    return (Self->Flags28 & 0x2) != 0;
 }
 
 // Retail's two-sided clamp to [-1, 1] at .text:062fea1a-062fea69 (and again for +0x2dc):

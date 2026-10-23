@@ -142,7 +142,7 @@ namespace CmnPhySys
     // Shutdown, BuildPartIVP_Real 0628929e, FindRayCollisions 06289c5b) keep using find().
     inline PhysicalSystem& PhySys_FindSystem(unsigned SystemId)
     {
-        return G_PhysicalSystems.find(SystemId)._Ptr->_Myval.second;
+        return G_PhysicalSystems.find(SystemId)->second; // no end() check, as retail
     }
 
     // IEngine (engine/engbase.h) types its instance parameters and results as void*, but

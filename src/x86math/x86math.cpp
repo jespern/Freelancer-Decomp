@@ -65,7 +65,7 @@ struct FMathEngine final : I3DMathEngine, IComponentFactory
         if (Info == nullptr || Info->InterfaceName == nullptr)
             return GR_INVALID_PARMS;
 
-        if (Info->Size != sizeof(FMathDesc) ||
+        if (!FL_DESC_SIZE_IS(Info->Size, FMathDesc, 0xC) ||
             std::memcmp(Info->InterfaceName, G_ComponentName, G_ComponentNameBytes) != 0)
             return GR_INTERFACE_UNSUPPORTED;
 

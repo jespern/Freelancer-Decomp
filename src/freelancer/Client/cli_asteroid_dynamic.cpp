@@ -326,15 +326,13 @@ void FCliDynamicAsteroidGameobj::Place(Vector const* Pos, float MaxVelocity,
 
 FCliDynamicAsteroid* FCliDynamicAsteroidGameobj::GetOwner() const
 {
-    FCliDynamicAsteroid* Owner = nullptr;
-    std::memcpy(&Owner, &bWatchListed, sizeof(Owner));
-    return Owner;
+    return OwnerPtr;
 }
 
 void FCliDynamicAsteroidGameobj::SetOwner(FCliDynamicAsteroid* Owner)
 {
-    static_assert(sizeof(FCliDynamicAsteroid*) == 4, "the +0xa8 owner is one dword");
-    std::memcpy(&bWatchListed, &Owner, sizeof(Owner));
+    // Retail writes the dword over bWatchListed (0x00526693); see OwnerPtr.
+    OwnerPtr = Owner;
 }
 
 // ===========================================================================

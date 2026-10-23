@@ -39,6 +39,7 @@
 #include "common_server.h"          // IServer
 #include "common_universe.h"
 #include "dacom.h"
+#include "hd_plugins.h"
 
 #include <list>
 #include <map>
@@ -1098,8 +1099,10 @@ void EnterClientLocationBase(unsigned BaseId)
     unsigned StartLocation = FindLocationBaseEntry(BaseId)->Runtime->StartLocationId;
     if (StartLocation == 0)
     {
-        // 0x0043b341..0x0043b36b: with a server, the WARNING at line 0x405.
-        if (static_cast<IServer*>(GetLocalServerInterface()) != nullptr)
+        // 0x0043b341..0x0043b36b: with a server, the WARNING at line 0x405. HD: flplusplus
+        // remove_start_location_warning jumps over it (0x0043b348 = EB).
+        static const bool bQuiet = HdPlugins::FlppBool("remove_start_location_warning", true);
+        if (!bQuiet && static_cast<IServer*>(GetLocalServerInterface()) != nullptr)
         {
             FDUMP(0x100002, "%s(%d) : *** WARNING: %s", kLocationControllerCpp, 0x405,
                   "Failed to get start location\n");

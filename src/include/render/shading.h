@@ -23,6 +23,11 @@ struct FShadingPropertyValue
     unsigned long Payload2;   // +0x0C
     unsigned long Payload3;   // +0x10
 
+    // Strings (5/7) and components (6) ride in Payload0. It stays a dword (vector values read
+    // the payloads as a dword array), so on LP64 the pointer is kept as a runtime token.
+    void* PayloadPtr() const { return FL_U32_TO_PTR(void, Payload0); }
+    void SetPayloadPtr(const void* Pointer) { Payload0 = FL_PTR_TO_U32(Pointer); }
+
     void SetType(unsigned long NewType)
     {
         // Changing the tag releases its old owned payload; the same tag preserves it.
@@ -34,11 +39,11 @@ struct FShadingPropertyValue
         if (Type == 5 || Type == 7)
         {
             if (Payload0 != 0)
-                HeapFree(GetProcessHeap(), 0, (void*)Payload0);
+                HeapFree(GetProcessHeap(), 0, (void*)PayloadPtr());
         }
         else if (Type == 6)
         {
-            IDAComponent* Component = (IDAComponent*)Payload0;
+            IDAComponent* Component = (IDAComponent*)PayloadPtr();
             Payload0 = 0; // Clear before and after the foreign Release callback.
             if (Component != nullptr)
                 Component->Release();
@@ -54,11 +59,11 @@ struct FShadingPropertyValue
         if (Type == 5 || Type == 7)
         {
             if (Payload0 != 0)
-                HeapFree(GetProcessHeap(), 0, (void*)Payload0);
+                HeapFree(GetProcessHeap(), 0, (void*)PayloadPtr());
         }
         else if (Type == 6)
         {
-            IDAComponent* Component = (IDAComponent*)Payload0;
+            IDAComponent* Component = (IDAComponent*)PayloadPtr();
             Payload0 = 0; // Clear before and after the foreign Release callback.
             if (Component != nullptr)
                 Component->Release();
@@ -98,14 +103,14 @@ struct FShadingPropertyValue
         {
             // Replace an old string even when the type stays the same.
             if (Payload0 != 0)
-                HeapFree(GetProcessHeap(), 0, (void*)Payload0);
+                HeapFree(GetProcessHeap(), 0, (void*)PayloadPtr());
             Payload0 = 0;
             const char* Text = (const char*)Source;
             if (Text != nullptr)
             {
                 const size_t Size = std::strlen(Text) + 1;
                 char* Copy = (char*)HeapAlloc(GetProcessHeap(), 0, Size);
-                Payload0 = (unsigned long)Copy;
+                SetPayloadPtr(Copy);
                 // Publish before copying; the copy is mandatory.
                 std::memcpy(Copy, Text, Size);
             }
@@ -113,10 +118,10 @@ struct FShadingPropertyValue
         }
         case 6:
         {
-            IDAComponent* Previous = (IDAComponent*)Payload0;
+            IDAComponent* Previous = (IDAComponent*)PayloadPtr();
             // Source is a const view; component reference management needs its mutable face.
             IDAComponent* Component = static_cast<IDAComponent*>(const_cast<void*>(Source));
-            Payload0 = (unsigned long)Component;
+            SetPayloadPtr(Component);
             if (Component != nullptr)
                 Component->AddRef();
             if (Previous != nullptr)

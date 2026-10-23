@@ -7,6 +7,7 @@
 // HUD_Waypoint -- see hud_waypoint.h for the class, its vftables and the named gaps.
 
 #include "hud_waypoint.h"
+#include "hd_plugins.h"
 
 #include "best_path.h"
 #include "character_select_equip.h" // GetPlayerStarSystemIdRetail (FUN_004c4830)
@@ -319,6 +320,11 @@ void HUD_Waypoint::Render(FSpaceCamera* /*Camera*/, float DeltaSeconds)
         {
             FPlayerWaypointRecord* const Record = GetPlayerWaypointRetail(i);
             if (Record == nullptr)
+                continue;
+            // HD: FLSharp waypoint_fixes — only waypoints in the player's system are reached
+            // (0x004f4141 skips the others).
+            static const bool bSameSystem = HdPlugins::FlSharp("waypoint_fixes");
+            if (bSameSystem && Record->SystemId != GetPlayerStarSystemIdRetail())
                 continue;
             if (Distance(Player->get_position(), Record->Pos) < kUserPickDistance)
             {

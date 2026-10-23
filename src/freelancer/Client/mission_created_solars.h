@@ -41,3 +41,8 @@ void LoadMissionCreatedSolars();
 // FUN_00476fe0 (cdecl) -- load, then the first record for BaseId: its position into OutPos
 // (3 floats) and its ids_info into OutIdsInfo. False (nothing written) when there is none.
 bool FindMissionCreatedSolar(unsigned BaseId, float* OutPos, int* OutIdsInfo);
+
+// HD: FLSharp dynamic_solar_infocards -- the ids_info MissionCreatedSolars.ini gives a base
+// (bByBase: [MissionCreatedSolar] base) or a non-dockable solar ([MissionCreatedNonDockableSolar]
+// nickname); read once, apart from the retail list above.
+bool HdFindMissionSolarInfocard(bool bByBase, unsigned Key, unsigned& OutIdsInfo);

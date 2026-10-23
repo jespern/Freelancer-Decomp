@@ -90,10 +90,11 @@ namespace
     // DAT_006164ec — soft-light 3DMathEngine cache (FUN_005b73e0).
     I3DMathEngine* G_SoftLightMath = nullptr;
 
-    FEngineLight* ListNext(FEngineLight const* L) { return reinterpret_cast<FEngineLight*>(static_cast<uintptr_t>(L->Field04)); }
-    FEngineLight* ListPrev(FEngineLight const* L) { return reinterpret_cast<FEngineLight*>(static_cast<uintptr_t>(L->Field08)); }
-    void SetListNext(FEngineLight* L, FEngineLight* V) { L->Field04 = static_cast<unsigned>(reinterpret_cast<uintptr_t>(V)); }
-    void SetListPrev(FEngineLight* L, FEngineLight* V) { L->Field08 = static_cast<unsigned>(reinterpret_cast<uintptr_t>(V)); }
+    // The links live in the light's retail dword slots (+0x04 / +0x08): runtime tokens on LP64.
+    FEngineLight* ListNext(FEngineLight const* L) { return FL_U32_TO_PTR(FEngineLight, L->Field04); }
+    FEngineLight* ListPrev(FEngineLight const* L) { return FL_U32_TO_PTR(FEngineLight, L->Field08); }
+    void SetListNext(FEngineLight* L, FEngineLight* V) { L->Field04 = FL_PTR_TO_U32(V); }
+    void SetListPrev(FEngineLight* L, FEngineLight* V) { L->Field08 = FL_PTR_TO_U32(V); }
 
     I3DMathEngine* AcquireSoftLightMath()
     {

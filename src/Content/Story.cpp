@@ -17,6 +17,7 @@
 #include "common_server.h"
 
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <new>
 #include <string.h>
@@ -205,7 +206,10 @@ namespace
         pub::Player::InspectCash(PlayerId, Cash);
         pub::Player::GetAssetValue(PlayerId, AssetValue);
         double const CurrentWorth = static_cast<double>(Cash) + static_cast<double>(AssetValue);
-        if (CurrentWorth < static_cast<double>(DeltaWorth))
+        // Dev aid: FLWIN_STORY_NO_GRIND skips the between-missions net worth gate (the
+        // check still runs only when worth or mission state changes, e.g. after a trade).
+        static bool const bNoGrind = getenv("FLWIN_STORY_NO_GRIND") != nullptr;
+        if (!bNoGrind && CurrentWorth < static_cast<double>(DeltaWorth))
             return;
 
         // FUN_06f487c0: [state+0xd8], the player's live mission controller.

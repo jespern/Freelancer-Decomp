@@ -29,7 +29,8 @@
 #include "common_universe.h"   // Universe::get_system
 
 #include <stdint.h>            // intptr_t
-#include <stdlib.h>            // free
+#include <stdio.h>             // fprintf (FLWIN_LOAD)
+#include <stdlib.h>            // free, getenv
 #include <string.h>            // memcmp, memcpy
 #include <wchar.h>             // swprintf, wcslen
 #include <string>
@@ -517,7 +518,7 @@ void PageCharacterSelectSingle::BeginLeave(int Direction)
     PlayUiSoundSlot(0x1b); // FUN_00564570
 }
 
-bool PageCharacterSelectSingle::Slot23(unsigned Msg, unsigned A, unsigned B)
+bool PageCharacterSelectSingle::Slot23(unsigned Msg, uintptr_t A, uintptr_t B)
 {
     // LAB_0056c360.
     if (Msg == 0x3004)
@@ -752,6 +753,46 @@ void PageCharacterSelectSingle::Update()
 {
     // FUN_0056ce30. Win3D's child walk (next read before each call, FUN_005a17b0 inlined).
     Win3D::Update();
+
+    // Dev aid: FLWIN_LOAD=<save> (file name in Accts\SinglePlayer, ".fl" optional) loads that
+    // save once the page has slid in, as a double click on its row would.
+    static bool bAutoLoadDone = false;
+    char const* const AutoLoad = getenv("FLWIN_LOAD");
+    if (AutoLoad != nullptr && !bAutoLoadDone && bLeaving == 0 && SlideT >= 1.0)
+    {
+        bAutoLoadDone = true;
+        std::string Wanted(AutoLoad);
+        if (Wanted.size() < 3 || _stricmp(Wanted.c_str() + Wanted.size() - 3, ".fl") != 0)
+            Wanted += ".fl";
+        int Found = -1;
+        for (int Row = 0; Row < CharSelDesc->ItemCount && Found < 0; ++Row)
+        {
+            CCharacterSet::CharacterInfo const* const Info =
+                ItemDataToInfo(CharSelDesc->GetItemData(Row));
+            if (Info != nullptr && _stricmp(Info->Id.Buffer, Wanted.c_str()) == 0)
+                Found = Row;
+        }
+        if (Found < 0)
+        {
+            fprintf(stderr, "[flwin] FLWIN_LOAD: no save '%s'; saves:", Wanted.c_str());
+            for (int Row = 0; Row < CharSelDesc->ItemCount; ++Row)
+            {
+                CCharacterSet::CharacterInfo const* const Info =
+                    ItemDataToInfo(CharSelDesc->GetItemData(Row));
+                if (Info != nullptr)
+                    fprintf(stderr, " %s", Info->Id.Buffer);
+            }
+            fprintf(stderr, "\n");
+        }
+        else
+        {
+            fprintf(stderr, "[flwin] FLWIN_LOAD: loading %s\n", Wanted.c_str());
+            CharSelDesc->SelectedIndex = Found;
+            CharSelTime->SelectedIndex = Found;
+            ShowDetails(ItemDataToInfo(CharSelDesc->GetItemData(Found)));
+            BeginLeave(1);
+        }
+    }
 
     // 0x0056ce6b..0x0056ceb4: the row under the cursor in either list (CharSelTime's wins)
     // pulses in both, when -1 <= row < that list's count.

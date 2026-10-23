@@ -300,6 +300,7 @@
     <ClCompile Include="common_repairmanager.cpp" />
     <ClCompile Include="common_thrustmanager.cpp" />
     <ClCompile Include="common_misc.cpp" />
+    <ClCompile Include="common_fl_checksum.cpp" />
     <ClCompile Include="common_file.cpp" />
     <ClCompile Include="common_heap.cpp" />
     <ClCompile Include="common_damagelist.cpp" />

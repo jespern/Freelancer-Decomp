@@ -907,7 +907,7 @@ void IVP_Real_Object::unlink_contact_points(bool bSilently)
             break;
         }
         IVP_Contact_Point* const Record =
-            reinterpret_cast<IVP_Contact_Point*>(Node + *reinterpret_cast<int16_t*>(Node + 0xc)); // :06345568 / :0634557a
+            reinterpret_cast<IVP_Contact_Point*>(Node + reinterpret_cast<IVP_Contact_Point_Node*>(Node)->Delta); // :06345568 / :0634557a
         IVP_ListManager* const FrictionSystem = Record->ListManagerOwner; // :06345570 (+0x70)
         IVP_Core* const Core2 = Record->Object2->original_core;          // :0634556c-:06345574 (+0x24 -> +0x9c)
 

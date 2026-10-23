@@ -132,7 +132,7 @@ static void InitGlowDescDefaults(FStarGlowDesc* Desc, unsigned char OwnerTag)
         Desc->Alpha = 1.0f;
         Desc->Field44 = 0;
         Desc->Field4C = 0;
-        Desc->Field48 = 0;
+        Desc->Field48 = nullptr;
     }
 
 // The lens-flare / spines 0x40 shell, inlined twice in the StarSphere ctor (0x00510d61..
@@ -142,19 +142,19 @@ static void InitGlowDescDefaults(FStarGlowDesc* Desc, unsigned char OwnerTag)
 // +0x38 / +0x3c. The rest of the inline name (+0x15..+0x33) is not written.
 static FStarFxChild40* AllocChild40(float Field38, float Field3C)
     {
-        FStarFxChild40* Child = static_cast<FStarFxChild40*>(operator new(0x40));
+        FStarFxChild40* Child = static_cast<FStarFxChild40*>(operator new(sizeof(FStarFxChild40)));
         if (Child == nullptr)
             return nullptr;
-        unsigned char* const Raw = Child->Raw;
-        Raw[0] = 0;
-        *reinterpret_cast<unsigned*>(Raw + 0x04) = 0;
-        *reinterpret_cast<unsigned*>(Raw + 0x08) = 0;
-        *reinterpret_cast<unsigned*>(Raw + 0x0c) = 0;
-        *reinterpret_cast<unsigned*>(Raw + 0x10) = 0;
-        Raw[0x14] = 0;
-        *reinterpret_cast<unsigned*>(Raw + 0x34) = 0;
-        *reinterpret_cast<float*>(Raw + 0x38) = Field38;
-        *reinterpret_cast<float*>(Raw + 0x3c) = Field3C;
+        FStarFxChild40Fields& F = Child->Fields;
+        Child->Raw[0] = 0;
+        F.Begin = nullptr;
+        F.End = nullptr;
+        F.Cap = nullptr;
+        F.Field10 = 0;
+        F.Name[0] = 0;
+        F.Shape = nullptr;
+        F.Clamp38 = Field38;
+        F.Clamp3C = Field3C;
         return Child;
     }
 
@@ -883,7 +883,7 @@ static FStarFxChild40* AllocChild40(float Field38, float Field3C)
     {
         // 0x0050e6f0: `this` (ESI) is used at once -- retail tests neither it nor the sphere.
         unsigned char* const Base = Body->Raw;
-        FTexShape const** ShapeSlot = reinterpret_cast<FTexShape const**>(Base + 0x2e0);
+        FTexShape const** ShapeSlot = reinterpret_cast<FTexShape const**>(&Body->CoronaShape) /* +0x2e0 */;
         unsigned char* AlphaFlag = Base + 0x2e4;
         char const* ShapeName = reinterpret_cast<char const*>(Base + 0x2c0);
         FTexShape const* Shape = ResolveNamedShape(ShapeName, ShapeSlot, AlphaFlag);
@@ -1026,8 +1026,8 @@ static FStarFxChild40* AllocChild40(float Field38, float Field3C)
         // 0x0050f857..0x0050f8e5: the shape cached at +0x34; a miss looks the inline name at
         // +0x14 up in DAT_006750a0 as it is (ShapeDB.h:0xf2 warning and 0 when absent).
         unsigned char* const Base = Flare->Raw;
-        FTexShape const** const ShapeSlot = reinterpret_cast<FTexShape const**>(Base + 0x34);
-        ResolveNamedShape(reinterpret_cast<char const*>(Base + 0x14), ShapeSlot, nullptr);
+        FTexShape const** const ShapeSlot = reinterpret_cast<FTexShape const**>(StarFxChild40At(Base, 0x34));
+        ResolveNamedShape(reinterpret_cast<char const*>(StarFxChild40At(Base, 0x14)), ShapeSlot, nullptr);
 
         // 0x0050f8e8..0x0050f939: the viewport (slot 5), the sun's screen x / y / z
         // (+0x7c..+0x84) copied, the viewport middle (l + r) * 0.5 and (t + b) * 0.5 (double
@@ -1048,10 +1048,10 @@ static FStarFxChild40* AllocChild40(float Field38, float Field3C)
         // JNZ keeps not-greater and unordered) -> +0x3c, else below +0x38 (TEST AH,5 / JP keeps
         // greater, equal and unordered) -> +0x38.
         float Scale = Sphere->PixelScale;
-        if (Scale > *reinterpret_cast<float*>(Base + 0x3c))
-            Scale = *reinterpret_cast<float*>(Base + 0x3c);
-        else if (Scale < *reinterpret_cast<float*>(Base + 0x38))
-            Scale = *reinterpret_cast<float*>(Base + 0x38);
+        if (Scale > *reinterpret_cast<float*>(StarFxChild40At(Base, 0x3c)))
+            Scale = *reinterpret_cast<float*>(StarFxChild40At(Base, 0x3c));
+        else if (Scale < *reinterpret_cast<float*>(StarFxChild40At(Base, 0x38)))
+            Scale = *reinterpret_cast<float*>(StarFxChild40At(Base, 0x38));
 
         // 0x0050f976..0x0050f98a: the half-size base scale * brightness * intensity argument,
         // through a float.
@@ -1088,8 +1088,8 @@ static FStarFxChild40* AllocChild40(float Field38, float Field3C)
         // colour (+8, +0xc, +0x10, fade * +0x14); centre sun + axis * +0 (the y product through
         // a float first); half size base * +4; the quad (u,v) (0,0) (1,0) (1,1) (0,1) at
         // (x-h,y-h) (x+h,y-h) (x+h,y+h) (x-h,y+h), z 0.
-        float** It = *reinterpret_cast<float***>(Base + 0x04);
-        while (It != *reinterpret_cast<float***>(Base + 0x08))
+        float** It = *reinterpret_cast<float***>(StarFxChild40At(Base, 0x04));
+        while (It != *reinterpret_cast<float***>(StarFxChild40At(Base, 0x08)))
         {
             float const* const Elem = *It;
             Win3DColor4f(Elem[2], Elem[3], Elem[4],
@@ -1264,8 +1264,8 @@ static FStarFxChild40* AllocChild40(float Field38, float Field3C)
         // length test, FUN_00512660 (the out-of-line copy of the same cached find); a null
         // shape leaves through LAB_00510982.
         unsigned char* const Base = Spines->Raw;
-        FTexShape const** ShapeSlot = reinterpret_cast<FTexShape const**>(Base + 0x34);
-        char const* const Name = reinterpret_cast<char const*>(Base + 0x14);
+        FTexShape const** ShapeSlot = reinterpret_cast<FTexShape const**>(StarFxChild40At(Base, 0x34));
+        char const* const Name = reinterpret_cast<char const*>(StarFxChild40At(Base, 0x14));
         FTexShape const* Shape = ResolveNamedShape(Name, ShapeSlot, nullptr);
         if (Shape == nullptr)
             return;
@@ -1274,10 +1274,10 @@ static FStarFxChild40* AllocChild40(float Field38, float Field3C)
         // JNZ keeps not-greater and unordered) -> +0x3c, else below +0x38 (TEST AH,5 / JP keeps
         // greater, equal and unordered) -> +0x38.
         float Scale = Sphere->PixelScale;
-        if (Scale > *reinterpret_cast<float*>(Base + 0x3c))
-            Scale = *reinterpret_cast<float*>(Base + 0x3c);
-        else if (Scale < *reinterpret_cast<float*>(Base + 0x38))
-            Scale = *reinterpret_cast<float*>(Base + 0x38);
+        if (Scale > *reinterpret_cast<float*>(StarFxChild40At(Base, 0x3c)))
+            Scale = *reinterpret_cast<float*>(StarFxChild40At(Base, 0x3c));
+        else if (Scale < *reinterpret_cast<float*>(StarFxChild40At(Base, 0x38)))
+            Scale = *reinterpret_cast<float*>(StarFxChild40At(Base, 0x38));
 
         // 0x00510229..0x0051027f: the sun's screen x / y (+0x7c / +0x80); from the SunEffect body
         // (+0x14): inner radius (float)(+0x2f0 * +0x2ac * scale), outer radius
@@ -1296,9 +1296,9 @@ static FStarFxChild40* AllocChild40(float Field38, float Field3C)
 
         // 0x00510272..0x005102a1: element count (+8 - +4) / 0x2c, 0 when +4 is null.
         int Count = 0;
-        if (*reinterpret_cast<unsigned char* const*>(Base + 0x04) != nullptr)
-            Count = static_cast<int>(*reinterpret_cast<unsigned char* const*>(Base + 0x08) -
-                                     *reinterpret_cast<unsigned char* const*>(Base + 0x04)) /
+        if (*reinterpret_cast<unsigned char* const*>(StarFxChild40At(Base, 0x04)) != nullptr)
+            Count = static_cast<int>(*reinterpret_cast<unsigned char* const*>(StarFxChild40At(Base, 0x08)) -
+                                     *reinterpret_cast<unsigned char* const*>(StarFxChild40At(Base, 0x04))) /
                     0x2c;
 
         // 0x005102a5..0x005102b3: the shape's texture (FUN_00425640, frame 0) bound, Begin(8) --
@@ -1312,7 +1312,7 @@ static FStarFxChild40* AllocChild40(float Field38, float Field3C)
         for (int Index = 0; Index < Count; ++Index)
         {
             float const* const Elem = reinterpret_cast<float const*>(
-                *reinterpret_cast<unsigned char* const*>(Base + 0x04) + Index * 0x2c);
+                *reinterpret_cast<unsigned char* const*>(StarFxChild40At(Base, 0x04)) + Index * 0x2c);
             double const Cos = static_cast<double>(Elem[0]);
             double const Sin = static_cast<double>(Elem[1]);
 
@@ -1454,7 +1454,7 @@ static FStarFxChild40* AllocChild40(float Field38, float Field3C)
     {
         // 0x0050cd59..0x0050cd5e: the only test is the shape (+0x48); no null tests on the
         // arguments and no shape lookup here (UpdateIntensity LAB_00511690 resolves it).
-        FTexShape const* Shape = reinterpret_cast<FTexShape const*>(Desc->Field48);
+        FTexShape const* Shape = static_cast<FTexShape const*>(Desc->Field48);
         if (Shape == nullptr)
             return;
 
@@ -1613,7 +1613,7 @@ static FStarFxChild40* AllocChild40(float Field38, float Field3C)
                         // whatever +0x0c holds; a non-zero result frees it and zeroes +0x0c.
                         if (this->StarCenter != nullptr)
                             operator delete(this->StarCenter);
-                        FStarGlowDesc* Center = static_cast<FStarGlowDesc*>(operator new(0x50));
+                        FStarGlowDesc* Center = static_cast<FStarGlowDesc*>(operator new(sizeof(FStarGlowDesc))) /* retail 0x50 */;
                         if (Center != nullptr)
                             InitGlowDescDefaults(Center, 0);
                         this->StarCenter = Center;
@@ -1779,7 +1779,7 @@ static FStarFxChild40* AllocChild40(float Field38, float Field3C)
 #ifdef FREELANCER_RP9
         // Port-only: the Direct3D 9 volumetric nebula composites after this sprite, which has no
         // depth; it is told where the glow is (nebula_volume.cpp). A no-op while inactive.
-        if (this->StarGlow->Field48 != 0)
+        if (this->StarGlow->Field48 != nullptr)
         {
             float GlowScale = this->StarGlow->Scale;
             if (this->StarCenter != nullptr && this->StarCenter->Scale > GlowScale)
@@ -1956,10 +1956,10 @@ static FStarFxChild40* AllocChild40(float Field38, float Field3C)
         double SpinesMax = 0.0;
         for (unsigned Index = 0;; ++Index)
         {
-            unsigned char* const Begin = *reinterpret_cast<unsigned char**>(SpinesRaw + 0x04);
+            unsigned char* const Begin = static_cast<unsigned char*>(this->Spines->Fields.Begin);
             if (Begin == nullptr)
                 break;
-            unsigned char* const End = *reinterpret_cast<unsigned char**>(SpinesRaw + 0x08);
+            unsigned char* const End = static_cast<unsigned char*>(this->Spines->Fields.End);
             int const Count = static_cast<int>((End - Begin) / 0x2c);
             if (Index >= static_cast<unsigned>(Count))
                 break;
@@ -2213,7 +2213,7 @@ FSunEffectBody* SunEffectBodyInit(FSunEffectBody* Body)
     *reinterpret_cast<float*>(Body->Raw + 0x2e8) = 0.25f; // 0x3e800000
     *reinterpret_cast<float*>(Body->Raw + 0x2ec) = 0.25f;
     Body->Raw[0x2e4] = 0;
-    *reinterpret_cast<unsigned*>(Body->Raw + 0x2e0) = 0;
+    Body->CoronaShape = nullptr; // +0x2e0
     *reinterpret_cast<unsigned*>(Body->Raw + 0x2b0) = 0;
     *reinterpret_cast<unsigned*>(Body->Raw + 0x2b8) = 0;
     *reinterpret_cast<float*>(Body->Raw + 0x2f0) = 0.5f; // 0x3f000000
@@ -2426,8 +2426,8 @@ static void LensFlareFree(FStarFxChild40* Flare)
     if (Flare == nullptr)
         return;
     unsigned char* const Base = Flare->Raw;
-    float** Begin = *reinterpret_cast<float***>(Base + 0x04);
-    float** End = *reinterpret_cast<float***>(Base + 0x08);
+    float** Begin = *reinterpret_cast<float***>(StarFxChild40At(Base, 0x04));
+    float** End = *reinterpret_cast<float***>(StarFxChild40At(Base, 0x08));
     if (Begin != nullptr)
     {
         for (float** It = Begin; It != End; ++It)
@@ -2437,10 +2437,10 @@ static void LensFlareFree(FStarFxChild40* Flare)
         }
         operator delete(Begin);
     }
-    *reinterpret_cast<void**>(Base + 0x04) = nullptr;
-    *reinterpret_cast<void**>(Base + 0x08) = nullptr;
-    *reinterpret_cast<void**>(Base + 0x0c) = nullptr;
-    *reinterpret_cast<void**>(Base + 0x34) = nullptr;
+    *reinterpret_cast<void**>(StarFxChild40At(Base, 0x04)) = nullptr;
+    *reinterpret_cast<void**>(StarFxChild40At(Base, 0x08)) = nullptr;
+    *reinterpret_cast<void**>(StarFxChild40At(Base, 0x0c)) = nullptr;
+    *reinterpret_cast<void**>(StarFxChild40At(Base, 0x34)) = nullptr;
 }
 
 static void SpinesFree(FStarFxChild40* Spines)
@@ -2449,25 +2449,25 @@ static void SpinesFree(FStarFxChild40* Spines)
     if (Spines == nullptr)
         return;
     unsigned char* const Base = Spines->Raw;
-    *reinterpret_cast<void**>(Base + 0x08) = *reinterpret_cast<void**>(Base + 0x04);
-    *reinterpret_cast<void**>(Base + 0x34) = nullptr;
-    *reinterpret_cast<unsigned*>(Base + 0x10) = 0;
-    Base[0x14] = 0;
-    void* const Begin = *reinterpret_cast<void**>(Base + 0x04);
+    *reinterpret_cast<void**>(StarFxChild40At(Base, 0x08)) = *reinterpret_cast<void**>(StarFxChild40At(Base, 0x04));
+    *reinterpret_cast<void**>(StarFxChild40At(Base, 0x34)) = nullptr;
+    *reinterpret_cast<unsigned*>(StarFxChild40At(Base, 0x10)) = 0;
+    (*StarFxChild40At(Base, 0x14)) = 0;
+    void* const Begin = *reinterpret_cast<void**>(StarFxChild40At(Base, 0x04));
     if (Begin != nullptr)
         operator delete(Begin);
-    *reinterpret_cast<void**>(Base + 0x04) = nullptr;
-    *reinterpret_cast<void**>(Base + 0x08) = nullptr;
-    *reinterpret_cast<void**>(Base + 0x0c) = nullptr;
+    *reinterpret_cast<void**>(StarFxChild40At(Base, 0x04)) = nullptr;
+    *reinterpret_cast<void**>(StarFxChild40At(Base, 0x08)) = nullptr;
+    *reinterpret_cast<void**>(StarFxChild40At(Base, 0x0c)) = nullptr;
 }
 
 static void FlarePushBead(FStarFxChild40* Flare, float const Values[6])
 {
     // FUN_00537260 — push float[6]* into [+4,+8) pointer vector.
     unsigned char* const Base = Flare->Raw;
-    float** Begin = *reinterpret_cast<float***>(Base + 0x04);
-    float** End = *reinterpret_cast<float***>(Base + 0x08);
-    float** Cap = *reinterpret_cast<float***>(Base + 0x0c);
+    float** Begin = *reinterpret_cast<float***>(StarFxChild40At(Base, 0x04));
+    float** End = *reinterpret_cast<float***>(StarFxChild40At(Base, 0x08));
+    float** Cap = *reinterpret_cast<float***>(StarFxChild40At(Base, 0x0c));
     if (End == Cap)
     {
         int const OldCount = (Begin != nullptr) ? static_cast<int>(End - Begin) : 0;
@@ -2482,8 +2482,8 @@ static void FlarePushBead(FStarFxChild40* Flare, float const Values[6])
         Begin = NewBegin;
         End = Begin + OldCount;
         Cap = Begin + NewCap;
-        *reinterpret_cast<float***>(Base + 0x04) = Begin;
-        *reinterpret_cast<float***>(Base + 0x0c) = Cap;
+        *reinterpret_cast<float***>(StarFxChild40At(Base, 0x04)) = Begin;
+        *reinterpret_cast<float***>(StarFxChild40At(Base, 0x0c)) = Cap;
     }
     float* Elem = static_cast<float*>(operator new(sizeof(float) * 6));
     if (Elem == nullptr)
@@ -2492,16 +2492,16 @@ static void FlarePushBead(FStarFxChild40* Flare, float const Values[6])
         Elem[I] = Values[I];
     *End = Elem;
     ++End;
-    *reinterpret_cast<float***>(Base + 0x08) = End;
+    *reinterpret_cast<float***>(StarFxChild40At(Base, 0x08)) = End;
 }
 
 static void SpinesPushElem(FStarFxChild40* Spines, float const Elem[11])
 {
     // FUN_005126f0 — append one 0x2c record.
     unsigned char* const Base = Spines->Raw;
-    unsigned char* Begin = *reinterpret_cast<unsigned char**>(Base + 0x04);
-    unsigned char* End = *reinterpret_cast<unsigned char**>(Base + 0x08);
-    unsigned char* Cap = *reinterpret_cast<unsigned char**>(Base + 0x0c);
+    unsigned char* Begin = *reinterpret_cast<unsigned char**>(StarFxChild40At(Base, 0x04));
+    unsigned char* End = *reinterpret_cast<unsigned char**>(StarFxChild40At(Base, 0x08));
+    unsigned char* Cap = *reinterpret_cast<unsigned char**>(StarFxChild40At(Base, 0x0c));
     int const Stride = 0x2c;
     if (End == Cap)
     {
@@ -2519,12 +2519,12 @@ static void SpinesPushElem(FStarFxChild40* Spines, float const Elem[11])
         Begin = NewBegin;
         End = Begin + OldCount * Stride;
         Cap = Begin + NewCap * Stride;
-        *reinterpret_cast<unsigned char**>(Base + 0x04) = Begin;
-        *reinterpret_cast<unsigned char**>(Base + 0x0c) = Cap;
+        *reinterpret_cast<unsigned char**>(StarFxChild40At(Base, 0x04)) = Begin;
+        *reinterpret_cast<unsigned char**>(StarFxChild40At(Base, 0x0c)) = Cap;
     }
     memcpy(End, Elem, Stride);
     End += Stride;
-    *reinterpret_cast<unsigned char**>(Base + 0x08) = End;
+    *reinterpret_cast<unsigned char**>(StarFxChild40At(Base, 0x08)) = End;
 }
 
 // -------------------------------------------------------------------- FUN_0050f3a0
@@ -2570,27 +2570,27 @@ int LensFlareLoadFromIni(FStarFxChild40* Flare, char const* IniPath, char const*
             }
             else if (Reader.is_value("min_radius"))
             {
-                *reinterpret_cast<float*>(Base + 0x38) = Reader.get_value_float(0);
+                *reinterpret_cast<float*>(StarFxChild40At(Base, 0x38)) = Reader.get_value_float(0);
             }
             else if (Reader.is_value("max_radius"))
             {
-                *reinterpret_cast<float*>(Base + 0x3c) = Reader.get_value_float(0);
+                *reinterpret_cast<float*>(StarFxChild40At(Base, 0x3c)) = Reader.get_value_float(0);
             }
             else if (Reader.is_value("shape"))
             {
                 char const* Shape = Reader.get_value_string();
                 if (Shape == nullptr)
                 {
-                    *reinterpret_cast<unsigned*>(Base + 0x10) = 0;
-                    Base[0x14] = 0;
+                    *reinterpret_cast<unsigned*>(StarFxChild40At(Base, 0x10)) = 0;
+                    (*StarFxChild40At(Base, 0x14)) = 0;
                 }
                 else
                 {
                     // FUN_0050f3a0 inlines FUN_00417c50 here (0050f588..0050f5bf: REPNE SCASB,
                     // clamp to 0x1f, MOVSD/MOVSB, terminator, length to +0x10) - same semantics.
                     unsigned const Len =
-                        CopyBoundedString(reinterpret_cast<char*>(Base + 0x14), 0x20, Shape);
-                    *reinterpret_cast<unsigned*>(Base + 0x10) = Len;
+                        CopyBoundedString(reinterpret_cast<char*>(StarFxChild40At(Base, 0x14)), 0x20, Shape);
+                    *reinterpret_cast<unsigned*>(StarFxChild40At(Base, 0x10)) = Len;
                 }
             }
         }
@@ -2600,8 +2600,8 @@ int LensFlareLoadFromIni(FStarFxChild40* Flare, char const* IniPath, char const*
     // FUN_00512b00 / 00512a40 / 00512b70 — sort bead pointer vector by pointer address
     // (MSVC insertion/introsort on uint*). Count ≤16 → insertion; else introsort-equivalent.
     {
-        float** Begin = *reinterpret_cast<float***>(Base + 0x04);
-        float** End = *reinterpret_cast<float***>(Base + 0x08);
+        float** Begin = *reinterpret_cast<float***>(StarFxChild40At(Base, 0x04));
+        float** End = *reinterpret_cast<float***>(StarFxChild40At(Base, 0x08));
         if (Begin != nullptr && End != nullptr && End > Begin)
         {
             int const Count = static_cast<int>(End - Begin);
@@ -2660,24 +2660,24 @@ int SpinesLoadFromIni(FStarFxChild40* Spines, char const* IniPath, char const* N
                 char const* Shape = Reader.get_value_string();
                 if (Shape == nullptr)
                 {
-                    *reinterpret_cast<unsigned*>(Base + 0x10) = 0;
-                    Base[0x14] = 0;
+                    *reinterpret_cast<unsigned*>(StarFxChild40At(Base, 0x10)) = 0;
+                    (*StarFxChild40At(Base, 0x14)) = 0;
                 }
                 else
                 {
                     // FUN_0050fba0: CALL FUN_00417c50(this+0x14, 0x20, value) at 0050fce0.
                     unsigned const Len =
-                        CopyBoundedString(reinterpret_cast<char*>(Base + 0x14), 0x20, Shape);
-                    *reinterpret_cast<unsigned*>(Base + 0x10) = Len;
+                        CopyBoundedString(reinterpret_cast<char*>(StarFxChild40At(Base, 0x14)), 0x20, Shape);
+                    *reinterpret_cast<unsigned*>(StarFxChild40At(Base, 0x10)) = Len;
                 }
             }
             else if (Reader.is_value("min_radius"))
             {
-                *reinterpret_cast<float*>(Base + 0x38) = Reader.get_value_float(0);
+                *reinterpret_cast<float*>(StarFxChild40At(Base, 0x38)) = Reader.get_value_float(0);
             }
             else if (Reader.is_value("max_radius"))
             {
-                *reinterpret_cast<float*>(Base + 0x3c) = Reader.get_value_float(0);
+                *reinterpret_cast<float*>(StarFxChild40At(Base, 0x3c)) = Reader.get_value_float(0);
             }
             else if (Reader.is_value("spine"))
             {
@@ -2693,8 +2693,8 @@ int SpinesLoadFromIni(FStarFxChild40* Spines, char const* IniPath, char const* N
     }
     Reader.close();
 
-    unsigned char* Begin = *reinterpret_cast<unsigned char**>(Base + 0x04);
-    unsigned char* End = *reinterpret_cast<unsigned char**>(Base + 0x08);
+    unsigned char* Begin = *reinterpret_cast<unsigned char**>(StarFxChild40At(Base, 0x04));
+    unsigned char* End = *reinterpret_cast<unsigned char**>(StarFxChild40At(Base, 0x08));
     int Count = 0;
     if (Begin != nullptr)
         Count = static_cast<int>(End - Begin) / 0x2c;
@@ -2799,7 +2799,7 @@ FStarSphere::FStarSphere(IObjInspect* InOwner)
     Owner = InOwner;
     Radius = 1000.0f; // 0x447a0000
 
-    FSunEffectBody* Body = static_cast<FSunEffectBody*>(operator new(0x30c));
+    FSunEffectBody* Body = static_cast<FSunEffectBody*>(operator new(sizeof(FSunEffectBody))) /* retail 0x30c */;
     if (Body != nullptr)
         SunEffectBodyInit(Body);
     SunBody = Body;
@@ -2814,7 +2814,7 @@ FStarSphere::FStarSphere(IObjInspect* InOwner)
     ZoneOcclusionFadeOut = 2.0f;
     Field30 = kPi;
 
-    FStarGlowDesc* Glow = static_cast<FStarGlowDesc*>(operator new(0x50));
+    FStarGlowDesc* Glow = static_cast<FStarGlowDesc*>(operator new(sizeof(FStarGlowDesc))) /* retail 0x50 */;
     if (Glow != nullptr)
         InitGlowDescDefaults(Glow, 0);
     // 0x00510e99..0x00510ea8: +0x10, then +0x0c = 0, +0x38 = 0, +0x34 = 0, +0x64 = 1.0f.

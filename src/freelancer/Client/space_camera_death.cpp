@@ -7,6 +7,8 @@
 // The death camera: controller ctor step at 0x00549371..0x0054939e, slots LAB_00549470 (0x58),
 // LAB_00549450 (0x60) and LAB_00549620 (0x6c).
 
+#include "common_cobject.h"
+#include "client_gameobj.h"
 #include "space_camera_death.h"
 
 #include "common_iface.h"   // IObjInspect -- the watched object's thiscall getters
@@ -47,7 +49,7 @@ namespace
     // 0x005494cf: the CEqObj type mask the attach slot tests. Both bits must be set.
     const unsigned kEqObjShipTypeMask = 0x503;
 
-    const int kWatchableOffset = 8;
+    const int kWatchableOffset = FlWatchableOffset(); // retail 8
 
     // 0x005496bc..0x005496df / 0x00549723..0x00549748: an angle uniformly in [-Amplitude,
     // +Amplitude], spelled `frac * (hi - lo) + lo` with lo = -hi (a float, FST [ESP+0x18] /
@@ -157,13 +159,13 @@ void DeathCameraAttach(FDeathCamera* Cam, void* Object)
     //
     // The +0x218 field is not identified; it is tested for non-null and nothing more, so the
     // port tests it the same way rather than guessing what it means.
-    unsigned char* const EqObj = *reinterpret_cast<unsigned char**>(
-        static_cast<unsigned char*>(Watchee) + 0x10);
+    CObject* const EqObj = ClientGameobjObject(Watchee);
     if (EqObj != nullptr)
     {
-        const unsigned TypeWord = *reinterpret_cast<const unsigned*>(EqObj + 0x4c);
-        const void* const Field218 = *reinterpret_cast<void* const*>(EqObj + 0x218);
-        if ((TypeWord & kEqObjShipTypeMask) == kEqObjShipTypeMask && Field218 != nullptr)
+        const unsigned TypeWord = static_cast<unsigned>(EqObj->ObjectClass); // +0x4c
+        // +0x218 is CShip::AtmosphereSolar; read only once the mask says ship.
+        if ((TypeWord & kEqObjShipTypeMask) == kEqObjShipTypeMask &&
+            static_cast<CShip*>(EqObj)->AtmosphereSolar != nullptr)
         {
             Cam->MaxDriftSpeed = kDeathShipMaxDriftSpeed;
             Cam->DriftDamping = kDeathDriftDamping;

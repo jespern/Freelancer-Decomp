@@ -9,6 +9,7 @@
 #include "common_ini.h"
 #include "dacom.h"
 #include "game_options.h"
+#include "hd_plugins.h"
 
 #include <ctype.h>
 #include <stdlib.h>
@@ -45,6 +46,10 @@ void LoadStartupConfig(DisplaySettings* Options, const FClientCommandLine* Comma
     // No bound check: every Index in the constant table is in range.
     for (int Row = 0; Row < GGameOptionDescCount; ++Row)
         Options->options[GGameOptionDescs[Row].Index] = GGameOptionDescs[Row].DefaultValue;
+    // HD: top_down_target_view — "TARGET WINDOW LOCK" (0x0c) defaults to 1, the top-down target
+    // view (.data 0x00614470 0 -> 1).
+    if (HdPlugins::Feature("top_down_target_view"))
+        Options->options[0x0c] = 1;
 
     // 0x005621e2..0x00562215.
     Options->ini_path.Length = CopyBoundedString(Options->ini_path.Text, 0x104, "Freelancer.ini");

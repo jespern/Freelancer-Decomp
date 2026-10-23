@@ -1173,6 +1173,17 @@ static_assert(offsetof(IVP_Impact_Solver, FrictionVectorWS) == 0x10C, "IVP_Impac
 class IVP_ListManager;
 
 #pragma pack(push, 4)
+// One of IVP_Contact_Point's two embedded mindist_list nodes (Next1/Prev1/Object1/Delta1 at
+// +0x08, the mirror at +0x1c): retail walks them by dword offset (+0 Next, +4 Prev, +0xc the
+// self-relative Delta back to the record); this is the same node at native width.
+struct IVP_Contact_Point_Node
+{
+    void* Next;
+    void* Prev;
+    IVP_Real_Object* Object;
+    int16_t Delta;
+};
+
 struct IVP_Contact_Point
 {
     // RETYPED (D-listmanager pass, 2026-09-10, from `_pad00[0x08]`). D-item3004

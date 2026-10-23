@@ -309,10 +309,12 @@ int FVMeshPart::HookUp()
         bool bFound = false;
         if (Crc != 0)
         {
-            unsigned long Query[2];
-            Query[0] = 0;
-            Query[1] = Crc;
-            bFound = Library->FindMaterialByCrc(Query, Slot) >= 0;
+            struct
+            {
+                const char* Name;
+                unsigned long Crc;
+            } Query = {nullptr, Crc}; // {name, CRC}
+            bFound = Library->FindMaterialByCrc(&Query, Slot) >= 0;
         }
         if (bFound)
         {
@@ -880,10 +882,10 @@ public:
         return 0;
     }
 
-    int DACOM_API Claim(void* FileArg) override
+    intptr_t DACOM_API Claim(void* FileArg) override
     {
         IFileSystem* File = (IFileSystem*)FileArg;
-        int Handle = -1;
+        intptr_t Handle = -1;
         if (File->OpenNode("VMeshPart") == 0)
             return Handle;
         // Retail calls the claim on a null part when operator new(0x90) fails; the throwing
@@ -895,14 +897,14 @@ public:
             File->OpenNode(".."); // 06c2d799: DAT_06c37250 = ".." (2E 2E 00)
             return Handle;
         }
-        Handle = (int)((intptr_t)Part);
+        Handle = (intptr_t)Part;
         File->OpenNode(".."); // 06c2d7c8
         return Handle;
     }
 
     // LAB_06c2d7e0: FUN_06c31070 (clone, not implemented: NOTICE 0x211, -7) -> -1.
     // formerly Slot4
-    int DACOM_API CloneHandle(void* /*Handle*/) override
+    intptr_t DACOM_API CloneHandle(void* /*Handle*/) override
     {
         void* Clone = nullptr;
         RendCompFdumpAt(kFdumpNotice, G_FileVMPartArch, 0x211,
@@ -910,7 +912,7 @@ public:
         const int Result = (int)0xFFFFFFF9;
         if (Result < 0 || Clone == nullptr)
             return -1;
-        return (int)((intptr_t)Clone);
+        return ((intptr_t)Clone);
     }
 
     // FUN_06c2d820 (RET 8): a valid handle is destroyed. EAX is not set in retail; 0 here.
@@ -1077,7 +1079,7 @@ public:
 GENRESULT DACOM_API VMeshPluginFactoryCreate(FDacomFactory* This, AGGDESC* Desc, void** Out)
 {
     FRenderPluginDesc* Extended = (FRenderPluginDesc*)Desc;
-    if (Extended->Size != 0x10 || std::strcmp(Extended->Name, This->Name) != 0)
+    if (!FL_DESC_SIZE_IS(Extended->Size, decltype(*Extended), 0x10) || std::strcmp(Extended->Name, This->Name) != 0)
     {
         *Out = nullptr;
         return GR_INTERFACE_UNSUPPORTED;

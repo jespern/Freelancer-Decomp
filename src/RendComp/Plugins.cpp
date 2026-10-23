@@ -9,6 +9,7 @@
 #include "msvcrt_compat.h" // MsvcrtAtoi: retail MSVCRT.DLL wraps mod 2^32, the UCRT saturates
 #include "common_misc.h"     // ICamera (the sphere draw reads the camera)
 #include "render/shading.h" // IMaterialLibrary, FShadingPropertyValue (the sphere archetype)
+#include "hd_plugins.h"
 
 #include <cmath>
 #include <cstddef>
@@ -115,9 +116,9 @@ public:
     }
 
     // formerly Slot4
-    int DACOM_API CloneHandle(void* /*Handle*/) override
+    intptr_t DACOM_API CloneHandle(void* /*Handle*/) override
     {
-        return (int)G_HandleFail;
+        return -1;
     }
 
     // formerly Slot6
@@ -843,14 +844,14 @@ public:
     // LAB_06c214d0 (RET 8): handle -1 or 0 -> -1. The clone (FUN_06c24aa0) writes into the
     // cleared argument slot; a negative result or a null clone -> -1, else the clone.
     // formerly Slot4
-    int DACOM_API CloneHandle(void* Handle) override
+    intptr_t DACOM_API CloneHandle(void* Handle) override
     {
         if (Handle == (void*)G_HandleFail || Handle == nullptr)
-            return (int)G_HandleFail;
+            return -1;
         FTriMeshArch* Clone = nullptr;
         if (((FTriMeshArch*)Handle)->Clone(&Clone) < 0 || Clone == nullptr)
-            return (int)G_HandleFail;
-        return (int)((intptr_t)Clone);
+            return -1;
+        return ((intptr_t)Clone);
     }
 
     // formerly Slot7
@@ -893,15 +894,15 @@ public:
         return 0;
     }
 
-    int DACOM_API Claim(void* File) override
+    intptr_t DACOM_API Claim(void* File) override
     {
         FTriMeshArch* Arch = new FTriMeshArch();
         if (Arch->ResetMesh() >= 0 &&
             Arch->Load((IFileSystem*)File, G_Pipeline, G_VbManager,
                        G_MaterialLibrary, Tristrips) >= 0)
-            return (int)((intptr_t)Arch);
+            return ((intptr_t)Arch);
         delete Arch;
-        return (int)G_HandleFail;
+        return -1;
     }
 
     // FUN_06c21510 (RET 8): a handle other than -1 and 0 gets the dtor FUN_06c22550 and free --
@@ -1121,10 +1122,11 @@ public:
 
         if (Sides != 0)
         {
-            Materials = (IMaterial**)new unsigned char[Sides * 4];
-            std::memset(Materials, 0, Sides * 4);
-            MaterialNames = (char**)new unsigned char[Sides * 4];
-            std::memset(MaterialNames, 0, Sides * 4);
+            // Retail sizes these Sides * 4 (pointer arrays).
+            Materials = (IMaterial**)new unsigned char[Sides * sizeof(IMaterial*)];
+            std::memset(Materials, 0, Sides * sizeof(IMaterial*));
+            MaterialNames = (char**)new unsigned char[Sides * sizeof(char*)];
+            std::memset(MaterialNames, 0, Sides * sizeof(char*));
 
             char Buffer[0x80];
             for (unsigned long Index = 0; Index < Sides; ++Index)
@@ -1196,12 +1198,12 @@ public:
                             {
                                 if (Value.Payload0 != 0)
                                     HeapFree(GetProcessHeap(), 0,
-                                             (void*)Value.Payload0);
+                                             (void*)Value.PayloadPtr());
                             }
                             else if (Value.Type == 6)
                             {
                                 IDAComponent* Component =
-                                    (IDAComponent*)Value.Payload0;
+                                    (IDAComponent*)Value.PayloadPtr();
                                 Value.Payload0 = 0;
                                 if (Component != nullptr)
                                     Component->Release();
@@ -1879,6 +1881,11 @@ public:
             Level = LevelMin;
         if (LevelMax < Level)
             Level = LevelMax;
+        // HD: hq_spheres — always the finest tessellation (rendcomp.dll 0x06c2c499 JGE +2 -> +0:
+        // the upper clamp's "Level = LevelMax" always runs).
+        static const bool bHdHqSpheres = HdPlugins::Feature("hq_spheres");
+        if (bHdHqSpheres)
+            Level = LevelMax;
         if (CachedLevel == Level && (Flags & 2) == 0)
             return;
 
@@ -2403,7 +2410,7 @@ public:
         return 0;
     }
 
-    int DACOM_API Claim(void* File) override
+    intptr_t DACOM_API Claim(void* File) override
     {
         FSphereHandle* Handle = new (std::nothrow) FSphereHandle();
         if (Handle == nullptr)
@@ -2411,7 +2418,7 @@ public:
         if (Handle->ResetChecked() >= 0 &&
             Handle->Load((IFileSystem*)File, G_Pipeline, G_VbManager,
                          G_MaterialLibrary) >= 0)
-            return (int)((intptr_t)Handle);
+            return ((intptr_t)Handle);
         delete Handle;
         return -1;
     }

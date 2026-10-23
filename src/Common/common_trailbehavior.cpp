@@ -571,12 +571,13 @@ bool TrailBehavior::Slot10(void* DirectiveOp)
 {
     if (DirectiveOp != nullptr)
     {
-        unsigned char* const Op = static_cast<unsigned char*>(DirectiveOp);
-        TrailDistance1e8 = *reinterpret_cast<float const*>(Op + 0x10);   // 062cb11e DirectiveTrailOp+0x10
-        void* const Target = NavHelper->Timers.FindVerifiedObject((unsigned const*)(Op + 0xc));   // 062cb12e
+        // Read by member: on LP64 the op's vptr is 8 bytes and its fields sit 4 bytes further on.
+        pub::AI::DirectiveTrailOp const* const Op = static_cast<pub::AI::DirectiveTrailOp const*>(DirectiveOp);
+        TrailDistance1e8 = Op->TrailDistance;                       // 062cb11e DirectiveTrailOp+0x10
+        void* const Target = NavHelper->Timers.FindVerifiedObject(&Op->TargetId);   // 062cb12e (+0xc)
         if (Target != nullptr)
         {
-            DirectiveTarget.set(reinterpret_cast<Watchable const*>(static_cast<char*>(Target) + 8));   // 062cb137-062cb14b
+            DirectiveTarget.set(reinterpret_cast<Watchable const*>(static_cast<char*>(Target) + FlWatchableOffset()));   // 062cb137-062cb14b
             bHasDirectiveTarget1e0 = 1;                             // 062cb158
             Flags28 = static_cast<unsigned char>(Flags28 | 0x2);    // 062cb15e
             return true;

@@ -5,6 +5,7 @@
 // Author: Giperion.
 
 #include "globals.h"
+#include "hd_plugins.h"
 #include "input_manager.h"
 #include "menu_keymap_config.h" // KeyMapRouteInputMessage (FUN_00577850)
 
@@ -16,8 +17,18 @@
 // PeekMessage(PM_NOREMOVE) + GetMessage. A hot key IMEFocus claims, or a message the menu
 // accelerator router (FUN_00577850) consumes, skips Translate/Dispatch. WM_QUIT stores its
 // wParam through ExitCode (no null check, 0x005b0c18) and returns false.
+namespace
+{
+    // HD: FLSharp quit_message_fix (exit.cpp) -- a WM_QUIT was retrieved by some pump.
+    bool G_bQuitRetrieved = false;
+}
+
 bool PumpMessages(int* exit_code)
 {
+    // HD: FLSharp quit_message_fix — once any pump has taken the WM_QUIT, every later call
+    // answers false too, so a nested pump (NN_Error, NN_Prompt) cannot swallow the quit.
+    static const bool bLatchQuit = HdPlugins::FlSharp("quit_message_fix");
+
     // 0x005b0b69: FUN_0041ef20 drains the DirectInput mouse queue first.
     MouseDispatchEvents();
     MSG Msg;
@@ -26,6 +37,7 @@ bool PumpMessages(int* exit_code)
         if (!GetMessageA(&Msg, nullptr, 0, 0))
         {
             *exit_code = static_cast<int>(Msg.wParam);
+            G_bQuitRetrieved = true;
             return false;
         }
 
@@ -38,5 +50,5 @@ bool PumpMessages(int* exit_code)
             DispatchMessageA(&Msg);
         }
     }
-    return true;
+    return !(bLatchQuit && G_bQuitRetrieved);
 }

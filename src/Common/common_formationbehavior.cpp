@@ -10,6 +10,7 @@
 // (common_behavior_internal.h).
 
 #include "common_behavior.h"
+#include "hd_plugins.h"
 #include "common_behavior_internal.h" // CmnBehavior:: follower helpers (common_behavior.cpp)
 #include "common_aisteer.h"
 #include "common_systemmanager.h" // SystemManager -- NavHelper's real type
@@ -137,7 +138,7 @@ int FormationBehavior::Slot5(float Value)
     {
         IObjRW* const Default = Rec->GetFormationLeader();          // 062cc064 FUN_062ecab0
         LeadWatcher.set(Default != nullptr
-            ? reinterpret_cast<Watchable const*>(reinterpret_cast<unsigned char*>(Default) + 8)
+            ? reinterpret_cast<Watchable const*>(reinterpret_cast<unsigned char*>(Default) + FlWatchableOffset())
             : nullptr);
     }
     if (ObjRwFromWatchable(const_cast<Watchable*>(LeadWatcher.target())) != nullptr)
@@ -257,6 +258,18 @@ EvaluateResult FormationBehavior::evaluate(unsigned int Context)
     // returns 1 (`TEST AH,0x41; JZ` is taken on greater).
     float Attitude = 0.0f;
     (void)ObjInspectOf(Target)->get_attitude_towards(Attitude, Owner);   // 062cc37f slot 0x68
+    // HD: FLSharp hostile_group_formation — a hostile player of the owner's group counts as
+    // neutral (0x062cc37c hooked). FLSharp also wants the owner to be the client's player
+    // object, which Common cannot see; a player owner stands in for it.
+    static const bool bGroupFormation = HdPlugins::FlSharp("hostile_group_formation");
+    if (bGroupFormation && Attitude <= -0.6f && ObjInspectOf(Target)->is_player() &&
+        Owner->is_player() && OwnShip != nullptr && OwnGroup != 0)
+    {
+        CObject const* const TargetObj = ObjInspectOf(Target)->cobject();
+        if (TargetObj != nullptr && (static_cast<unsigned int>(TargetObj->ObjectClass) & 0x503u) == 0x503u &&
+            *reinterpret_cast<unsigned int const*>(reinterpret_cast<char const*>(TargetObj) + 0x1b4) == OwnGroup)
+            Attitude = 0.0f;
+    }
     if (Attitude > -0.6f)
         return EvalBlocked;                                         // EAX = 1
     return EvalSkip;
@@ -342,7 +355,7 @@ void FormationBehavior::Slot27()
     {
         IObjRW* const Directed = NavHelper->GunConvergenceStateBytes.GetFormationLeader(); // FUN_062ecab0
         LeadWatcher.set(Directed != nullptr
-            ? reinterpret_cast<Watchable const*>(reinterpret_cast<unsigned char*>(Directed) + 8)
+            ? reinterpret_cast<Watchable const*>(reinterpret_cast<unsigned char*>(Directed) + FlWatchableOffset())
             : nullptr);
     }
 

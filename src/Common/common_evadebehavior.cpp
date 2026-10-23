@@ -561,8 +561,10 @@ bool EvadeBehavior::Slot10(void* DirectiveOp)
     void* Target;
     if (DirectiveOp != nullptr)
     {
-        // 062c863b-062c8645: FUN_062e74a0(Sys+0x34, Op+0xc).
-        Target = Sys->Timers.FindVerifiedObject((unsigned const*)(static_cast<char*>(DirectiveOp) + 0xc));
+        // 062c863b-062c8645: FUN_062e74a0(Sys+0x34, Op+0xc) -- DirectiveEvadeOp::ThreatId, read
+        // by member (on LP64 the op's vptr is 8 bytes and the field is at +0x10).
+        Target = Sys->Timers.FindVerifiedObject(
+            &static_cast<pub::AI::DirectiveEvadeOp const*>(DirectiveOp)->ThreatId);
     }
     else
     {
@@ -571,7 +573,7 @@ bool EvadeBehavior::Slot10(void* DirectiveOp)
     }
     // LAB_062c864a: `Target ? Target + 8 : 0`, deduplicated set_pointer.
     Watcher2a0.set(Target != nullptr
-                       ? reinterpret_cast<Watchable const*>(static_cast<char*>(Target) + 8)
+                       ? reinterpret_cast<Watchable const*>(static_cast<char*>(Target) + FlWatchableOffset())
                        : nullptr);
     Flags28 = static_cast<unsigned char>(Flags28 | 0x2);           // 062c8679
     return true;

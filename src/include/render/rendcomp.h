@@ -60,8 +60,8 @@ struct IRenderer2 : IDAComponent
 
 struct IRenderComponent : IDAComponent
 {
-    virtual int DACOM_API Claim(void* File) = 0;
-    virtual int DACOM_API CloneHandle(void* Handle) = 0; // formerly Slot4
+    virtual intptr_t DACOM_API Claim(void* File) = 0; // a handle (pointer) or -1
+    virtual intptr_t DACOM_API CloneHandle(void* Handle) = 0; // formerly Slot4
     virtual int DACOM_API DestroyHandle(void* Handle) = 0;
     virtual int DACOM_API QueryHandle(void* Handle, const char* Iid, void** Out) = 0; // formerly Slot6
     virtual int DACOM_API CreateMeshInstance(void* InstId, void* Handle) = 0; // formerly Slot7

@@ -458,8 +458,8 @@ void CAsteroidSystem::update(IObjDB* ObjDb, float Dt)
         // 062a44e3-062a44f4: the IObjDB::GetNext cursor {0, 0, mask 0x7f0000}, built once.
         struct FIterState
         {
-            unsigned Unused0;
-            unsigned Unused1;
+            void* Unused0; // IObjDB cursor pointers (retail dwords)
+            void* Unused1;
             unsigned Mask;
         };
         FIterState Cursor = { 0, 0, 0x7f0000u };

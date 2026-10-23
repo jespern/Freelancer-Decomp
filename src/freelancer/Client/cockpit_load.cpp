@@ -8,6 +8,10 @@
 
 #include "player_spawn.h"
 #include "common_archetype.h"
+#include "common_iface.h" // FlWatchableOffset
+#include "common_cobject.h"
+#include "client_cliobj.h" // CliCompanionAt
+#include "client_gameobj.h"
 #include "common_misc.h" // GetFileSysPath
 #include "dacom.h"
 #include "hud_element_list.h"
@@ -31,31 +35,7 @@ namespace
 
     // Same `- 8` as everywhere else: the watcher holds the Watchable, eight bytes into the
     // IObjRW.
-    const int kWatchableOffset = 8;
-
-    // Retail CEqObj offsets used by FUN_00543350.
-    struct FPlayerShipView
-    {
-        void* Vtable;
-        unsigned char PadTo4c[0x48];
-        unsigned FlagsAt4c;
-        unsigned char PadTo88[0x38];
-        Archetype::Root* Archetype;
-    };
-
-    static_assert(offsetof(FPlayerShipView, FlagsAt4c) == 0x4c, "CEqObj+0x4c class flags");
-    static_assert(offsetof(FPlayerShipView, Archetype) == 0x88, "CObject+0x88 archetype");
-
-    // Archetype::CliShip companion — cockpit ini path at retail +0x60.
-    struct FCliShipCompanionView
-    {
-        void* Vtable;
-        unsigned char PadTo60[0x5C];
-        char* CockpitIniPath;
-    };
-
-    static_assert(offsetof(FCliShipCompanionView, CockpitIniPath) == 0x60,
-                  "CliShip+0x60 cockpit ini path");
+    const int kWatchableOffset = FlWatchableOffset(); // retail 8
 
     // player_spawn.cpp's fallback when it has no manager object; never bound.
     static FCockpitMeshHolder GCockpitMeshHolder;
@@ -71,17 +51,15 @@ namespace
     // retail dereferences it anyway (0x00543375), so no guard is added here either.
     Archetype::Root* ShipArchetypeOf(void* ObjRW)
     {
-        FPlayerShipView* EqObj = nullptr;
+        CObject* EqObj = nullptr;
         if (ObjRW != nullptr)
         {
-            unsigned char* const Base = static_cast<unsigned char*>(ObjRW) + 0x0c;
-            if (Base != nullptr)
-            {
-                FPlayerShipView* const Candidate = *reinterpret_cast<FPlayerShipView**>(Base + 4);
-                if (Candidate != nullptr &&
-                    (Candidate->FlagsAt4c & kShipObjectClassFlags) == kShipObjectClassFlags)
-                    EqObj = Candidate;
-            }
+            // IObjRW +0x10 (retail): the client object's CObject.
+            CObject* const Candidate =
+                static_cast<FClientGameobj*>(static_cast<IObjRW*>(ObjRW))->GetObject();
+            if (Candidate != nullptr &&
+                (static_cast<unsigned>(Candidate->ObjectClass) & kShipObjectClassFlags) == kShipObjectClassFlags)
+                EqObj = Candidate;
         }
         return EqObj->Archetype;
     }
@@ -104,7 +82,7 @@ bool InitPlayerCockpitSlice()
     // is never null-tested.
     Archetype::Root* const Arch = ShipArchetypeOf(ObjRW);
     const char* const CockpitPath =
-        reinterpret_cast<FCliShipCompanionView*>(Arch->Companion)->CockpitIniPath;
+        *reinterpret_cast<const char* const*>(Archetype::CliCompanionAt(Arch->Companion, 0x60));
 
     char FullPath[MAX_PATH];
     if (CockpitPath[0] == '\0')

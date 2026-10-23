@@ -11,6 +11,7 @@
 #include "common_ini.h"
 #include "common_misc.h"
 #include "dacom.h"
+#include "hd_plugins.h"
 
 #include <algorithm>
 #include <cmath>
@@ -318,7 +319,10 @@ void DetailSwitchTable::read_from_ini(INI_Reader* Reader)
         if (Reader->is_value("switch"))
         {
             float Key = Reader->get_value_float(0);
-            float Value = Reader->get_value_float(1);
+            // HD: flplusplus character_detail_scale multiplies the switch distance
+            // (rel32 at Common 0x062fefb2).
+            static const float DetailScale = HdPlugins::FlppScale("character_detail_scale", 1000000.0f);
+            float Value = Reader->get_value_float(1) * DetailScale;
             add_table_entry(Key, Value);
         }
         else if (Reader->is_value("fovx"))

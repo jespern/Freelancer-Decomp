@@ -2533,7 +2533,7 @@ void RoomControlDrawObject(FRoomRuntime* Room, FRoomObject* Object)
                     if (DALib::Engine->QueryInterface(Iids::FLAppearance,
                                                       reinterpret_cast<void**>(&Appearance)) >= 0)
                     {
-                        Appearance->SetInstanceValue(static_cast<int>(reinterpret_cast<intptr_t>(EnvInstance)),
+                        Appearance->SetInstanceValue(static_cast<int>(FL_PTR_TO_U32(EnvInstance)),
                                           const_cast<char*>("envmapbasic"));
                     }
                     if (Appearance != nullptr)

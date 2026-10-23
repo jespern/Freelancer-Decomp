@@ -5,6 +5,7 @@
 // Author: Giperion.
 
 #include "commodity_by_base.h"
+#include "hd_client.h"
 
 #include "character_select_equip.h" // GetPlayerVisitFlagsRetail (FUN_004c4da0)
 #include "globals.h"                // IsClientServerTickPaused (FUN_0042d730)
@@ -526,7 +527,7 @@ bool NnCommodityByBase::Create(Win3D* /*NewParent*/, void* Data)
     // 0046f4dd..0046f52a: event 0xf, slot 31 SetOffset(0, 0x3d9ba5e3, 0xbfa4dd2f), slot 5
     // SetPosition(+0x60).
     RegisterEvent(0xf);
-    SetOffset(0.0f, NnFloatBits(0x3d9ba5e3), NnFloatBits(0xbfa4dd2f));
+    SetOffset(HdHudShiftBase(0x0046f4f3, 0.0f), NnFloatBits(0x3d9ba5e3), NnFloatBits(0xbfa4dd2f)); // HD
     SetPosition(Position);
 
     // 0046f52d..0046f53f: FUN_004b5060(+0x04, 0) -- the window's current parent and no data,

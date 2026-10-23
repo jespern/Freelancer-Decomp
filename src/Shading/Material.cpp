@@ -319,7 +319,7 @@ void ReleaseSchemaPayload(FShadingPropertyValue& Value)
 {
     if (Value.Type == 6)
     {
-        IDAComponent* Component = (IDAComponent*)(Value.Payload0);
+        IDAComponent* Component = (IDAComponent*)(Value.PayloadPtr());
         Value.Payload0 = 0;
         if (Component != nullptr)
             Component->Release();
@@ -1460,7 +1460,7 @@ GENRESULT DACOM_API FMaterial::SaveProperties(void* FileSystem)
         case 5:
         case 7:
         {
-            const char* Text = (const char*)(Value.Payload0);
+            const char* Text = (const char*)(Value.PayloadPtr());
             WriteResult = WriteMaterialPropertyBytes(Files, Record.Name, Text,
                 (unsigned long)(std::strlen(Text) + 1));
             break;
@@ -1502,9 +1502,12 @@ GENRESULT FMaterial::ApplyVerifyMatAnim()
     const GENRESULT QueryResult = Pipeline->QueryInterface(Iids::MatAnimLibrary, (void**)&AnimationLibrary);
     if (QueryResult >= 0)
     {
-        unsigned long Query[2];
-        Query[0] = (unsigned long)InstanceName;
-        Query[1] = DACOM_CRC::GetCRC32(InstanceName);
+        struct
+        {
+            const char* Name;
+            unsigned long Crc;
+        } QueryRecord = {InstanceName, DACOM_CRC::GetCRC32(InstanceName)}; // {name, CRC}
+        void* const Query = &QueryRecord;
         if (MatAnim != nullptr)
         {
             MatAnim->Release();
@@ -2582,23 +2585,23 @@ static void CopyPropertyValue(FShadingPropertyValue* Destination, const FShading
     case 5:
     case 7:
     {
-        const char* Text = (const char*)(Source->Payload0);
+        const char* Text = (const char*)(Source->PayloadPtr());
         if (Destination->Payload0 != 0)
-            HeapFree(GetProcessHeap(), 0, (void*)(Destination->Payload0));
+            HeapFree(GetProcessHeap(), 0, (void*)(Destination->PayloadPtr()));
         Destination->Payload0 = 0;
         if (Text != nullptr)
         {
             char* Copy = (char*)(HeapAlloc(GetProcessHeap(), 0, std::strlen(Text) + 1));
-            Destination->Payload0 = (unsigned long)Copy;
+            Destination->SetPayloadPtr(Copy);
             std::strcpy(Copy, Text);
         }
         break;
     }
     case 6:
     {
-        IDAComponent* Component = (IDAComponent*)(Source->Payload0);
-        IDAComponent* Previous = (IDAComponent*)(Destination->Payload0);
-        Destination->Payload0 = (unsigned long)Component;
+        IDAComponent* Component = (IDAComponent*)(Source->PayloadPtr());
+        IDAComponent* Previous = (IDAComponent*)(Destination->PayloadPtr());
+        Destination->SetPayloadPtr(Component);
         if (Component != nullptr)
             Component->AddRef();
         if (Previous != nullptr)
@@ -2670,13 +2673,13 @@ GENRESULT DACOM_API FMaterial::GetParameterValue(unsigned long Index, void* InOu
         // before making a ProcessHeap copy of the NUL-terminated live value.
         const char* Source = *(const char* const*)Target;
         if (Result->Payload0 != 0)
-            HeapFree(GetProcessHeap(), 0, (void*)(Result->Payload0));
+            HeapFree(GetProcessHeap(), 0, (void*)(Result->PayloadPtr()));
         Result->Payload0 = 0;
         if (Source != nullptr)
         {
             const size_t Size = std::strlen(Source) + 1;
             char* Copy = (char*)(HeapAlloc(GetProcessHeap(), 0, Size));
-            Result->Payload0 = (unsigned long)Copy;
+            Result->SetPayloadPtr(Copy);
             std::strcpy(Copy, Source);
         }
         break;
@@ -2684,8 +2687,8 @@ GENRESULT DACOM_API FMaterial::GetParameterValue(unsigned long Index, void* InOu
     case 6:
     {
         IDAComponent* Component = *(IDAComponent**)Target;
-        IDAComponent* Previous = (IDAComponent*)(Result->Payload0);
-        Result->Payload0 = (unsigned long)Component;
+        IDAComponent* Previous = (IDAComponent*)(Result->PayloadPtr());
+        Result->SetPayloadPtr(Component);
         if (Component != nullptr)
             Component->AddRef();
         if (Previous != nullptr)
@@ -2895,14 +2898,14 @@ GENRESULT __thiscall FMaterial::StoreParameterValue(unsigned long Index, void* E
             char** TextTarget = (char**)Target;
             delete[] *TextTarget;
             *TextTarget = nullptr;
-            const char* Source = (const char*)(Typed->Payload0);
+            const char* Source = (const char*)(Typed->PayloadPtr());
             if (Source != nullptr)
             {
                 const size_t Size = std::strlen(Source) + 1;
                 char* Copy = new char[Size];
                 *TextTarget = Copy;
                 // 248a rereads the value after publishing the allocated target.
-                std::strcpy(Copy, (const char*)(Typed->Payload0));
+                std::strcpy(Copy, (const char*)(Typed->PayloadPtr()));
             }
             break;
         }
@@ -2910,7 +2913,7 @@ GENRESULT __thiscall FMaterial::StoreParameterValue(unsigned long Index, void* E
         {
             IDAComponent** ComponentTarget = (IDAComponent**)Target;
             IDAComponent* Previous = *ComponentTarget;
-            IDAComponent* Component = (IDAComponent*)(Typed->Payload0);
+            IDAComponent* Component = (IDAComponent*)(Typed->PayloadPtr());
             *ComponentTarget = Component;
             if (Component != nullptr)
                 Component->AddRef();

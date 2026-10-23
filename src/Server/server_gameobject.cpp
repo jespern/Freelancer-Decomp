@@ -11,6 +11,7 @@
 // ===========================================================================
 
 #include "../include/server_gameobject.h"
+#include "../include/hd_plugins.h"
 #include "../include/common_timing.h"  // Timing::read
 #include "../include/server_sysdb.h"   // StarSystem::on_object_destroyed (GameObject::destroy)
 #include "../include/common_misc.h"    // SUBOBJ_ID_NONE (Ship::allocate_equip_id)
@@ -607,9 +608,39 @@ void GameObject::explosion_hit(ExplosionDamageEvent const& Blast, DamageList& Da
     damage_hull(Amount, Damage);
 }
 
+// Port dev aid: FLWIN_GOD=1 drops every damage list aimed at a player's ship, for scripted
+// mission tests that cannot dogfight.
+static bool GodProtectsPlayer(CSimple const* Simple)
+{
+    static bool const bGod = getenv("FLWIN_GOD") != nullptr;
+    return bGod && Simple != nullptr && Simple->OwnerPlayer != 0;
+}
+
+// Port dev aid: FLWIN_PLAYER_DAMAGE=N scales the hull and shield damage a player inflicts by N,
+// so scripted mission tests win their fights in a bounded time.
+// Only targets hostile to the shooter are scaled: friendly fire (a transport the player flies
+// in formation with) stays at the normal damage.
+static float PlayerDamageScale(DamageList const& Damage, CEqObj const* Victim)
+{
+    static float const Scale = [] {
+        char const* const Value = getenv("FLWIN_PLAYER_DAMAGE");
+        return Value != nullptr ? static_cast<float>(atof(Value)) : 1.0f;
+    }();
+    if (Scale == 1.0f || !Damage.is_inflictor_a_player() || Victim == nullptr || Victim->VibeId == -1)
+        return 1.0f;
+    int ShooterRep = -1;
+    if (pub::SpaceObj::GetRep(Damage.InflictorId, ShooterRep) != 0 || ShooterRep == -1)
+        return 1.0f;
+    float Attitude = 0.0f;
+    ::Reputation::Vibe::AttitudeTowards(Victim->VibeId, ShooterRep, Attitude);
+    return Attitude < -0.6f ? Scale : 1.0f;
+}
+
 // +0x188 -- .text:06ceee70 (RET 4).
 void GameObject::apply_damage_list(DamageList& Damage)
 {
+    if (GodProtectsPlayer(csimple()))
+        return;
     // .text:06ceee77 .. 06ceeeca -- re-entry is reported, not refused.
     if (is_in_damage_callback())
     {
@@ -1394,6 +1425,8 @@ bool EqObj::is_death_fuse_burning()
 // +0x188 -- .text:06ceb330 (RET 4).
 void EqObj::apply_damage_list(DamageList& Damage)
 {
+    if (GodProtectsPlayer(csimple()))
+        return;
     // .text:06ceb338 .. 06ceb38d -- re-entry is reported, not refused.
     if (is_in_damage_callback())
     {
@@ -3045,7 +3078,10 @@ void EqObj::explosion_hit_hull(ExplosionDamageEvent const& Blast, DamageList& Ou
     double const Dz = static_cast<double>(Blast.Position.z) - Center.z;
     double const Distance = ((Dz * Dz + Dx * Dx) + Dy * Dy) - static_cast<double>(Radius) * Radius;
 
-    int const Band = EqObj_ExplosionBand(Distance, RadiusSq, Middle, Inner);
+    // HD: explosion_full_damage — the hull always takes band 3, full damage, whatever the
+    // distance (Server.dll 0x06ce960c JP +0xc -> +0). Sub-objects keep their bands.
+    static const bool bHdFullBlast = HdPlugins::Feature("explosion_full_damage");
+    int const Band = bHdFullBlast ? 3 : EqObj_ExplosionBand(Distance, RadiusSq, Middle, Inner);
     if (Band == 0)
         return;
 
@@ -3439,6 +3475,7 @@ void EqObj::destroy_equip(CEquip* Equip, DamageEntry::SubObjFate Fate, DamageLis
 // +0x1b0 -- .text:06cea3a0 (RET 8).
 bool EqObj::damage_hull(float Amount, DamageList& Damage)
 {
+    Amount *= PlayerDamageScale(Damage, ceqobj()); // port dev aid (FLWIN_PLAYER_DAMAGE)
     // .text:06cea3a0 .. 06cea3b2 -- only a positive amount is scaled
     // (TEST AH,0x41 / JNZ skips <= and unordered).
     if (Amount > 0.0f)
@@ -3454,6 +3491,20 @@ bool EqObj::damage_hull(float Amount, DamageList& Damage)
         CEquip* const Armor = ceqobj()->EquipManager.FindFirst(0x1000000u);
         if (Armor != nullptr)
             Amount = Amount / static_cast<CEArmor*>(Armor)->ArmorArch()->HitPtsScale;
+    }
+
+    // Port dev aid: FLWIN_DMG_TRACE=N logs every hull hit of at least N points (victim id and
+    // hit points before, amount, cause, inflictor).
+    {
+        static float const TraceMin = [] {
+            char const* const Value = getenv("FLWIN_DMG_TRACE");
+            return Value != nullptr ? static_cast<float>(atof(Value)) : -1.0f;
+        }();
+        if (TraceMin >= 0.0f && Amount >= TraceMin)
+            fprintf(stderr, "[dmg] victim %u (%s) hp %.0f amount %.0f cause %d inflictor %u\n", get_id(),
+                    Object->get_archetype()->Nickname.get_string(),
+                    static_cast<double>(csimple()->get_hit_pts()), static_cast<double>(Amount),
+                    static_cast<int>(Damage.Cause), Damage.InflictorId);
     }
 
     // .text:06cea48b -- the base body (FUN_06ceec90), directly.
@@ -3546,6 +3597,8 @@ bool EqObj::damage_equip(CEquip* Equip, float Damage, DamageList& Out)
 // +0x214 -- .text:06cea740 (RET 0xc).
 bool EqObj::damage_shield(CEShield* Shield, float Damage, DamageList& Out)
 {
+    if (Damage > 0.0f)
+        Damage *= PlayerDamageScale(Out, ceqobj()); // port dev aid (FLWIN_PLAYER_DAMAGE)
     if (Damage == 0.0f)
         return false;
     if (Shield->IsDestroyed())
@@ -4457,8 +4510,12 @@ bool SrvLauncher::use_ammo(Vector const& Target)
         if (Player.ship_object_id == OwnerId)
         {
             Archetype::Projectile const* const Projectile = Launcher->ProjectileArch();
+            // HD: FLSharp projectiles_server_fix — one round per barrel (0x06ced913 pushes
+            // GetProjectilesPerFire for the 1).
+            static const bool bPerBarrel = HdPlugins::FlSharp("projectiles_server_fix");
+            int const Rounds = bPerBarrel ? static_cast<int>(Launcher->GetProjectilesPerFire()) : 1;
             if (Projectile->bRequiresAmmo)
-                PlayerData_RemoveCargo(Player, Projectile->Nickname.Id, 1, 1.0f, false);
+                PlayerData_RemoveCargo(Player, Projectile->Nickname.Id, Rounds, 1.0f, false);
         }
     }
     return true;

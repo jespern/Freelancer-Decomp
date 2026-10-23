@@ -213,7 +213,7 @@ struct FThornEventDesc
     int DurationMs;     // +0x18
     int PrimaryIndex;   // +0x1c the entity the event drives
     int SecondaryIndex; // +0x20
-    IParamCurve* ParamCurve; // +0x24 curve, or null
+    FlPtr32<IParamCurve> ParamCurve; // +0x24 curve, or null (dword slot on LP64 too)
     int Field28;        // +0x28 TODO: meaning not recovered
 };
 
@@ -267,7 +267,7 @@ struct FThornAttachEventDesc
     int TargetType;
     int UpAxis;
     int FrontAxis;
-    const char* TargetPart;
+    FlPtr32<const char> TargetPart;
 };
 
 static_assert(sizeof(void*) != 4 || sizeof(FThornAttachEventDesc) == 0x48,
@@ -316,11 +316,11 @@ struct FThornMotionEventDesc
     float TransTime;              // +0x30 "trans_time"
     float TimeScale;              // +0x34 "time_scale"
     float Weight;                 // +0x38 "weight"
-    char const* Animation;        // +0x3c "animation" (the script name CharacterInfo knows)
+    FlPtr32<char const> Animation; // +0x3c "animation" (the script name CharacterInfo knows)
     unsigned char Field40;        // +0x40 TODO: meaning not recovered (FUN_06f43af0 copies it)
     unsigned char Pad41[3];
     float Heading;                // +0x44 "heading"
-    char const* LockedBone;       // +0x48 "locked_bone"
+    FlPtr32<char const> LockedBone; // +0x48 "locked_bone"
     float TransScale;             // +0x4c "trans_scale"
     int Field50;                  // +0x50 TODO: meaning not recovered (FUN_06f43af0 copies it)
 };
@@ -340,7 +340,7 @@ static_assert(sizeof(void*) != 4 || sizeof(FThornMotionEventDesc) == 0x54,
 struct FThornStartIkDesc
 {
     FThornEventDesc Common;       // +0x00 Type == kThornTypeStartIk
-    void const* Key;              // +0x2c the event object itself
+    FlPtr32<void const> Key;      // +0x2c the event object itself
     int CountToRoot;              // +0x30 "count_to_root"
     int LookAtUpAxis;             // +0x34 "up"
     int LookAtFrontAxis;          // +0x38 "front"
@@ -349,8 +349,8 @@ struct FThornStartIkDesc
     unsigned char bMoveTo;        // +0x41 "move_to"
     unsigned char Pad42[2];
     float TransitionDuration;     // +0x44 "transition_duration"
-    char const* EndEffector;      // +0x48 "end_effector" (c_str of the event's copy)
-    char const* TargetPart;       // +0x4c "target_part"
+    FlPtr32<char const> EndEffector; // +0x48 "end_effector" (c_str of the event's copy)
+    FlPtr32<char const> TargetPart; // +0x4c "target_part"
     int TargetType;               // +0x50 "target_type"
 };
 
@@ -364,8 +364,8 @@ static_assert(sizeof(void*) != 4 || sizeof(FThornStartIkDesc) == 0x54,
 struct FThornConnectEventDesc
 {
     FThornEventDesc Common;       // +0x00 Type == kThornTypeConnectHardpoints
-    char const* Hardpoint;        // +0x2c on the primary entity
-    char const* ParentHardpoint;  // +0x30 on the secondary entity
+    FlPtr32<char const> Hardpoint; // +0x2c on the primary entity
+    FlPtr32<char const> ParentHardpoint; // +0x30 on the secondary entity
 };
 
 static_assert(sizeof(void*) != 4 || sizeof(FThornConnectEventDesc) == 0x34,
@@ -397,7 +397,7 @@ struct FThornSpatialEventDesc
     float Quaternion[4];
     float AxisRotAngle;
     int AxisRotAxis;
-    const char* TargetPart;
+    FlPtr32<const char> TargetPart;
     int TargetType;
 };
 
@@ -494,7 +494,7 @@ struct FThornFloorEventDesc
 {
     FThornEventDesc Common;
     float FloorHeight;
-    const char* TargetPart;
+    FlPtr32<const char> TargetPart;
     int TargetType;
 };
 

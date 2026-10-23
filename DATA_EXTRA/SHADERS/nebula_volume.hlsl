@@ -505,9 +505,14 @@ float4 PSRaymarch(float2 TexCoord : TEXCOORD0) : COLOR0
     // optical depth along the ray, y the visible-weighted shadow, z its weight.
     float PrevT = TStart;
     float SpanLength = TEnd - TStart;
-    // [fastopt]: without it the June 2010 HLSL compiler (d3dx9_43, what RP9 compiles with)
-    // spends minutes on this loop.
+    // [fastopt]: without it the June 2010 HLSL compiler (d3dx9_43, what RP9 compiles with on
+    // Windows) spends minutes on this loop. vkd3d-shader (macOS, which defines RPEX_VKD3D) does
+    // not take the attribute.
+#if defined(RPEX_VKD3D)
+    [loop] for (int Step = 0; Step < NEBULA_MAX_STEPS; ++Step)
+#else
     [fastopt] [loop] for (int Step = 0; Step < NEBULA_MAX_STEPS; ++Step)
+#endif
     {
         if (Step >= Steps || Transmittance < 0.01)
             break;

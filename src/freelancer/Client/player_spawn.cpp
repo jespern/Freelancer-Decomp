@@ -5,6 +5,10 @@
 // Author: Giperion.
 
 #include "player_spawn.h"
+#include "hd_plugins.h"
+#include "hud_status_core.h"   // HudStatusSetAutoLevelState (HD: FLSharp flight_controls_fix)
+#include "player_behavior.h"   // GetPlayerObjRW
+#include "space_camera_third.h" // FThirdPersonCamera::bCameraLevelEnabled
 #include "client_objdb.h"
 
 #include "character_select_equip.h"
@@ -473,6 +477,21 @@ FClientShipGameobj* SpawnPlayerShip()
     static_cast<IServer*>(GetLocalServerInterface())
         ->PlayerLaunch(G_PlayerCharacterId, G_PlayerConnectionId);
 
-    // 0x0054b877..0x0054b8e1: the locals' destructors (list, vector) run on scope exit.
+    // HD: FLSharp flight_controls_fix — after the locals go (0x0054b8b9), the rotation lock
+    // (third-person +0x13c) and the HUD auto-level toggle take the new ship's behaviour manager
+    // values (+0xf9, Sys->Thrust.bAutoLevel), or Common's defaults (1, 1) without a manager.
+    static const bool bResync = HdPlugins::FlSharp("flight_controls_fix");
+    if (bResync)
+    {
+        IBehaviorManager* const Manager =
+            GetBehaviorManager(static_cast<IObjRW*>(GetPlayerObjRW()));
+        bool const bRotationLock = Manager != nullptr ? Manager->LevelCameraFlag != 0 : true;
+        bool const bAutoLevel = Manager != nullptr ? Manager->Sys->Thrust.bAutoLevel != 0 : true;
+        if (FSpaceCamera* const Tp = GetThirdPersonSpaceCamera())
+            ((FThirdPersonCamera*)Tp)->bCameraLevelEnabled = bRotationLock ? 1 : 0;
+        HudStatusSetAutoLevelState(bAutoLevel);
+    }
+    // HD: FLSharp better_updates — the sync pacing restarts for the new ship (multiplayer).
+    ClientObjDb_ResetSyncPacing(Ship);
     return Go;
 }

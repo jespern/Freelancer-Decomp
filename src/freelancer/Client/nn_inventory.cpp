@@ -7,6 +7,8 @@
 // Retail NN_Inventory -- see nn_inventory.h for the class, its vftable and layout.
 
 #include "nn_inventory.h"
+#include "hd_client.h"
+#include "hd_plugins.h"
 
 #include "cargo_bar_control.h"      // ToolTipHoverInit / SetCaption
 #include "client_base_market.h"     // GetClientLocationBaseMarket (FUN_0043a510), ClientMarketGetPrice
@@ -15,6 +17,7 @@
                                     // GetPlayerEquipDescListRetail (FUN_004c4060),
                                     // GetPlayerBaseIdRetail (DAT_00673358)
 #include "dealer_equip_stats.h"     // BuildDealerEquipmentStatText (FUN_00484090)
+#include "hd_plugins.h"
 #include "game_options.h"           // GetGameOption (FUN_005792b0)
 #include "gf_object_ship.h"         // GfObjectShip (FUN_00446be0), SetEquipment / RebuildModel
 #include "globals.h"                // GetClientFrameTimeCapped (FUN_0042d680)
@@ -712,7 +715,8 @@ int NnLoadoutResaleValue(EquipDescList const* List, FInventoryShipModel const* O
 
     // 004c6f97..004c707b
     int Total = 0;
-    unsigned const OwnerTag = static_cast<unsigned>(reinterpret_cast<uintptr_t>(Owner));
+    // EquipDesc::Owner is a dword: the owner travels as its 32-bit token (fl_compat.h).
+    unsigned const OwnerTag = FL_PTR_TO_U32(Owner);
     for (std::list<EquipDesc>::const_iterator It = List->Items.begin(); It != List->Items.end();
          ++It)
     {
@@ -1103,7 +1107,7 @@ void NnInventory::Close()
     delete this;
 }
 
-bool NnInventory::Slot23(unsigned Msg, unsigned A, unsigned B)
+bool NnInventory::Slot23(unsigned Msg, uintptr_t A, uintptr_t B)
 {
     // FUN_0047ade0 (RET 0xc).
     if (Msg == 0xef02)
@@ -1463,6 +1467,8 @@ void NnInventory::BuyFromDealer(int Count)
         if (static_cast<unsigned>(Entry->Stock) < static_cast<unsigned>(Count))
             Count = Entry->Stock;
         Entry->Stock -= Count;
+        if (Entry->Stock == 0)
+            NnDealerNoteSoldOut(); // HD: FLSharp equip_stat_flicker_fix (0x0047eb35)
         ClientMarketRequestBuy(Market, GetClientLocationCurrentBase(), GoodId, Count);
 
         // 0047eb50..0047eb63: the last one gone with the info card up -- clear the card.
@@ -3913,6 +3919,14 @@ void NnInventory::ShowInfoCard(unsigned ArchId, unsigned Ids)
             case Archetype::AClassCounterMeasure:
                 bTwoColumn = true;
                 break;
+            case Archetype::AClassPower:
+            case Archetype::AClassEngine:
+            case Archetype::AClassScanner:
+            case Archetype::AClassTractor:
+            case Archetype::AClassArmor:
+                // HD: jflp's stats_bool_index (0x0047c21f) gives these the panes too.
+                bTwoColumn = DealerJflpExtraStats();
+                break;
             default:
                 break;
             }
@@ -3930,13 +3944,18 @@ void NnInventory::ShowInfoCard(unsigned ArchId, unsigned Ids)
 
                 // 0047c283..0047c438: pane 2 -- header style 0xf64, IDS 0x6e1, a line break
                 // (DAT_005d0254 L"\n"), body style 0x9ca4, then the stat labels.
+                // HD: jflp re-points both line breaks (0x0047c355 / 0x0047c501) at DAT_005d0a08
+                // L"\n\n": a blank line after "Stats" (with "nostats" too).
+                static const wchar_t* const kStatsGap =
+                    HdPlugins::Enabled("jflp.dll") ? L"\n\n" : L"\n";
                 RenderDisplayList Labels;
                 {
                     StyleNode Style(0xf64);
                     RdlAppendNode(Labels, Style.Clone());
                 }
                 LoadIdsIntoRdl(0x6e1, Labels);
-                AppendTextMaybeXmlRdl(L"\n", static_cast<unsigned>(wcslen(L"\n")), Labels, false);
+                AppendTextMaybeXmlRdl(kStatsGap, static_cast<unsigned>(wcslen(kStatsGap)), Labels,
+                                      false);
                 {
                     StyleNode Style(0x9ca4);
                     RdlAppendNode(Labels, Style.Clone());
@@ -3952,7 +3971,8 @@ void NnInventory::ShowInfoCard(unsigned ArchId, unsigned Ids)
                     StyleNode Style(0x9ca4);
                     RdlAppendNode(Values, Style.Clone());
                 }
-                AppendTextMaybeXmlRdl(L"\n", static_cast<unsigned>(wcslen(L"\n")), Values, false);
+                AppendTextMaybeXmlRdl(kStatsGap, static_cast<unsigned>(wcslen(kStatsGap)), Values,
+                                      false);
                 BuildDealerEquipmentStatText(Values, ArchId, false, true); // FUN_00484090(,,0,1)
                 InfoCardValues->SetScrollOrigin(0, 0);
                 InfoCardValues->ClearContent();
@@ -4126,6 +4146,7 @@ static unsigned const G_NnHpClassInfoIds[10] = {
 void NnInventory::RefreshItemList(EquipDescList const* List, int Arg2, unsigned char bArg3)
 {
     // FUN_0047d2f0 (RET 0xc). Arg2 is only handed on to the recursive call.
+    bool bRefreshedNested = false; // HD: FLSharp equip_stat_flicker_fix
 
     // 0047d30e..0047d326: the partner dealer's trade mode (0 without one).
     int const DealerTradeMode = (Dealer != nullptr) ? Dealer->TradeMode : 0;
@@ -4568,6 +4589,7 @@ void NnInventory::RefreshItemList(EquipDescList const* List, int Arg2, unsigned 
         // 0047df74..0047df94
         Field3c8 = Counter;
         RefreshItemList(List, Arg2, bArg3);
+        bRefreshedNested = true;
     }
 
     // 0047df99..0047dffe: +0x4e0 (the card shows the ship) holds on an own inventory with no
@@ -4585,7 +4607,13 @@ void NnInventory::RefreshItemList(EquipDescList const* List, int Arg2, unsigned 
         Field4e0 = 1;
 
     // 0047e005..0047e0a4: the info card.
-    if (Field4e0 != 0)
+    // HD: FLSharp equip_stat_flicker_fix — after the nested refresh has shown it, the outer
+    // call leaves it alone (0x0047e00d je -> jmp to 0x0047e0a9): its selection is stale.
+    static const bool bNoStaleCard = HdPlugins::FlSharp("equip_stat_flicker_fix");
+    if (bNoStaleCard && bRefreshedNested)
+    {
+    }
+    else if (Field4e0 != 0)
     {
         ShowInfoCard(Ship.ShipArchId, 0);
     }
@@ -4725,7 +4753,8 @@ void NnInventoryOpenDealer(int TradeMode, FNnInventoryResultFn ResultFn, void* R
     }
 
     // 0x00477b14..0x00477b33: FUN_0045a780(0x66, {-0.64, 0.33, -1.288}).
-    float const PanelOrigin[3] = {NnFloatBits(0xbf23d70a), NnFloatBits(0x3ea8f5c3),
+    float const PanelOrigin[3] = {HdHudShiftBase(0x00477b1f, NnFloatBits(0xbf23d70a)), // HD
+                                  NnFloatBits(0x3ea8f5c3),
                                   NnFloatBits(0xbfa4dd2f)};
     NnMainButtonSetPanelOrigin(0x66, PanelOrigin);
     // 0x00477b38..0x00477b41: FUN_0045dcb0 on DAT_0066d3f0 (not null-tested).

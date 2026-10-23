@@ -32,11 +32,11 @@ struct FFileSystemAggDesc
     const char* DataPath;
     unsigned long Field10;
     unsigned long Field14;
-    unsigned long Field18;
+    void* Field18; // pointer slot (FFileSystemDesc)
     unsigned long Field1C;
     unsigned long Field20;
-    unsigned long Field24;
-    unsigned long Field28;
+    void* Field24; // pointer slot (FFileSystemDesc)
+    void* Field28; // pointer slot (FFileSystemDesc)
     unsigned long Field2C;
     unsigned long Field30;
 };
