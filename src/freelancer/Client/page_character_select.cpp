@@ -5,6 +5,7 @@
 // Author: Giperion.
 
 #include "page_character_select.h"
+#include "hd_plugins.h"
 
 #include "chat_init.h"         // ChatAppendRdlCopy, ChatGetServerMotd*, ChatGetShip/SystemName
 #include "connect_flow.h"      // ConnectToServer (FUN_005a8770)
@@ -974,7 +975,9 @@ void PageCharacterSelect::UpdateButtons()
     bool const bNone = SelectedCharacter == G_NoCharacterId;
     SetButtonLive(LoadCharacter, !bNone);
     SetButtonLive(DeleteCharacter, !bNone);
-    SetButtonLive(NewCharacter, G_LoginMgr.Characters.count() < 5);
+    // Discovery's exe: up to 7 characters (seven_characters; 0x00568359, 0x00569d29 cmp 5 -> 7).
+    static int const MaxCharacters = HdPlugins::Feature("seven_characters") ? 7 : 5;
+    SetButtonLive(NewCharacter, G_LoginMgr.Characters.count() < MaxCharacters);
 }
 
 bool PageCharacterSelect::OnEvent(unsigned MsgId)

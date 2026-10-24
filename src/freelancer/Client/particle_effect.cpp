@@ -5,6 +5,7 @@
 // Author: Giperion.
 
 #include "particle_effect.h"
+#include "hd_plugins.h"
 
 #include "alchemy_float_forward.h"
 
@@ -368,8 +369,10 @@ void FParticleEffect::Kill()
     // 0x004f8680: the remaining run time is pinned to 1.0 when it is below 0.0 (TEST AH,5 /
     // JNP: strictly less, ordered) or above 1.0 (TEST AH,0x41 / JNZ skips on <=, = and
     // unordered); a NaN is left alone.
+    // Discovery's exe pins it to 2.0 (particle_kill_linger=2; 0x004f86a5).
+    static float const Linger = HdPlugins::FeatureNumber("particle_kill_linger", 2.0f, 1.0f);
     if (This->RunTime78 < 0.0f || This->RunTime78 > 1.0f)
-        This->RunTime78 = 1.0f;
+        This->RunTime78 = Linger;
 
     // 0x004f86a7: IFxEffect vt+0x34 with 1 -- stop emitting, let the live particles finish.
     This->FxEffect->Slot13(reinterpret_cast<void*>(1));
@@ -392,7 +395,10 @@ void FParticleEffect::SetIntensity(float Intensity)
         return;
     float Value;
     std::memcpy(&Value, &Intensity, sizeof(Value));
-    if (Value < 0.0f)
+    // Discovery's exe has no floor at 0 here (particle_intensity_no_floor; 0x004f8c36 JP ->
+    // JMP); the cruise effect's inlined copy keeps it.
+    static bool const bNoFloor = HdPlugins::Feature("particle_intensity_no_floor");
+    if (Value < 0.0f && !bNoFloor)
         std::memcpy(&Value, &GEffectFloatZero, sizeof(Value));
     else if (Value > 1.0f)
         std::memcpy(&Value, &GEffectFloatOne, sizeof(Value));

@@ -22,6 +22,7 @@
 #include "common_server.h"
 #include "common_server_controller.h"
 #include "server_gameobject.h"    // FSubObjDamageEvent
+#include "hd_plugins.h"
 
 #include <algorithm>
 #include <cmath>
@@ -66,6 +67,16 @@ namespace
     // DAT_06fd1d50: the attitude FUN_06f70580 sets, -0.6f copied from DAT_06fbbd7c by the
     // _initterm entry LAB_06f70570 (06fce03c).
     float GNpcAllyHostileAttitude = -0.6f;
+
+    // DAT_06fbbd84, the attitude at or above which an attack is ignored: 1.0f.
+    // Discovery: combat_rep_ignore_085 — content.dll .rdata 0x06fbbd84 1.0 -> 0.85. Its five
+    // readers: HandleDamageReputation (06f7016e) and UpdateNpcReputations (06f70b97, 06f70bcd,
+    // 06f70c30, 06f70c9b).
+    float CombatRepIgnoreAttitude()
+    {
+        static const float Attitude = HdPlugins::Feature("combat_rep_ignore_085") ? 0.85f : 1.0f;
+        return Attitude;
+    }
 
     // Message 0x1005 sent to controller 0 by FUN_06f6ff90 (a stack block at ESP+0x3c).
     struct FDamageReputationMsg
@@ -180,7 +191,7 @@ void __cdecl HandleDamageReputation(FSubObjDamageEvent const* InEvent)
         return;
     if (VictimAttitude <= -0.6f)
         return;
-    if (VictimAttitude >= 1.0f)
+    if (VictimAttitude >= CombatRepIgnoreAttitude())
         return;
 
     // 06f7017f-06f701b9: the system is not null-tested (as retail).
@@ -509,7 +520,7 @@ void __cdecl UpdateNpcReputations(float /*Unused*/)
                             if (bMatches)
                             {
                                 // TEST AH,1 JZ: 1.0 or above (ordered) skips.
-                                if (AttitudeAC >= 1.0f)
+                                if (AttitudeAC >= CombatRepIgnoreAttitude())
                                     continue;
                                 pub::Reputation::SetAttitude(EntryA.Reputation, EntryC.Reputation,
                                                              GNpcAllyHostileAttitude);
@@ -518,7 +529,7 @@ void __cdecl UpdateNpcReputations(float /*Unused*/)
                             }
                             else
                             {
-                                if (AttitudeAB >= 1.0f)
+                                if (AttitudeAB >= CombatRepIgnoreAttitude())
                                     continue;
                                 pub::Reputation::SetAttitude(EntryA.Reputation, EntryB.Reputation,
                                                              GNpcAllyHostileAttitude);
@@ -531,7 +542,7 @@ void __cdecl UpdateNpcReputations(float /*Unused*/)
                             // 06f70c24-06f70c95.
                             if (bLikesC)
                                 continue;
-                            if (AttitudeAC >= 1.0f)
+                            if (AttitudeAC >= CombatRepIgnoreAttitude())
                                 continue;
                             if (!(AttitudeAC <= -0.6f))
                                 continue;
@@ -543,7 +554,7 @@ void __cdecl UpdateNpcReputations(float /*Unused*/)
                         else
                         {
                             // 06f70c97-06f70cea.
-                            if (AttitudeAB >= 1.0f)
+                            if (AttitudeAB >= CombatRepIgnoreAttitude())
                                 continue;
                             if (!(AttitudeAB <= -0.6f))
                                 continue;

@@ -872,7 +872,7 @@ bool FRmVignetteMachine::HandleStart(SMEventData const* Event)
         AddObjective(2, static_cast<FRmObjective*>(RmComponentObjective(&Vignette->General, 2)));
         set_state(10);
     }
-    AreaRadius = 3500.0f;
+    AreaRadius = RmCombatAreaRadius();
     std::vector<FContentPlayerState*>* Players = Mission->GetPlayerStates();
     for (std::vector<FContentPlayerState*>::iterator It = Players->begin(); It != Players->end();
          ++It)
@@ -897,7 +897,7 @@ bool FRmVignetteMachine::HandlePreBattle(SMEventData const* Event)
         Position = VignetteOffer->TargetShips.Position;
         AddStateMachine(new FRmProximityTrigger(CookieTargetNear, get_id(),
                                                 VignetteOffer->System->SystemId,
-                                                &VignetteOffer->TargetShips.Position, 2500.0f,
+                                                &VignetteOffer->TargetShips.Position, RmVignetteTriggerRange(),
                                                 GetMissionPlayers()));
         AddStateMachine(new FRmProximityTrigger(CookieTargetFar, get_id(),
                                                 VignetteOffer->System->SystemId,
@@ -1098,11 +1098,11 @@ bool FRmVignetteMachine::HandleTargetBattle(SMEventData const* Event)
     {
         if (PendingState != 10)
             return true;
-        AreaRadius = GRmVignetteOuterRadius;
+        AreaRadius = RmVignetteOuterRadius();
         TRefHandle<FObjListDirective> StayInRange;
         CreateObjListDirective(0xd, &StayInRange.Pointer);
         static_cast<FObjListStayInRange*>(StayInRange.Pointer)
-            ->SetSphere(RmMainBattleCenter(VignetteOffer.Get()), 2000.0f);
+            ->SetSphere(RmMainBattleCenter(VignetteOffer.Get()), RmStayInRangeRadius());
         TRefHandle<FObjListDirective> GotoCenter;
         CreateObjListDirective(5, &GotoCenter.Pointer);
         static_cast<FObjListGotoVec*>(GotoCenter.Pointer)
@@ -1259,7 +1259,7 @@ bool FRmVignetteMachine::HandleApproachMain(SMEventData const* Event)
         SpawnSolars(&VignetteOffer->Solars.Solars);
         AddStateMachine(new FRmProximityTrigger(CookieMainNear, get_id(),
                                                 VignetteOffer->System->SystemId,
-                                                RmMainBattleCenter(VignetteOffer.Get()), 2500.0f,
+                                                RmMainBattleCenter(VignetteOffer.Get()), RmVignetteTriggerRange(),
                                                 GetMissionPlayers()));
         return true;
     }
@@ -1307,7 +1307,7 @@ bool FRmVignetteMachine::HandleMainBattle(SMEventData const* Event)
     // gets its cookie; the leave trigger.
     if (Event->is_sm_event() && Event->get_event_type() == 1)
     {
-        AreaRadius = 3500.0f;
+        AreaRadius = RmCombatAreaRadius();
         FRmRecordList Others = Solars->Query(1, 2, 2);
         if (Others.Records.size() != 0)
         {

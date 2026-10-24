@@ -1941,7 +1941,11 @@ bool ZONE::HasPhysicalEffect() const
     {
         // Discovery healing.dll (0633ad44): a healing (negative damage) zone has an effect too.
         static bool const bHealing = HdPlugins::Enabled("healing.dll");
-        if (DragModifier < 1.0f || Interference > 0.0f || Damage > 0.0f ||
+        // Discovery's common.dll counts a drag above 1 instead of below
+        // (zone_effect_drag_above_one; 0633ad24 TEST AH,5 / JNP -> TEST AH,0x41 / JE).
+        static bool const bDragAboveOne = HdPlugins::Feature("zone_effect_drag_above_one");
+        bool const bDrag = bDragAboveOne ? DragModifier > 1.0f : DragModifier < 1.0f;
+        if (bDrag || Interference > 0.0f || Damage > 0.0f ||
             (bHealing && Damage != 0.0f))
             PhysicalEffect = 1;
         else

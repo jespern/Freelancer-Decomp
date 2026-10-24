@@ -81,10 +81,13 @@ namespace CmnReputation
             }
         }
 
+        // Discovery's common.dll empties the nine names (no_story_factions; 063a3c58..063a3cc0):
+        // nine ids of "".
+        static bool const bNoStoryFactions = HdPlugins::Feature("no_story_factions");
         unsigned Index = 0;
         while (kStoryFactionNames[Index] != nullptr)
         {
-            unsigned short Id = MakeId(kStoryFactionNames[Index]);
+            unsigned short Id = MakeId(bNoStoryFactions ? "" : kStoryFactionNames[Index]);
             GStoryFactionIds.push_back(Id);
             Index += 1;
         }

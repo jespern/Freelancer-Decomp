@@ -25,6 +25,7 @@
 #include "common_server.h"
 #include "common_weighted_vector.h"
 #include "msvcrt_compat.h"
+#include "hd_plugins.h"
 
 #include <algorithm>
 #include <cmath>
@@ -1903,6 +1904,15 @@ namespace
     }
 }
 
+// Discovery: rm_ship_class_mission — content.dll .rdata 0x06fbcbe8 "class_fighter" ->
+// "class_mission" (both readers, here and BuildRmShips): random-mission NPCs come from the
+// npcships tagged class_mission.
+static char const* RmShipClassName()
+{
+    static const bool bMission = HdPlugins::Feature("rm_ship_class_mission");
+    return bMission ? "class_mission" : "class_fighter";
+}
+
 // FUN_06f98780 (06f98780-06f98bc5, cdecl). The candidate classes are the one id
 // CreateID("class_fighter") (a fresh vector, FUN_06eb5f30 find + FUN_06eae440 insert);
 // FUN_06f357d0 lists the faction's archs that fit it. Every arch level (+0x24) that is not 0
@@ -1922,7 +1932,7 @@ namespace
 void __cdecl PickRmShipFormationSize(FRmShipSize* Out, float Difficulty, unsigned int Faction)
 {
     FEncounterShip Line;
-    Line.ShipClasses.push_back(CreateID("class_fighter"));
+    Line.ShipClasses.push_back(CreateID(RmShipClassName()));
     std::list<FNpcShipArch*> Archs;
     GetFactionShipLineArchs(Faction, &Line, &Archs);
 
@@ -2037,7 +2047,7 @@ bool __cdecl BuildRmShips(FRmShipGroup* Group, unsigned int GroupId, FRmShipSize
 
     FEncounterShip Classes;
     std::vector<unsigned int>& ClassIds = Classes.ShipClasses;
-    unsigned int ClassId = CreateID("class_fighter");
+    unsigned int ClassId = CreateID(RmShipClassName());
     if (std::find(ClassIds.begin(), ClassIds.end(), ClassId) == ClassIds.end())
         ClassIds.insert(ClassIds.end(), ClassId);
 

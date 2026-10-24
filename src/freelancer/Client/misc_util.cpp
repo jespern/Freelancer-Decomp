@@ -343,8 +343,12 @@ int FmtStrSprintf(FmtStr const* Fmt, wchar_t* Dest, int DestChars)
                 break;
             }
             // 0041cd9c: the faction's variant name table.
+            // Discovery's exe drops the bound for its extra factions
+            // (faction_variant_names_unbounded; 0x0041cda2 CMP EAX,0x64 -> CMP EAX,-1).
+            static unsigned const Bound =
+                HdPlugins::Feature("faction_variant_names_unbounded") ? 0xffffffffu : 100u;
             unsigned const Offset = Name - 0x300ee;
-            if (Offset >= 100)
+            if (Offset >= Bound)
                 break;
             MiscUtilAppendIds(&Cursor, End, static_cast<unsigned>(Variant * 100) + Offset + 0x503e8);
             break;

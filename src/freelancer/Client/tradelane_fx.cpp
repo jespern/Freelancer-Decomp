@@ -1041,9 +1041,12 @@ void TradeLaneRingLaneHardpoint(FVector* Out, FClientGameobj* RingGameobj, unsig
 {
     // FUN_00514110 -- listing 00514110..00514234. The hardpoints are looked up once for the
     // process, on the ring's engine index (vt+0x1c); FindHardpoint_PS's result is not tested.
+    // Discovery's exe never sets the flag (tradelane_hp_per_ring; 0x0051417a): each ring's own
+    // model, as it has several ring models.
+    static bool const bPerRing = HdPlugins::Feature("tradelane_hp_per_ring");
     if (!G_TlHpCached)
     {
-        G_TlHpCached = true;
+        G_TlHpCached = !bPerRing;
         long HpHandle = 0;
         HardpointInfo HpInfo = {};
         FindHardpoint_PS(RingGameobj->get_index(), "HpRightLane", HpHandle, HpInfo);

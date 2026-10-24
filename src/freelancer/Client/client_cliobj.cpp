@@ -850,7 +850,11 @@ namespace Archetype
                 // 0x0041ad6c: JGE -- a negative arg (the -1 every caller passes) becomes 0x80.
                 // HD: flplusplus makes it 0x2000 (0x0041ad6f), its "texture size bug fix".
                 if (GroupOverride < 0)
-                    GroupOverride = HdPlugins::Enabled("flplusplus.dll") ? 0x2000 : 0x80;
+                    // Discovery's exe has the same bytes (texture_group_0x2000).
+                    GroupOverride = HdPlugins::Enabled("flplusplus.dll") ||
+                                            HdPlugins::Feature("texture_group_0x2000")
+                                        ? 0x2000
+                                        : 0x80;
 
                 // 0x0041ad84 slot 4 (+0x10) GetGenericSlot(4, &saved); 0x0041ad94 slot 3 (+0x0c)
                 // SetGenericSlot(4, group).

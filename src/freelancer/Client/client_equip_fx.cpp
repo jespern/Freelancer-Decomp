@@ -706,6 +706,11 @@ namespace
                 unsigned int const Id = Host != nullptr ? Host->get_id() : 0u;
                 bPlayer = (Id != 0u && Id == GetPlayerCharacterId()) ? 1 : 0;
             }
+            // Discovery's exe: every ship's lights are real lights (equip_lights_all_ships;
+            // 0x00531d2b SETE AL -> MOV AL,1).
+            static const bool bAllShips = HdPlugins::Feature("equip_lights_all_ships");
+            if (bAllShips)
+                bPlayer = 1;
             Light = CliEquipLightConstruct(static_cast<FCliEquipLight*>(Mem), bPlayer);
         }
 

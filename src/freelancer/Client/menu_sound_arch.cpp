@@ -5,6 +5,7 @@
 // Author: Giperion.
 
 #include "menu_sound_arch.h"
+#include "hd_plugins.h"
 
 #include "perf_options.h"
 
@@ -2681,7 +2682,9 @@ void TickClientThrusterSound(ISoundSource* Sound, float /*Dt*/)
                  static_cast<double>(ThrusterEquipConsts::MIN_VOLUME_FORCE)) /
                 (static_cast<double>(ThrusterEquipConsts::MAX_VOLUME_FORCE) -
                  static_cast<double>(ThrusterEquipConsts::MIN_VOLUME_FORCE));
-    Self->SetAttenuation(static_cast<float>(log10(Level * 0.8 + 0.2) * 10.0));
+    // Discovery's exe makes DAT_005d7e50 0.9 (shared_const_0_9; its three readers).
+    static double const kLevelScale = HdPlugins::Feature("shared_const_0_9") ? 0.9 : 0.8;
+    Self->SetAttenuation(static_cast<float>(log10(Level * kLevelScale + 0.2) * 10.0));
 
     // 0x0052f302..0x0052f319: the player's own character in the first-person camera hears the
     // interior sound.
@@ -3512,7 +3515,9 @@ int CreateSoundArchWav(Archetype::ISound* Arch, void* ParentFs)
     {
         // 0042b6b5..0042b6d0: FUN_005b3510(4) (USE_3D_SOUNDS) FCOMP DAT_005c75dc (1.0f);
         // TEST AH,5 + JP: C0 alone (value below 1.0) falls through to BL = 1.
-        bool const bNo3dSounds = GetPerfOptionSlot(4) < 1.f;
+        // Discovery's exe makes every wav 2D (force_2d_sounds; 0x0042b6ca JP +4 -> JP +0).
+        static bool const bForce2d = HdPlugins::Feature("force_2d_sounds");
+        bool const bNo3dSounds = bForce2d || GetPerfOptionSlot(4) < 1.f;
         // 0042b6d2..0042b6e6: slot 10 (+0x28) Is2d is called first; it or BL -> 0x11, else 9.
         unsigned char const bIs2d = Arch->Is2d();
         unsigned Flags = (bIs2d != 0 || bNo3dSounds) ? 0x11u : 9u;

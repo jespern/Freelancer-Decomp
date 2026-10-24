@@ -5,6 +5,7 @@
 // Author: Giperion.
 
 #include "client_base_market.h"
+#include "hd_plugins.h"
 
 #include "login_mgr.h"    // G_Server (DAT_0067ecd0)
 #include "player_spawn.h" // GetPlayerConnectionId (DAT_00673344)
@@ -108,9 +109,11 @@ float ClientMarketGetPrice(FClientMarket const* Market, unsigned GoodId)
     float Price = static_cast<float>(Truncated);
 
     // 004380c9..004380d8: FCOM 9999999.0 (DAT_005caee8); TEST AH,0x41 / JNZ keeps a value that
-    // is less or equal, the greater one becomes 9999999.
-    if (static_cast<double>(Truncated) > 9999999.0)
-        Price = 9999999.0f;
+    // is less or equal, the greater one becomes 9999999. Discovery's exe: 1.0e9
+    // (market_price_cap=1e9), for its capital ships.
+    static float const Cap = HdPlugins::FeatureNumber("market_price_cap", 1.0e9f, 9999999.0f);
+    if (static_cast<double>(Truncated) > static_cast<double>(Cap))
+        Price = Cap;
     // 004380de..004380ed: FCOM 0.0; TEST AH,5 / JP keeps a value that is not below 0; below 0 it
     // becomes 1.0 (DAT_005c75dc).
     if (Price < 0.0f)

@@ -36,6 +36,7 @@
 #include "common_pub.h"             // SetZoneBehaviorParams, SetPersonalityParams
 #include "common_server.h"
 #include "server_cobject.h"         // SolarInfo, LootInfo, CreateSolar, CreateLoot
+#include "hd_plugins.h"
 
 #include <cstdlib>
 #include <cstring>
@@ -1018,6 +1019,17 @@ namespace
     }
 }
 
+static bool RmDiscoveryRanges()
+{
+    static const bool bOn = HdPlugins::Feature("rm_discovery_ranges");
+    return bOn;
+}
+
+float RmVignetteTriggerRange() { return RmDiscoveryRanges() ? 5000.0f : 2500.0f; }
+float RmCombatAreaRadius() { return RmDiscoveryRanges() ? 8000.0f : 3500.0f; }
+float RmStayInRangeRadius() { return RmDiscoveryRanges() ? 8000.0f : 2000.0f; }
+float RmVignetteOuterRadius() { return RmDiscoveryRanges() ? 8000.0f + 6000.0f : GRmVignetteOuterRadius; }
+
 // FUN_06f89a00 (06f89a00-06f89c96, RET 4). The three sub-machines are added with the
 // StateMachineGroup import (not FRmMachineGroup::AddMachine); their owner id is this
 // machine's handler id, read before each is built.
@@ -1680,7 +1692,7 @@ namespace
     // terminator class 12.
     void RmTuneShipJob(pub::AI::Personality::JobStruct* Job)
     {
-        float const Range = 2000.0f + 2000.0f;          // FLD DAT_06fbc2cc, FADD ST0,ST0
+        float const Range = RmStayInRangeRadius() + RmStayInRangeRadius(); // FLD DAT_06fbc2cc, FADD ST0,ST0
         int const Kinds[4] = {8, 0xa, 0xb, 0xc};
         int const Flags = 0xf;
         pub::AI::Personality::JobStruct::FAttackPreference* const Prefs = Job->AttackPreferences;
@@ -1695,7 +1707,9 @@ namespace
         std::memset(&Job->FleeWhenHullDamagedPercent, 0, sizeof(float));   // +0x3c8 dword 0
         Job->bFleeWhenLeaderFleesStyle = 0;             // +0x3cc
         Job->bFleeNoWeaponsStyle = 0;                   // +0x3cd
-        Prefs[0].WeaponFlags = 1;                       // +0x2b8
+        // Discovery: rm_discovery_ranges — content.dll 0x06f920f0 1 -> 15.
+        static const int FirstWeaponFlags = RmDiscoveryRanges() ? 15 : 1;
+        Prefs[0].WeaponFlags = FirstWeaponFlags;        // +0x2b8
         Prefs[1].ShipClass = Kinds[0];                  // +0x2bc
         Prefs[1].WeaponFlags = Flags;                   // +0x2c4
         Prefs[2].ShipClass = Kinds[1];                  // +0x2c8
@@ -1731,12 +1745,14 @@ bool FRmRuntimeMachine::SpawnShipGroup(FRmShipGroup* Group, bool bNotFirst)
     // .text:06cf9bd0) returns non-zero only through caseD_4 (-4: a negative radius or
     // clearance, or a selection type above 3), which these constant arguments never reach;
     // every other exit writes the point and returns 0 (06cfa03d loops until bEmpty).
+    // Discovery: rm_discovery_ranges — content.dll 0x06f917da the later groups' 2625 -> 5000.
+    static const float LaterSearchRadius = RmDiscoveryRanges() ? 5000.0f : 2625.0f;
     Vector SpawnPoint;
     if (!bNotFirst)
         RmFindSpawnPoint(Group, 350.0f, 50.0f, 50.0f, 250.0f,
                          pub::SpaceObj::POS_SEL_3D_VOLUME, &SpawnPoint);
     else
-        RmFindSpawnPoint(Group, 2625.0f, 1000.0f, 250.0f, 150.0f,
+        RmFindSpawnPoint(Group, LaterSearchRadius, 1000.0f, 250.0f, 150.0f,
                          pub::SpaceObj::POS_SEL_YZ_PLANE, &SpawnPoint);
 
     for (std::vector<FRmShipSpawn>::iterator Ship = Group->Ships.begin();
@@ -1822,7 +1838,7 @@ bool FRmRuntimeMachine::SpawnShipGroup(FRmShipGroup* Group, bool bNotFirst)
         // block's directives with an AddRef, the holders released.
         TRefHandle<FObjListDirective> StayInRange;
         CreateObjListDirective(0xd, &StayInRange.Pointer);
-        static_cast<FObjListStayInRange*>(StayInRange.Pointer)->SetSphere(&Group->Position, 2000.0f);
+        static_cast<FObjListStayInRange*>(StayInRange.Pointer)->SetSphere(&Group->Position, RmStayInRangeRadius());
         {
             FObjListDirective* const Added = StayInRange.Pointer;
             Block->Directives.Items.push_back(Added);

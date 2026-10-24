@@ -173,18 +173,19 @@ namespace
     float const kRebuildSeconds = 3.0f;             // DAT_005d7964
 
     // HD: fast_contact_list — DAT_005d7964 (.rdata 0x1d7964) 3.0 -> 1.5; its three readers
-    // (0x004cf4f5, 0x004d260b, 0x004d2622) are all here.
+    // (0x004cf4f5, 0x004d260b, 0x004d2622) are all here. Discovery's exe: 1.0
+    // (fast_contact_list=1.0 on its line).
     float RebuildSeconds()
     {
-        static const float Seconds = HdPlugins::Feature("fast_contact_list") ? 1.5f : kRebuildSeconds;
+        static const float Seconds = HdPlugins::FeatureNumber("fast_contact_list", 1.5f, kRebuildSeconds);
         return Seconds;
     }
 
     // HD: contact_list_far_distance — "NNNK" up to 999 km before "Far" (0x004d2c94 cmp ecx,
-    // 99999 -> 999999).
+    // 99999 -> 999999). Discovery's exe: 149999 (contact_list_far_distance=149999).
     int FarMetres()
     {
-        static const int Metres = HdPlugins::Feature("contact_list_far_distance") ? 999999 : 99999;
+        static const int Metres = (int)HdPlugins::FeatureNumber("contact_list_far_distance", 999999.0f, 99999.0f);
         return Metres;
     }
     float const kNameRefreshSeconds = 30.0f;        // DAT_005d3e40
@@ -2396,8 +2397,11 @@ void HUD_ContactList::Draw()
                 }
                 else
                 {
-                    // 0x004d3175..0x004d3414: a player (or a watched NPC).
-                    if (Entry.bWatchListed != 0)
+                    // 0x004d3175..0x004d3414: a player (or a watched NPC). Discovery's exe
+                    // shows the faction for every player (contact_list_player_faction;
+                    // 0x004d317e JE -> JE +0).
+                    static bool const bEveryFaction = HdPlugins::Feature("contact_list_player_faction");
+                    if (Entry.bWatchListed != 0 || bEveryFaction)
                     {
                         unsigned Group = 0;
                         if (Reputation::Vibe::GetAffiliation(Vibe, Group, false) == 0)

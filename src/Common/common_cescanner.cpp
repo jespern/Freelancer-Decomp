@@ -8,6 +8,7 @@
 // Declared in common_cequip.h; helpers shared with the sibling TUs are in
 // common_cequip_internal.h (namespace CmnCequip).
 #include "common_cequip.h"
+#include "hd_plugins.h"
 #include "x86math.h"
 
 #include "common_animdb.h"  // AnimDB::Add/Rem (common_animdb.cpp)
@@ -366,7 +367,10 @@ bool CEScanner::Update(float Dt, unsigned Flags)
 
     // Raw asm (119943-119945): TEST dword ptr [rdata constant == 4], Flags; JNZ Done.
     // I.e. skip the whole scan this tick when Flags has bit 0x4 set.
-    if ((Flags & 4u) != 0)
+    // Discovery's common.dll exports NO_SCANNER as 0 (server_objects_scan; .rdata 0639e52c), so
+    // this test never skips.
+    static bool const bAlwaysScan = HdPlugins::Feature("server_objects_scan");
+    if (!bAlwaysScan && (Flags & 4u) != 0)
         goto Done;
 
     if (!IsFunctioning())

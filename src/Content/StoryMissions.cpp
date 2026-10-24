@@ -17,6 +17,7 @@
 #include "common_server.h"
 #include "common_server_controller.h"
 #include "server_cobject.h"
+#include "hd_plugins.h"
 
 #include <cstddef>
 #include <cstdio>
@@ -474,6 +475,11 @@ IDLL* CreateGenericMission(char const*, unsigned int ControllerId, void const* P
 
 IDLL* CreateMission01a(char const*, unsigned int ControllerId, void const* Parms)
 {
+    // Discovery: start_post_story — content.dll 0x06eeee3a `call 0x06ea1880` -> `call
+    // 0x06ea58e0`: Mission_01a builds FMission13, so a new game starts after the story.
+    static const bool bPostStory = HdPlugins::Feature("start_post_story");
+    if (bPostStory)
+        return NewMission<FMission13>(ControllerId, Parms);
     return NewMission<FMission01a>(ControllerId, Parms);
 }
 

@@ -792,8 +792,10 @@ int NnShipResaleValue(unsigned ShipArchId, bool bApplyCondition)
         Mean = 1.0;
 
     // 004c6f33..004c6f57: ftol(ftol(Price * Mean * HullScale) * 0.8) (DAT_005d6d38).
+    // Discovery's exe: 0.2 (ship_resale_factor), as its server values hulls.
+    static float const Factor = HdPlugins::FeatureNumber("ship_resale_factor", 0.2f, 0.8f);
     int const Conditioned = static_cast<int>(static_cast<double>(Price) * Mean * HullScale);
-    return static_cast<int>(static_cast<double>(Conditioned) * 0.800000011920929);
+    return static_cast<int>(static_cast<double>(Conditioned) * static_cast<double>(Factor));
 }
 
 // Discovery engclass.dll's mode remap: an engine or power plant with a class (hp type 0x43..0x7e)

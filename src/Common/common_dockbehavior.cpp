@@ -615,7 +615,9 @@ void DockBehavior::RecomputeApproach()
     // continues the approach and FARTHER aborts it. (Note this is the 0x5/JNP
     // less-than idiom, NOT the 0x44/JP equality idiom this module has been
     // bitten by before.)
-    float const kApproachRangeSq = 10000.0f * 10000.0f;   // DAT_063fc518 == 1e8f exactly
+    // Discovery's common.dll: 20000.0f (dock_approach_range=20000; DAT_0639f48c).
+    static float const kApproachRange = HdPlugins::FeatureNumber("dock_approach_range", 20000.0f, 10000.0f);
+    static float const kApproachRangeSq = kApproachRange * kApproachRange;   // DAT_063fc518 == 1e8f exactly
 
     int NextState = 1;                                       // LAB_062c38c0 `PUSH 1`
     IObjInspect const* const ThreatObject = ObjInspectOf(ThreatSourcePtr14);

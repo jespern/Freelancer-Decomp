@@ -460,9 +460,13 @@ bool TypeSelect::Slot23(unsigned Msg, uintptr_t A, uintptr_t /*B*/)
 
         // 0x00566d34..0x00566d60: FUN_00474260(&question, 0xc9b7, &lan, &internet, &choice, 0)
         // with the choice preset to -1; no choice -> 0x00566e31: return true.
+        // Discovery's exe never asks: the Internet list (mp_internet_only; 0x00566d56 the call ->
+        // MOV EAX,1, 0x00566d66 the choice load NOPed).
         int Choice = -1;
-        if (!NnPromptRunChoice(&Question, 0xc9b7, &LanCaption, &InternetCaption, &Choice,
-                               false))
+        if (HdPlugins::Feature("mp_internet_only"))
+            Choice = 1;
+        else if (!NnPromptRunChoice(&Question, 0xc9b7, &LanCaption, &InternetCaption, &Choice,
+                                    false))
             return true;
 
         // 0x00566d66..0x00566d86

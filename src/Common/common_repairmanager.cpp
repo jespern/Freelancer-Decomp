@@ -18,6 +18,7 @@
 #include "common_cequip.h"     // CELauncher::cast / GetBarrelPosWS (ScanGunGroupTargets)
 #include "common_cobjdb.h"     // IObjDB::FindById (AppendSystemManagerTimerListEntry)
 #include "dacom.h"             // DACOM_API
+#include "hd_plugins.h"
 
 #include <cmath>
 #include <cstring>
@@ -134,7 +135,10 @@ void PotionHelper::Update(float Dt, IObjRW* Object)
         // .text:062ecf04-062ecf15: MOV EDX,[EDI+4]; MOVZX EAX,[ESI+0xc]; PUSH -1; LEA ECX,[EDI+4];
         // PUSH 1; PUSH EAX; CALL [EDX+0x58] -- the IObjAffect sub-object's slot 22 with the
         // zero-extended equipment id, 1 and -1.
-        static_cast<IObjAffect*>(Object)->slot_58(EquipId, 1, -1);
+        // Discovery: npc_potion_use_all — common.dll 0x062ecf13 `PUSH 1` -> `PUSH -1`: use as
+        // many as needed in one go (slot_58 takes what it needs).
+        static const bool bUseAll = HdPlugins::Feature("npc_potion_use_all");
+        static_cast<IObjAffect*>(Object)->slot_58(EquipId, bUseAll ? 0xffffffffu : 1u, -1);
         Timer = 0.0f;
         State = 2;
         return;

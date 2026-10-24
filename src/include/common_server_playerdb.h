@@ -769,6 +769,8 @@ void __cdecl PlayerData_ResetTotalEarned(PlayerSlot& Slot);
 int __cdecl PlayerData_GetCash(PlayerSlot const& Slot);
 void __cdecl PlayerData_SetCash(PlayerSlot& Slot, int Cash);
 void __cdecl PlayerData_AdjustCash(PlayerSlot& Slot, int Amount, bool bCountEarned);
+// The port: the clamp above, 999999999; 2000000000 with Discovery's credit_cap_2e9.
+int __cdecl PlayerData_CashCeiling();
 
 // Retail FUN_06d498f0 (.text:06d498f0, thiscall on the PlayerData slot, RET 0xc):
 // the MP position bound SPObjUpdate applies (.text:06cf0698). Retail takes three

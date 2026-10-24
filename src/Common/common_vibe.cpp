@@ -5,6 +5,7 @@
 // Author: Giperion.
 
 #include "common_reputation.h"
+#include "hd_plugins.h"
 #include "common_reputation_internal.h"
 
 #include "common_ini.h"
@@ -317,7 +318,10 @@ namespace
         if (V.ClientID == 0)
             return;
 
-        float BestFeeling = kAffiliationJoinFeeling;
+        // Discovery's common.dll: 0.895f (affiliation_join_feeling=0.895; DAT_063ed5d4).
+        static float const JoinFeeling =
+            HdPlugins::FeatureNumber("affiliation_join_feeling", 0.895f, kAffiliationJoinFeeling);
+        float BestFeeling = JoinFeeling;
         unsigned NewAffiliation = 0xffffffffu;
         std::vector<Reputation::Vibe::GroupFeeling>::const_iterator It = V.GroupFeelings.begin();
         for (; It != V.GroupFeelings.end(); ++It)

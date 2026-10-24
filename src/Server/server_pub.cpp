@@ -35,6 +35,7 @@
 #include "../include/server_savefile.h"   // SaveGame_Writer / ISave / Server_FLS1Transform
 #include "../include/server_savegame.h"   // pub::Save -> PlayerData_AutoSave / PlayerData_MissionSave
 #include "../include/common_casteroid.h"
+#include "../include/hd_plugins.h"
 #include <windows.h>
 #include <cstdint>
 #include <new>
@@ -968,6 +969,40 @@ static void Server_WriteCostume(ISave& Save, char const* Prefix, Costume const& 
     CostumeDescriptions const* Descriptions = GetCostumeDescriptions();
     if (Descriptions == nullptr)
         return;
+
+    // Discovery: save_costume_accessories — server.dll 0x06d46930 rewritten as one loop over
+    // the four part ids and then the AccessoryCount (Costume+0x30) accessory ids, the parts
+    // as find_bodypart(Index ^ 1 for 0/1, else Index), the accessories through
+    // find_accessory(id), each written as "%shead", "%sbody", "%slefthand", "%srighthand"
+    // or "%saccessory" (the new string at 0x06d469d0). Head comes before body there.
+    static const bool bAccessories = HdPlugins::Feature("save_costume_accessories");
+    if (bAccessories) {
+        static char const* const Formats[5] = {
+            "%shead", "%sbody", "%slefthand", "%srighthand", "%saccessory",
+        };
+        for (unsigned int Index = 0; Index < Cost.AccessoryCount + 4; ++Index) {
+            unsigned int const Id = Index < 4 ? Cost.PartIds[Index] : Cost.AccessoryIds[Index - 4];
+            if (Id == 0)
+                continue;
+            char const* Name = nullptr;
+            if (Index < 4) {
+                bodypart const* Part =
+                    Descriptions->find_bodypart(Index <= 1 ? (int)(Index ^ 1) : (int)Index, Id);
+                if (Part != nullptr)
+                    Name = Part->get_name();
+            } else {
+                accessory const* Accessory = Descriptions->find_accessory(Id);
+                if (Accessory != nullptr)
+                    Name = Accessory->get_name();
+            }
+            if (Name == nullptr)
+                continue;
+            char Key[128];
+            sprintf_s(Key, Formats[Index < 4 ? Index : 4], Prefix);
+            Save.WriteString(Key, Name);
+        }
+        return;
+    }
 
     struct FCostumePart {
         int TypeId;
@@ -4590,7 +4625,9 @@ SERVER_API int __cdecl GetAssetValue(const unsigned int& player_id, float& out_v
 
     // .text:06d5532a  FLD .rdata:06d6ae78 / FMUL [EAX + 0x58] / FSTP [EDI]
     //                 .rdata:06d6ae78 is cd cc 4c 3f == 0x3f4ccccd == 0.8f.
-    out_value = 0.8f * ship_good->Price;
+    // Discovery: ship_resale_factor — the same .rdata 0x06d6ae78, 0.8f -> 0.2f.
+    static const float HullFactor = HdPlugins::FeatureNumber("ship_resale_factor", 0.2f, 0.8f);
+    out_value = HullFactor * ship_good->Price;
 
     // .text:06d55342  LEA EBX,[EDX + EAX*0x1 + 0xfffffe60]   ; -0x1a0 == +0x278
     // .text:06d55360 .. .text:06d553a9 -- one pass over the EquipDescList.
@@ -4646,7 +4683,7 @@ SERVER_API int __cdecl AdjustCash(const unsigned int& player_id, int amount) {
     if (p->client_id == 0) return -2;
 
     p->total_earned += amount;
-    int new_cash = p->cash + amount;
+    int new_cash = (int)((unsigned)p->cash + (unsigned)amount); // retail's ADD wraps
 
     // 0x06d55424 jumps into the body when IsMPServer() is false; 0x06d55430
     // jumps PAST it when [player+0x64] is zero. +0x64 is the session's SELECTED
@@ -4657,8 +4694,9 @@ SERVER_API int __cdecl AdjustCash(const unsigned int& player_id, int amount) {
     // 0, not an error.
     if (IsMPServer() && !p->selected_character.is_valid()) return 0;
 
+    // Discovery: credit_cap_2e9 — server.dll 0x06d5543c 999,999,999 -> 2,000,000,000.
     if (new_cash < 0) new_cash = 0;
-    else if (new_cash > 999999999) new_cash = 999999999;
+    else if (new_cash > PlayerData_CashCeiling()) new_cash = PlayerData_CashCeiling();
     p->cash = new_cash;
 
     // 0x06d5544d..0x06d5545d: DAT_06d8fb14 is loaded and called through with no
@@ -4683,7 +4721,8 @@ SERVER_API int __cdecl InspectCash(const unsigned int& player_id, int& out_cash)
     if (p->client_id == 0) return -2;
     int cash = p->cash;
     if (cash < 0) cash = 0;
-    if (cash > 999999999) cash = 999999999;
+    // Discovery: credit_cap_2e9 — server.dll 0x06d554e0 999,999,999 -> 2,000,000,000.
+    if (cash > PlayerData_CashCeiling()) cash = PlayerData_CashCeiling();
     out_cash = cash;
     return 0;
 }

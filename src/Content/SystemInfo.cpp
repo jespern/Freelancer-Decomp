@@ -25,6 +25,7 @@
 #include "common_ini.h"
 #include "common_server.h"
 #include "server_cobject.h"     // pub::SpaceObj::Destroy, DESTROY_NORMAL
+#include "hd_plugins.h"
 
 #include <algorithm>
 #include <cmath>
@@ -869,7 +870,10 @@ double FSystemInfo::GetNpcShipLifeRate(FContentNpcShip* Ship)
     }
     else
     {
-        Radius = 2500.0f;
+        // Discovery: npc_player_near_4000 — content.dll 0x06f73d6f 2500 -> 4000 (this
+        // multiplayer branch only; the single-player one at 06f73c42 keeps 2500).
+        static const float PlayerNearRadius = HdPlugins::Feature("npc_player_near_4000") ? 4000.0f : 2500.0f;
+        Radius = PlayerNearRadius;
         Ship->GetPosition(&Position);
         if (IsPlayerShipNear(&Position, &Radius, &DistanceSq))            // 06f73d7a
             return PlayerNear;

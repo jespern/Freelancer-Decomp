@@ -8,6 +8,7 @@
 // the BaseDataList_* entry points. Split out of common_goods.cpp.
 
 #include "common_goods.h"
+#include "hd_plugins.h"
 #include "common_goods_internal.h" // kPathChars
 #include "common_id.h"
 #include "common_ini.h"
@@ -67,6 +68,9 @@ BaseData::BaseData()
     , PriceVariance(0.0f)
     , ShipRepairCost(0.33f)
 {
+    // Discovery's common.dll: 0.0033f (ship_repair_cost_default=0.0033; 06264a28, 062657fa).
+    static float const DefaultRepairCost = HdPlugins::FeatureNumber("ship_repair_cost_default", 0.0033f, 0.33f);
+    ShipRepairCost = DefaultRepairCost;
 }
 
 // 06264a40: delete every RoomData in the list, then the list and the market map go.

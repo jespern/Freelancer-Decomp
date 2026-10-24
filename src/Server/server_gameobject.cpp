@@ -5351,7 +5351,13 @@ bool Ship::update(float Dt)
         {
             // .text:06d01492 MOV EAX,[->CObject::NO_SCANNER] / .text:06d014b1
             // CALL [EDX + 0x50] (CObject::update).
-            Raw->update(Dt, CObject::NO_SCANNER);
+            // Discovery: server_objects_scan — common.dll .rdata 0x0639e52c, the exported
+            // CObject::NO_SCANNER 4 -> 0. Server.dll reads it only here, so unowned objects
+            // run their scanner; the export stays retail. Common.dll's own read of it
+            // (CEScanner::Update, 0x0629f719) is not gated here.
+            static const unsigned int UnownedFlags =
+                HdPlugins::Feature("server_objects_scan") ? 0u : CObject::NO_SCANNER;
+            Raw->update(Dt, UnownedFlags);
         }
         else if (SinglePlayer() == 0)
         {

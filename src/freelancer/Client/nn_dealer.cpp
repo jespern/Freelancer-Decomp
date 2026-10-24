@@ -797,8 +797,11 @@ void NnDealer::Update()
                         // free one (FUN_00585f20(GoodId, 0)) -- reason 8.
                         // Discovery engclass.dll (0x004804e8): class engines / power plants count
                         // as hardpoint items.
+                        // Discovery's exe skips both reasons (dealer_no_hardpoint_check;
+                        // 0x0048050b, 0x0048053e JNE -> JMP): mountable goods go to the hold.
+                        static bool const bNoHardpointCheck = HdPlugins::Feature("dealer_no_hardpoint_check");
                         int const Filter = NnEngClassMode(Inventory->Mode, Good2Arch(GoodId));
-                        if (Filter == 0 || Filter == 2)
+                        if (!bNoHardpointCheck && (Filter == 0 || Filter == 2))
                         {
                             ShipViewControl* const View = Inventory->Ship.ShipView; // +0x330
                             if (View->FindHardpointForGood(GoodId, true) == nullptr)

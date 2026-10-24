@@ -8,6 +8,7 @@
 // Retail source: E:\FL\Scratch\Source\Client\Interface\ShipViewControl.cpp (.rdata 0x005e4cd8).
 
 #include "ship_view_control.h"
+#include "hd_plugins.h"
 #include "ids_strings.h"        // RegisterIdsResourceModule (engclass)
 #include "nn_inventory.h"       // NnInventorySetEngClassInfoIds (engclass)
 
@@ -964,7 +965,9 @@ void ShipViewControl::SetInstance(long NewInstance, bool bFixedDistance)
     Distance = sqrtf(ExtentCentre.Y * ExtentCentre.Y + ExtentCentre.Z * ExtentCentre.Z +
                      ExtentCentre.X * ExtentCentre.X) +
                Distance;
-    if (bFixedDistance)
+    // Discovery's exe always frames the whole model (ship_view_always_fit; 0x005855c0 JE -> JMP).
+    static bool const bAlwaysFit = HdPlugins::Feature("ship_view_always_fit");
+    if (bFixedDistance && !bAlwaysFit)
         Distance = 14.0f;
 
     PlaceCamera(1); // FUN_00585630

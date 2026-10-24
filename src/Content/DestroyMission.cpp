@@ -32,6 +32,7 @@
 #include "common_text.h"
 #include "common_weighted_vector.h"
 #include "x86math.h"
+#include "hd_plugins.h"
 
 #include <algorithm>
 #include <cmath>
@@ -99,7 +100,10 @@ namespace
              It != Population->Items.end(); ++It)
         {
             // TODO: which reputation group 0x62e8 is (an id constant in the listing).
-            if (It->first == 0x62e8)
+            // Discovery: destroy_mission_group_0x62e8 — content.dll 0x06ef18c7 / 0x06ef19b7
+            // `je` rel8 0x34 -> 0: the group is no longer skipped.
+            static const bool bKeep62e8 = HdPlugins::Feature("destroy_mission_group_0x62e8");
+            if (It->first == 0x62e8 && !bKeep62e8)
                 continue;
             // Retail keeps the previous stack value when GetReputation fails (-4, unknown
             // group) without writing it; the port starts from 0.

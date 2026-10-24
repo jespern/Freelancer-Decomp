@@ -22,6 +22,7 @@
 #include "common_cobjdb.h"        // IObjDB -- TargetManager::GetScanResponse's FindById call
 #include "common_misc.h"          // FastInvSqrt, SUBOBJ_ID_NONE
 #include "common_universe.h"      // Universe::ISystem::Slot08, Geometry::Sphere
+#include "hd_plugins.h"
 
 #include <cstdlib>
 #include <cstring>
@@ -791,7 +792,10 @@ FAiTarget* TargetManager::SelectAttackCandidate(
 
             unsigned typeFlags = classMask & cand->CachedFlags;
 
-            if (cand->Iface->is_player() != 0)
+            // Discovery: ai_all_classes — common.dll 0x062ee6d8 JE -> JMP: a player candidate
+            // is no longer limited to classMask & 0x30000 (is_player is still called).
+            static const bool bAllClasses = HdPlugins::Feature("ai_all_classes");
+            if (cand->Iface->is_player() != 0 && !bAllClasses)
             {
                 typeFlags = classMask & 0x30000u;
             }

@@ -9,6 +9,7 @@
 //          FUN_0050d300 / FUN_004215b0 / 00422690 / FUN_00554e90.
 
 #include "star_sphere.h"
+#include "hd_plugins.h"
 #include "client_gameobj.h" // ClientGameobjObject
 
 #include "DALib.h"
@@ -335,7 +336,13 @@ static FStarFxChild40* AllocChild40(float Field38, float Field3C)
             Pf += 6;
         }
         if (Lod < 3)
+        {
+            // Discovery's exe makes DAT_005d7e50 0.9 (shared_const_0_9; its three readers).
+            static bool const bShared09 = HdPlugins::Feature("shared_const_0_9");
+            if (bShared09)
+                return Center * 0.2f + Sum * (1.0f / 12.0f) * 0.9f;
             return Center * 0.2f + Sum * (1.0f / 12.0f) * 0.8f;
+        }
         Pf = reinterpret_cast<float*>(Base + 0x148);
         for (int I = 0; I < 12; ++I)
         {
@@ -355,6 +362,12 @@ static FStarFxChild40* AllocChild40(float Field38, float Field3C)
     // Retail tests nothing for null: the player object is the only thing checked (0x00511ba5).
     float StarZoneOcclusionFactor(FStarSphere* This, void* Cam)
     {
+        // Discovery's exe skips all three tests (sun_never_occluded; 0x00511ba5, 0x00511c3c,
+        // 0x00511c80 JE -> JMP): always 0.
+        static bool const bSunNeverOccluded = HdPlugins::Feature("sun_never_occluded");
+        if (bSunNeverOccluded)
+            return 0.0f;
+
         // 0x00511b9e..0x00511bc8: FUN_0054baf0; when set, IObjInspect slot 77 (+0x134)
         // is_using_tradelane(&flag) -- a true byte returns 1.0f (DAT_005c75dc).
         IObjRW* const PlayerRw = static_cast<IObjRW*>(GetPlayerObjRW());

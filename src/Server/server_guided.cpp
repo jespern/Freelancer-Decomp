@@ -23,6 +23,7 @@
 #include "../include/common_csys.h"        // Matrix, Transform (get_transform)
 #include "../include/DALib.h"              // DALib::Engine (create, IEngine +0x6c)
 #include "../include/common_ivp_controller.h" // IVP_Event_Sim::delta_time
+#include "../include/hd_plugins.h"
 
 #include <cmath>
 #include <cstdio>
@@ -333,7 +334,10 @@ void Guided::seek(Vector const& TargetPos, Vector const& TargetVel)
         (static_cast<double>(RelVel.z) * static_cast<double>(RelPos.z) +
          static_cast<double>(RelVel.y) * static_cast<double>(RelPos.y)) +
         static_cast<double>(RelVel.x) * static_cast<double>(RelPos.x);
-    if (Closing < 0.0)
+    // Discovery: missile_always_seek — server.dll 0x06cf460c the JP is NOPed out, so the
+    // munition steers whether or not the target is closing.
+    static const bool bAlwaysSeek = HdPlugins::Feature("missile_always_seek");
+    if (bAlwaysSeek || Closing < 0.0)
     {
         // .text:06cf4612-06cf465a: F+0x44 = RelPos x RelVel (FUN_06ce7c10, z then y then x).
         Vector Cross;

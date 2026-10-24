@@ -352,9 +352,10 @@ TString<0x40> __cdecl MakeObjectReferenceName(int Kind, FContentSpaceObj* Object
     }
 }
 
-TString<0x40> __cdecl MakeObjectLocationName(unsigned int SpaceObjId)
+// FUN_06eeb730's body with the appended separator as a parameter (the port: Discovery's
+// gcs_short_faction_lines drops it at some of the inlined copies, see MakeInlinedLocationName).
+static TString<0x40> MakeObjectLocationNameWithSuffix(unsigned int SpaceObjId, char const* Suffix)
 {
-    // FUN_06eeb730.
     TString<0x40> Result;
     Result.Length = 0;
     Result.Data[0] = '\0';
@@ -380,8 +381,26 @@ TString<0x40> __cdecl MakeObjectLocationName(unsigned int SpaceObjId)
             Result = Base->GetMsgIdPrefix().Data;
     }
     // 06eeb80e-06eeb84c: "-" appended (the FUN_06eec250 body inlined).
-    AppendTString64(&Result, "-");
+    AppendTString64(&Result, Suffix);
     return Result;
+}
+
+TString<0x40> __cdecl MakeObjectLocationName(unsigned int SpaceObjId)
+{
+    // FUN_06eeb730.
+    return MakeObjectLocationNameWithSuffix(SpaceObjId, "-");
+}
+
+// Discovery: gcs_short_faction_lines — ten line ctors inline FUN_06eeb730 around a call to
+// FUN_06eeb110 (content.dll 0x06ed713f .. 0x06ee1c6c). Discovery makes FUN_06eeb110's success
+// exit skip the caller's 17-byte "-" append (stub 0x06eeb101, `ret 8` + 0x11) and points the
+// other paths' "-" push at "" (0x06ed7148 .. 0x06ee1c75), so those places never end in "-".
+// FUN_06eeb730 itself (called at 0x06edb6d5) and the copies that do not call FUN_06eeb110
+// keep it.
+static TString<0x40> MakeInlinedLocationName(unsigned int SpaceObjId)
+{
+    static const bool bNoDash = HdPlugins::Feature("gcs_short_faction_lines");
+    return MakeObjectLocationNameWithSuffix(SpaceObjId, bNoDash ? "" : "-");
 }
 
 bool __cdecl HasFormationWingmen(FContentSpaceObj* Ship)
@@ -735,13 +754,22 @@ namespace
         TString<0x40> Name;
         Name.Length = 0;
         Name.Data[0] = '\0';
+        // Discovery: gcs_short_faction_lines — content.dll 14 sites (0x06ed6f5f .. 0x06ee5ec4)
+        // push "gcs_refer_faction_player_short" for "gcs_refer_faction_player", and the
+        // "_short" suffix (.rdata 0x06fb6324) is emptied: a faction's own prefix goes without
+        // "_short", the factionless default keeps it.
+        static const bool bShortLines = HdPlugins::Feature("gcs_short_faction_lines");
         if (GetFactionMsgIdPrefix(Ship->ReputationHandle->GetAffiliation(), &Name) != 0)
         {
             // HD: callsign's faction over the shared "player" string (content 0x06fb633e).
             Name = "gcs_refer_faction_";
             AppendTString64(&Name, HdCallsignActive() ? HdCallsign().Faction : "player");
+            AppendTString64(&Name, "_short");
         }
-        AppendTString64(&Name, "_short");
+        else if (!bShortLines)
+        {
+            AppendTString64(&Name, "_short");
+        }
         return Name;
     }
 
@@ -813,7 +841,7 @@ FGcsLineLaunchClearance::FGcsLineLaunchClearance(FSystemInfo* InSystem, unsigned
     // 06ed95fe-06ed96c0: the dock's own place (the FUN_06eeb730 body inlined: a base with an
     // unknown record still gets the "-", neither a base nor a gate leaves the name empty and
     // its id is still added).
-    PushText(MakeObjectLocationName(Speaker).Data);
+    PushText(MakeInlinedLocationName(Speaker).Data);
 
     // 06ed96c5-06ed975c: the clearance by terminal type (1 berth; 3, 4, 5 moor; 6 ring; any
     // other leaves the name empty), its voice line (FUN_06eeaf10 with "-").
@@ -881,7 +909,7 @@ FGcsLineDockRequest::FGcsLineDockRequest(FSystemInfo* InSystem, unsigned int InS
     PushText(MakeObjectReferenceName(bHdCallsignFix ? 3 : 2, Ship, nullptr).Data);
     PushText("gcs_misc_to");
     // 06ed70c9-06ed7183: the dock's place (the FUN_06eeb730 body inlined).
-    PushText(MakeObjectLocationName(Listener).Data);
+    PushText(MakeInlinedLocationName(Listener).Data);
     // 06ed7188-06ed71fc: "gcs_dockrequest_request" with "+" (DAT_06fb62ec).
     PushText(MakeVoiceLineName("gcs_dockrequest_request", "+", VoiceId).Data);
     // 06ed7201-06ed727f: the approach with "-" through AddText (empty for another type).
@@ -1124,7 +1152,7 @@ FGcsLineDockHail::FGcsLineDockHail(FSystemInfo* InSystem, unsigned int InSpeaker
         PushText(ShipPrefix.Data);
         PushText(MakeObjectReferenceName(0, Ship, nullptr).Data);
         PushText("gcs_misc_thisis+");
-        PushText(MakeObjectLocationName(Speaker).Data);             // FUN_06eeb730 inlined
+        PushText(MakeInlinedLocationName(Speaker).Data);             // FUN_06eeb730 inlined
         PushText(MakeVoiceLineName("gcs_dockhail_dock_hailmethod", "-", VoiceId).Data);
         PushText(MakeVoiceLineName("gcs_dockhail_dock_idreq", "-", VoiceId).Data);
         return;
@@ -1135,7 +1163,7 @@ FGcsLineDockHail::FGcsLineDockHail(FSystemInfo* InSystem, unsigned int InSpeaker
     Field_0x28 = 0x4a3e;
     TextIds.reserve(6);
     PushText("gcs_misc_thisis+");
-    PushText(MakeObjectLocationName(Speaker).Data);                 // FUN_06eeb730 inlined
+    PushText(MakeInlinedLocationName(Speaker).Data);                 // FUN_06eeb730 inlined
     PushText("gcs_misc_to");
     TString<0x40> ShipPrefix;
     ShipPrefix.Length = 0;
@@ -1212,7 +1240,7 @@ FGcsLineGoingTo::FGcsLineGoingTo(FSystemInfo* InSystem, unsigned int InSpeaker,
     FContentBase* TargetBase1 = nullptr;
     FContentBase* TargetBase2 = nullptr;
     GetShipGuide(Ship)->GetTargets(&TargetId1, &TargetId2, &TargetBase1, &TargetBase2);
-    PushText(MakeObjectLocationName(TargetId2).Data);
+    PushText(MakeInlinedLocationName(TargetId2).Data);
 }
 
 FGcsLinePatrolIdHome::FGcsLinePatrolIdHome(FSystemInfo* InSystem, unsigned int InSpeaker,
@@ -1234,7 +1262,7 @@ FGcsLinePatrolIdHome::FGcsLinePatrolIdHome(FSystemInfo* InSystem, unsigned int I
     FContentBase* TargetBase1 = nullptr;
     FContentBase* TargetBase2 = nullptr;
     GetShipGuide(Ship)->GetTargets(&TargetId1, &TargetId2, &TargetBase1, &TargetBase2);
-    PushText(MakeObjectLocationName(TargetId1).Data);
+    PushText(MakeInlinedLocationName(TargetId1).Data);
 }
 
 FGcsLinePatrolStatus::FGcsLinePatrolStatus(FSystemInfo* InSystem, unsigned int InSpeaker,
@@ -1354,7 +1382,7 @@ FGcsLineTradeIdHome::FGcsLineTradeIdHome(FSystemInfo* InSystem, unsigned int InS
     FContentBase* TargetBase1 = nullptr;
     FContentBase* TargetBase2 = nullptr;
     GetShipGuide(Ship)->GetTargets(&TargetId1, &TargetId2, &TargetBase1, &TargetBase2);
-    PushText(MakeObjectLocationName(TargetId1).Data);
+    PushText(MakeInlinedLocationName(TargetId1).Data);
 }
 
 FGcsLinePlayerHailBlowOff::FGcsLinePlayerHailBlowOff(FSystemInfo* InSystem,
@@ -1844,7 +1872,7 @@ FGcsLineCombatRetreatTowards::FGcsLineCombatRetreatTowards(FSystemInfo* InSystem
     FContentBase* TargetBase1 = nullptr;
     FContentBase* TargetBase2 = nullptr;
     GetShipGuide(Ship)->GetTargets(&TargetId1, &TargetId2, &TargetBase1, &TargetBase2);
-    PushText(MakeObjectLocationName(TargetId1).Data);
+    PushText(MakeInlinedLocationName(TargetId1).Data);
     // 06edf0ea-06edf133: FUN_06eec030(Reason, +0x0c).
     PushText(MakeFleeReasonName(Reason, VoiceId).Data);
 }
@@ -1901,7 +1929,7 @@ FGcsLineStationAllClear::FGcsLineStationAllClear(FSystemInfo* InSystem, unsigned
                                VoiceId).Data);
     PushText("gcs_misc_thisis+");
     // 06ee19ee-06ee1ab3: the station's place (FUN_06eeb110 + "-").
-    PushText(MakeObjectLocationName(Speaker).Data);
+    PushText(MakeInlinedLocationName(Speaker).Data);
     // 06ee1ab8-06ee1b26.
     PushText(MakeVoiceLineName(MakeTString64("gcs_combat_announce_allclear").Data, "-",
                                VoiceId).Data);
@@ -1916,7 +1944,7 @@ FGcsLineStationEngage::FGcsLineStationEngage(FSystemInfo* InSystem, unsigned int
         return;
     // 06ee1bf3-06ee1c88: the station's place first; an empty one ends the ctor (System
     // kept, no text).
-    TString<0x40> const Place = MakeObjectLocationName(Speaker);
+    TString<0x40> const Place = MakeInlinedLocationName(Speaker);
     if (Place.Length == 0)
         return;
     // 06ee1c8e-06ee1cac: (rand() * 2) / 32768.

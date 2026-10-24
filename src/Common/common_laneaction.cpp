@@ -8,6 +8,7 @@
 // Declared in common_cequip.h. Retail re-derives the watched traveller (`head ? head - 8 : 0`)
 // at every use; TradelaneObj() is that expression, and nothing between two uses changes it.
 #include <cmath>
+#include "hd_plugins.h"
 #include "common_cequip.h"
 #include "x86math.h"
 
@@ -174,9 +175,12 @@ void LaneAction::BuildRingTransform(IObjInspect const* Ring, LaneRingTransform& 
 
     // 062c191e-062c1981: Y rotation by DAT_0639e2d0, the double 3.1415927410125732 (float PI
     // widened, not M_PI), cos and sin each rounded to float.
+    // Discovery's common.dll writes the exact half turn instead, cos -1 and sin 0
+    // (exact_lane_rotation).
+    static bool const bExact = HdPlugins::Feature("exact_lane_rotation");
     double const Angle = 3.1415927410125732;
-    float const CosA = static_cast<float>(std::cos(static_cast<double>(Angle)));
-    float const SinA = static_cast<float>(std::sin(static_cast<double>(Angle)));
+    float const CosA = bExact ? -1.0f : static_cast<float>(std::cos(static_cast<double>(Angle)));
+    float const SinA = bExact ? 0.0f : static_cast<float>(std::sin(static_cast<double>(Angle)));
     Matrix const RotY(CosA, 0.0f, SinA,
                       0.0f, 1.0f, 0.0f,
                       -SinA, 0.0f, CosA);

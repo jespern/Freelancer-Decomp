@@ -10,6 +10,7 @@
                               // IsWithinInterceptRange -- Update()'s three intercept probes.
 #include "common_csys.h"   // Matrix / Transform -- FetchNavCandidateBasis's real result type
 #include "common_iface.h"  // IObjInspect -- what NavHelper[+0x14fc][+0x84] actually is
+#include "hd_plugins.h"
 
 #include <cstdlib>  // rand()
 
@@ -428,7 +429,9 @@ int BuzzBehavior::EvaluateReadiness()
         if (!NavHelper->GunConvergenceStateBytes.FollowerDirectiveGateA())
         {
             IObjRW* const Target = NavHelper->Targeting.GetTarget();
-            if (Target != nullptr && (GetObjectTypeOrZero(Target) & 0x30000) != 0)
+            // Discovery: ai_all_classes — common.dll 0x062c6148 mask 0x30000 -> 0x7f0000.
+            static const unsigned int TargetMask = HdPlugins::Feature("ai_all_classes") ? 0x7f0000u : 0x30000u;
+            if (Target != nullptr && (GetObjectTypeOrZero(Target) & TargetMask) != 0)
                 Mode = 1;
         }
     }

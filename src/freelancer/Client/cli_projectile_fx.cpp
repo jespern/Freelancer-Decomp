@@ -1161,7 +1161,10 @@ void CliLauncherPlayMuzzleFx(FCliLauncherFx* Launcher)
 
     // 0x0052d04b..0x0052d088: from the cockpit camera (FUN_0054bc80), the player's ship
     // (FUN_0054baf0, +0xc, +4, class 0x503; zero otherwise) compared with the launcher's owner.
-    if (IsFirstPersonCameraCurrent() && ResolvePlayerShipObject() == Launch->Owner)
+    // Discovery's exe: in any camera, and the flash particle follows the light
+    // (player_muzzle_light_and_flash; 0x0052d052, 0x0052d0f6, 0x0052d100, 0x0052d132).
+    static const bool bLightAndFlash = HdPlugins::Feature("player_muzzle_light_and_flash");
+    if ((bLightAndFlash || IsFirstPersonCameraCurrent()) && ResolvePlayerShipObject() == Launch->Owner)
     {
         // 0x0052d08e..0x0052d093: no light animation name -> nothing.
         if (Companion->LightAnimLen == 0)
@@ -1205,7 +1208,8 @@ void CliLauncherPlayMuzzleFx(FCliLauncherFx* Launcher)
             Light->Disable();
         }
         GameLightRelease(Light);
-        return;
+        if (!bLightAndFlash)
+            return;
     }
 
     // 0x0052d1a1..0x0052d1ae: no flash particle -> nothing.

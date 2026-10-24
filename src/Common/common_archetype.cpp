@@ -5,6 +5,7 @@
 // Author: Giperion.
 
 #include "common_archetype.h"
+#include "hd_plugins.h"
 #include "common_archetype_internal.h"
 
 #include "common_cobject.h" // CollisionGroupDesc (get_undamaged_collision_group_list)
@@ -369,7 +370,15 @@ unsigned __cdecl DecodeType(char const* Name)
             continue;
         // 062ef3d6: DACOM.DLL stricmp, not the CRT one.
         if (CallDacomStricmp(Name, Archetype::GObjectTypes[Index].Name) == 0)
-            return Archetype::GObjectTypes[Index].Bits;
+        {
+            // Discovery's common.dll gives GUNBOAT, CRUISER, TRANSPORT and CAPITAL the FIGHTER bit
+            // as well (big_ships_fighter_bit; the table at 063ec8b6..063ec8ce).
+            unsigned const Bits = Archetype::GObjectTypes[Index].Bits;
+            static bool const bBigShipsFighter = HdPlugins::Feature("big_ships_fighter_bit");
+            if (bBigShipsFighter && (Bits & 0x3c0000) != 0)
+                return Bits | 0x10000;
+            return Bits;
+        }
     }
 
     FDUMP(0x100002, "%s(%d) : *** WARNING: unknown OBJECT_TYPE = '%s'\n",

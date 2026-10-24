@@ -3578,6 +3578,9 @@ static void StarSystem_UpdateNearShips(StarSystem* Sys, float Step)
     if (Scan.Count > 1)
     {
         int const Count = static_cast<int>(Scan.Count);
+        // Discovery: proximity_dedup_all — server.dll 0x06d0c057 loop rewrite: every later
+        // duplicate is zeroed, not only the first.
+        static const bool bDedupAll = HdPlugins::Feature("proximity_dedup_all");
         int Kept = 0;
         for (int Index = 0; Index < Count; ++Index)
         {
@@ -3589,7 +3592,8 @@ static void StarSystem_UpdateNearShips(StarSystem* Sys, float Step)
                 if (Scan.Items[Later] == Item)
                 {
                     Scan.Items[Later] = nullptr;
-                    break;
+                    if (!bDedupAll)
+                        break;
                 }
             }
             Scan.Items[Kept] = Scan.Items[Index];

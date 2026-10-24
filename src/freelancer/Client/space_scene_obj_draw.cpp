@@ -99,9 +99,11 @@ namespace
     constexpr unsigned kObjDbTypeMask = 0xfdffu;
     // DAT_00613ec8 — Fill query radius (listing 0051c43d). HD: flplusplus multiplies it by
     // lod_scale.
+    // Discovery's exe: 50000 (objdb_fill_range=50000).
     float ObjDbFillRange()
     {
-        static const float Range = 10000.0f * HdPlugins::FlppScale("lod_scale", 1000000.0f);
+        static const float Range = HdPlugins::FeatureNumber("objdb_fill_range", 50000.0f, 10000.0f) *
+                                   HdPlugins::FlppScale("lod_scale", 1000000.0f);
         return Range;
     }
     // DAT_005dc35c — DistSq threshold for near/far bucket bit.
@@ -2875,7 +2877,9 @@ void SpaceEnvFxBeginCockpitPass(FSpaceCamera* Cam)
     for (FStarSphereListNode* N = Sent->Next; N != Sent; N = N->Next)
     {
         FStarSphere* const Item = N->Sphere;
-        if (G_FieldEnclosure == 2)
+        // Discovery's exe never takes the branch (sun_never_occluded; 0x0051c8fa, 0x0051c9ba).
+        static bool const bSunNeverOccluded = HdPlugins::Feature("sun_never_occluded");
+        if (G_FieldEnclosure == 2 && !bSunNeverOccluded)
         {
             Item->ZoneOcclusion = 1.0f;
         }
@@ -2915,13 +2919,17 @@ void SpaceResetFarClip()
 {
     // FUN_00410130: DAT_006164d0 = 20000 (DAT_005c8910), DAT_006164d4 = 1000 + 20000.
     // HD: flplusplus raises DAT_005c8910 by a tenth per pbubble_scale step above 2, to 40000.
+    // Discovery's exe: 40000 (space_draw_range=40000). The static initializers of the two
+    // globals (and of G_FieldBestScore) keep 20000: this runs before any system is drawn.
     static const float Range = []
     {
         const float Scale = HdPlugins::FlppScale("pbubble_scale", 1000000.0f);
         float Value = 20000.0f;
         if (Scale > 2.0f)
             Value += (Value / 10.0f) * (Scale - 2.0f);
-        return Value > 40000.0f ? 40000.0f : Value;
+        Value = Value > 40000.0f ? 40000.0f : Value;
+        const float Patched = HdPlugins::FeatureNumber("space_draw_range", 40000.0f, 20000.0f);
+        return Patched > Value ? Patched : Value;
     }();
     G_SpaceDrawRange = Range;
     G_SpaceDrawFar = 1000.0f + Range;

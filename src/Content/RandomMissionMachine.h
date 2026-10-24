@@ -351,6 +351,18 @@ enum ERmCommTrigger
     RmCommGlobalFailOther = 16,                     // GLOBAL_FAIL_OTHER
 };
 
+// Discovery: rm_discovery_ranges — content.dll .rdata 0x06fbc2c4 / 0x06fbc2c8 / 0x06fbc2cc
+// 2500 / 3500 / 2000 -> 5000 / 8000 / 8000: the vignette proximity triggers, the combat area
+// radius (also under GRmVignetteOuterRadius) and StayInRange (also RmTuneShipJob's range).
+// Defined in RandomMissionMachine.cpp; retail values without the feature.
+float RmVignetteTriggerRange();  // DAT_06fbc2c4
+float RmCombatAreaRadius();      // DAT_06fbc2c8
+float RmStayInRangeRadius();     // DAT_06fbc2cc
+// GRmVignetteOuterRadius, whose static init (06f84280) reads DAT_06fbc2c8 too: 8000 + 6000 with
+// the feature. Computed at the reader, since the feature line is not loaded when Content.dll's
+// statics run.
+float RmVignetteOuterRadius();
+
 // =======================================================================================
 // TU61 -- runtime machine base (retail 0xa8 bytes). Vtable 06fbc9b8 (28 slots, [27] purecall);
 // MessageHandler side 06fbc9a0; the text-parameter source at +0x54 (vtable 06fbc99c, purecall;
@@ -457,7 +469,7 @@ protected:
     Vector Position = {};                           // +0x90 the centre of the mission area
     // +0x9c: the combat area radius: 3500.0 (DAT_06fbc2c8) from the ctor and states 3 / 11,
     // GRmVignetteOuterRadius (9500.0) from the exit of state 9. The area triggers use it +- 250.
-    float AreaRadius = 3500.0f;
+    float AreaRadius = RmCombatAreaRadius();
     // +0xa0 / +0xa1 / +0xa2: the comm sequences FIRST_DEFENSIVE_SHIP_SPAWN (9),
     // FIRST_BIG_SHIP_SPAWN (10) and FIRST_FRIENDLY_SPAWN (8) were sent (FUN_06f8beb0).
     unsigned char bDefensiveShipSpawnSent = 0;

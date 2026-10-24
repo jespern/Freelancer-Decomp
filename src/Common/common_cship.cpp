@@ -6,6 +6,7 @@
 
 // CShip (retail CShip.cpp), FAnimScriptRef and the CShip-only helpers.
 #include "common_cobject.h"
+#include "hd_plugins.h"
 #include "common_cobject_internal.h" // CmnCobject::RotateWorldToObjectSpace, GetObjectDbCollisionGroup
 #include "x86math.h"
 
@@ -1182,7 +1183,9 @@ double CShip::get_linear_drag() const
             TotalDrag = (float)((double)(Engine->GetLinearDrag()) + TotalDrag);
     }
 
-    if (ZoneAtA4 != nullptr)
+    // Discovery's common.dll leaves the zone out (no_zone_drag_modifier; 062b3796 JE -> JMP).
+    static bool const bNoZoneDrag = HdPlugins::Feature("no_zone_drag_modifier");
+    if (ZoneAtA4 != nullptr && !bNoZoneDrag)
         return (double)ZoneAtA4->GetDragModifier() * TotalDrag;   // ZONE 0633ad70, 062b379a-062b379d
 
     return TotalDrag;

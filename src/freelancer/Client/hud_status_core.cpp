@@ -67,10 +67,11 @@ namespace
 {
     // HD: fast_weapon_list — DAT_005d8484 (.rdata 0x1d8484) 1.0 -> 0.1: the weapon list's
     // refresh period, read only by the HUD_Status weapon list (its timer +0x588 resets and the
-    // period test at 0x004db6e5 / 0x004db6f6).
+    // period test at 0x004db6e5 / 0x004db6f6). Discovery's exe: 0.0, every frame
+    // (fast_weapon_list=0).
     float WeaponListPeriod()
     {
-        static const float Period = HdPlugins::Feature("fast_weapon_list") ? 0.1f : 1.0f;
+        static const float Period = HdPlugins::FeatureNumber("fast_weapon_list", 0.1f, 1.0f);
         return Period;
     }
 
@@ -373,7 +374,9 @@ void HUD_Core::DrawBars(float DesignY, unsigned long Color, float Ratio)
 #endif
     int const SpanInt = SegmentWidth << 4;
     double const SegmentWidthD = static_cast<double>(SegmentWidth);
-    float const FirstChip = static_cast<float>(SegmentWidthD * kFirstChipScale);
+    // Discovery's exe makes DAT_005d7e50 0.9 (shared_const_0_9; its three readers).
+    static double const FirstChipScale = HdPlugins::Feature("shared_const_0_9") ? 0.9 : kFirstChipScale;
+    float const FirstChip = static_cast<float>(SegmentWidthD * FirstChipScale);
     float const Span = static_cast<float>(SpanInt);
     float const HalfSpan = static_cast<float>(static_cast<double>(SpanInt) * kHalf);
 
@@ -1681,9 +1684,10 @@ void HUD_Status::Update()
             Byte500 = 0;
             // HD: jflp and HudWeaponGroups make the same patch (0x004db6a5 jne +0x13 -> +7,
             // 0x004db6b7 `jmp +5` -> `push 0`): group 0 is stored when missing, then always made
-            // current and activated.
-            static const bool bFirstGroup =
-                HdPlugins::Enabled("jflp.dll") || HdPlugins::Enabled("HudWeaponGroups.dll");
+            // current and activated. Discovery's exe has it too (weapon_group_first_activate).
+            static const bool bFirstGroup = HdPlugins::Enabled("jflp.dll") ||
+                                            HdPlugins::Enabled("HudWeaponGroups.dll") ||
+                                            HdPlugins::Feature("weapon_group_first_activate");
             if (bFirstGroup)
             {
                 if (G_WeaponGroups.FindGroupIndex(0) == -1)

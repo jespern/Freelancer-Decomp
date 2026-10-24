@@ -120,4 +120,16 @@ namespace HdPlugins
     {
         return Flag("HDEdition.dll", Word) || Flag("DiscoveryPatches.dll", Word);
     }
+
+    // A feature that patches a constant: Absent when the feature is off, Bare for the bare word
+    // (HD's value) and the number for "word=value" (contact_list_far_distance=149999).
+    inline float FeatureNumber(const char* Word, float Bare, float Absent)
+    {
+        const char* Value = FindOption("DiscoveryPatches.dll", Word);
+        if (Value == nullptr)
+            Value = FindOption("HDEdition.dll", Word);
+        if (Value == nullptr)
+            return Absent;
+        return *Value != '\0' && *Value != ' ' && *Value != '\t' ? (float)std::atof(Value) : Bare;
+    }
 }

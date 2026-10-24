@@ -767,10 +767,16 @@ void PlayerData_ReportCheat(PlayerData& Slot, int Reason) {
 // must stop, either because the latch was already set or because a cheat was
 // just reported.
 // ---------------------------------------------------------------------------
+// Retail's cash ceiling, 999999999. Every arithmetic path in FUN_06d4faf0
+// saturates at it (`CMP ...,0x3b9ac9ff / JG`), and so do the cash setters.
+// Discovery: credit_cap_2e9 — server.dll 0x06d4f46e .. 0x06d56426 (12 sites)
+// 999,999,999 -> 2,000,000,000.
+int __cdecl PlayerData_CashCeiling() {
+    static const int Ceiling = HdPlugins::Feature("credit_cap_2e9") ? 2000000000 : 0x3b9ac9ff;
+    return Ceiling;
+}
+
 namespace {
-    // Retail's cash ceiling, 999999999. Every arithmetic path in FUN_06d4faf0
-    // saturates at it (`CMP ...,0x3b9ac9ff / JG`).
-    int const GCashCeiling = 0x3b9ac9ff;
 
     // Retail FUN_06d50120 (.text:06d50120 .. .text:06d504ea) -- reason 3,
     // "Equipment exceeds ship specs".
@@ -1160,6 +1166,7 @@ namespace {
         if (Slot.current_base == 0)
             return 0;
 
+        int const GCashCeiling = PlayerData_CashCeiling();
         int Total = Slot.cash;
 
         for (std::list<EquipDesc>::const_iterator ItemIt = Slot.equipment.Items.begin();
@@ -1188,7 +1195,8 @@ namespace {
             if (Value > GCashCeiling || Total > GCashCeiling) {
                 Total = GCashCeiling;
             } else {
-                Total += Value;
+                // Retail's ADD wraps; with credit_cap_2e9 the sum can pass INT_MAX.
+                Total = (int)((unsigned)Total + (unsigned)Value);
             }
         }
 
@@ -1220,7 +1228,10 @@ namespace {
                 // reading HullGoodId here was pricing good id 0 and scoring every
                 // player's hull at zero.
                 pub::Market::GetPrice(Slot.current_base, ShipGood->Id, HullPrice);
-                HullValue = (int)(0.8f * HullPrice);
+                // Discovery: ship_resale_factor — server.dll .rdata 0x06d6ae78
+                // 0.8f -> 0.2f (pairs with the client's ship dealer).
+                static const float HullFactor = HdPlugins::FeatureNumber("ship_resale_factor", 0.2f, 0.8f);
+                HullValue = (int)(HullFactor * HullPrice);
                 if (HullValue > GCashCeiling)
                     return GCashCeiling;
             }
@@ -1228,7 +1239,7 @@ namespace {
 
         if (Total > GCashCeiling)
             return GCashCeiling;
-        return Total + HullValue;
+        return (int)((unsigned)Total + (unsigned)HullValue);
     }
 
     // Retail FUN_06d4faa0 (.text:06d4faa0) -- ported 1:1.
@@ -1642,8 +1653,8 @@ int __cdecl PlayerData_GetCash(PlayerSlot const& Slot) {
     int Cash = Slot.cash;
     if (Cash < 0)
         return 0;
-    if (Cash > 999999999)
-        Cash = 999999999;
+    if (Cash > PlayerData_CashCeiling()) // Discovery: credit_cap_2e9 (0x06d4f46e)
+        Cash = PlayerData_CashCeiling();
     return Cash;
 }
 
@@ -1661,8 +1672,8 @@ void __cdecl PlayerData_SetCash(PlayerSlot& Slot, int Cash) {
         return;
     if (Cash < 0)
         Cash = 0;
-    else if (Cash > 999999999)
-        Cash = 999999999;
+    else if (Cash > PlayerData_CashCeiling()) // Discovery: credit_cap_2e9 (0x06d4f4a6)
+        Cash = PlayerData_CashCeiling();
     Slot.cash = Cash;
     ::g_pClientInterface->SendServerSetCash(Slot.client_id, Cash);
     Server_ControllerDispatch(0, pub::Controller::EMessage::PlayerWorthChanged, &Slot.client_id);
@@ -1683,13 +1694,13 @@ void __cdecl PlayerData_SetCash(PlayerSlot& Slot, int Cash) {
 void __cdecl PlayerData_AdjustCash(PlayerSlot& Slot, int Amount, bool bCountEarned) {
     if (bCountEarned)
         Slot.total_earned += Amount;
-    int NewCash = Slot.cash + Amount;
+    int NewCash = (int)((unsigned)Slot.cash + (unsigned)Amount); // retail's ADD wraps
     if (IsMPServer() && !Slot.selected_character.is_valid())
         return;
     if (NewCash < 0)
         NewCash = 0;
-    else if (NewCash > 999999999)
-        NewCash = 999999999;
+    else if (NewCash > PlayerData_CashCeiling()) // Discovery: credit_cap_2e9 (0x06d4f51e, and
+        NewCash = PlayerData_CashCeiling();      // RewardGroup's inlined copy at 0x06d56426)
     Slot.cash = NewCash;
     ::g_pClientInterface->SendServerSetCash(Slot.client_id, NewCash);
     Server_ControllerDispatch(0, pub::Controller::EMessage::PlayerWorthChanged, &Slot.client_id);
@@ -4111,7 +4122,9 @@ bool PlayerDB::create_new_character(const SCreateCharacterInfo& Info, unsigned i
     // m_Characters.size() is here -- a previous note called this a substitution;
     // it is the same quantity. The `true` on a full account is not a port bug
     // either: retail really does report success without creating anything.
-    if (Account->m_Characters.size() >= 5) {
+    // Discovery: seven_characters — server.dll 0x06d5417c `CMP [ECX+0x2c],5` -> 7.
+    static const unsigned int MaxCharacters = HdPlugins::Feature("seven_characters") ? 7u : 5u;
+    if (Account->m_Characters.size() >= MaxCharacters) {
         return true;
     }
 
@@ -7740,6 +7753,17 @@ static float const kViewRadiusSqUnowned = 6.25e6f;    // .rdata:06d66aec
 static float const kViewRadiusSqStranger = 2.5e7f;    // .rdata:06d66af0
 static float const kViewRadiusSqGroupMate = 1.0e8f;   // .rdata:06d66af4
 
+// Discovery: view_range_15k_20k — server.dll .rdata 0x06d66af0 / 0x06d66af4 2.5e7 / 1.0e8 ->
+// 2.25e8 / 4.0e8 (strangers 5 km -> 15 km, group mates 10 km -> 20 km). The 1.0e8 is also
+// the comm broadcast radius StarSystem reads at .text:06d0dc2b, which widens with it.
+static bool ViewRange15k20k()
+{
+    static const bool bOn = HdPlugins::Feature("view_range_15k_20k");
+    return bOn;
+}
+static float ViewRadiusSqStranger() { return ViewRange15k20k() ? 2.25e8f : kViewRadiusSqStranger; }
+static float ViewRadiusSqGroupMate() { return ViewRange15k20k() ? 4.0e8f : kViewRadiusSqGroupMate; }
+
 // ---------------------------------------------------------------------------
 // The mask FUN_06cf6820's third exit tests GameObject::get_type_bits against:
 //   .text:06cf6905  ff9254010000  CALL dword ptr [EDX + 0x154]
@@ -8083,10 +8107,10 @@ bool SystemPlayerView_ShouldBeVisible(Observer* View, GameObject* Obj)
     // which it then fails as well.
     void const* const MyGroup = Players[View->PlayerId].group_ptr;
     if (MyGroup != nullptr && MyGroup == Players[OwnerPlayer].group_ptr) {
-        if (DistSq <= kViewRadiusSqGroupMate)
+        if (DistSq <= ViewRadiusSqGroupMate())
             return true;
     }
-    return DistSq <= kViewRadiusSqStranger;              // .text:06cf7340
+    return DistSq <= ViewRadiusSqStranger();             // .text:06cf7340
 }
 
 // Retail's inner-list search, shared by FUN_06cf73d0 (.text:06cf7410) and
@@ -8129,7 +8153,10 @@ bool SystemPlayerView_IsObjectVisible(Observer* View, GameObject* Obj)
 {
     // .text:06cf73da / .text:06cf73e4 -- same two unconditional yeses. No test
     // on the view (thiscall, EDI = ECX).
-    if (Obj == nullptr)
+    // Discovery: all_objects_visible — server.dll 0x06cf73da JE -> JMP, every object is
+    // visible to every player.
+    static const bool bAllVisible = HdPlugins::Feature("all_objects_visible");
+    if (Obj == nullptr || bAllVisible)
         return true;
     if (SinglePlayer())
         return true;
@@ -10019,7 +10046,7 @@ void StarSystem::send_comm(unsigned int SenderId, unsigned int ReceiverId, unsig
         double const Dy = static_cast<double>(Pos.y) - static_cast<double>(SenderPos.y);
         double const Dz = static_cast<double>(Pos.z) - static_cast<double>(SenderPos.z);
         double const DistSq = (Dz * Dz + Dx * Dx) + Dy * Dy;
-        if (DistSq > static_cast<double>(1.0e8f))                            // .text:06d0dc2b
+        if (DistSq > static_cast<double>(ViewRadiusSqGroupMate()))           // .text:06d0dc2b
             continue;
         SystemPlayerView_SendComm(&Node->View, SenderId, ReceiverId, VoiceId, Cost,
                                   CommType, TextIds, TextCount, Mood, Duration);
