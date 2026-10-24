@@ -42,6 +42,7 @@
 #include "win3d.h"                  // Win3DReparent (FUN_0059dd00), Win3DDeleteTree (FUN_0043d2a0)
 #include "win_factory.h"
 
+#include "common_expanded_hardpoints.h" // the port: Discovery's hardpoint subtypes
 #include "common_archetype.h"       // Archetype::GetEquipment / GetShip
 #include "common_cobject.h"         // CObject, CSimple, CEqObj, CShip, CLoot
 #include "common_goods.h"           // GoodList, GoodInfo, BaseDataList_get, Good2Arch
@@ -311,7 +312,11 @@ void NnHelpAppendBaseGoods(RenderDisplayList* Card, unsigned BaseId, unsigned ch
                 continue;
             Archetype::Equipment const* const Equip = Archetype::GetEquipment(Good->ArchId);
             GoodInfo const* const Info = GoodList::find_by_archetype(Good->ArchId);
-            float const Price = ClientMarketGetPrice(&Market, Info->Id);
+            // Expanded hardpoints (0x004767d3): a good priced 0 (built into ships) prices -1 and
+            // drops out of the list.
+            float const Price = ExpandedHardpoints::Enabled() && Info->Price == 0.0f
+                                    ? -1.0f
+                                    : ClientMarketGetPrice(&Market, Info->Id);
             // 0x004767e0..0x004767e8: FCOMP [+0x64], TEST AH,0x1, JNZ -- skipped when the price
             // is less (C0) or unordered (C0 set too); listed when greater or equal.
             if (!(Price >= Info->GoodSellPrice))

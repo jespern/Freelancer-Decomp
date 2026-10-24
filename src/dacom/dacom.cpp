@@ -44,8 +44,12 @@ namespace
         // Not an HD DLL: the profile's line for HD changes that came as exe patches (mods/hd.ini
         // "feature" keys, freelancer-mac's docs/mods.md).
         "HDEdition.dll",
-        // Likewise for Discovery's patched binaries (mods/discovery.ini).
-        "Discovery.dll",
+        // Likewise for Discovery's patched binaries (mods/discovery.ini). Not Discovery's own
+        // Discovery.dll, which holds only strings.
+        "DiscoveryPatches.dll",
+        // Not HD either: FLUF's expanded_hardpoints module, as Discovery ships it
+        // (common_expanded_hardpoints.h).
+        "expanded_hardpoints.dll",
     };
     std::map<std::string, std::string> GHdPlugins; // lower-case name -> options
 

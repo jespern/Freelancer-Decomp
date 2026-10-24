@@ -50,6 +50,7 @@
 #include "win_factory.h"
 #include "wire_controls.h"          // WireControlsJoinColumn (FUN_005a4b50)
 
+#include "common_expanded_hardpoints.h" // the port: Discovery's hardpoint subtypes
 #include "DALib.h"
 #include "render/IRenderPipeline.h"
 #include "render/rendcomp.h"
@@ -805,12 +806,15 @@ int NnItemFilterMode(unsigned ArchId)
     // FUN_0043a510 finds that base's market (null-tested) and FUN_00438060 prices
     // Arch2Good(ArchId) in it; FCOMP 0.0, TEST AH,0x44 + JNP: a price of exactly 0.0 returns 5
     // (unordered goes on).
+    // Expanded hardpoints: FLUF zeroes this JNP (0x0047e4c0), so equipment priced 0 -- built
+    // into the ship -- is listed by its type like any other.
     unsigned const BaseId = GetClientLocationCurrentBase();
     if (BaseId != 0)
     {
         FClientMarket* const Market = GetClientLocationBaseMarket(BaseId);
         if (Market != nullptr &&
-            static_cast<double>(ClientMarketGetPrice(Market, Arch2Good(ArchId))) == 0.0)
+            static_cast<double>(ClientMarketGetPrice(Market, Arch2Good(ArchId))) == 0.0 &&
+            !ExpandedHardpoints::Enabled())
             return 5;
     }
 
@@ -1302,7 +1306,13 @@ void NnInventory::TransferEquipmentFromDealer()
             Record.Price = 100000000.0f; // DAT_005d15b8
             continue;
         }
-        unsigned const GoodId = Arch2Good(SourceIt->ArchId);
+        unsigned GoodId = Arch2Good(SourceIt->ArchId);
+        // Expanded hardpoints (0x0047b008): equipment built into the old ship, or that the new
+        // one has no subtype for, stays behind like an engine.
+        if (ExpandedHardpoints::Enabled() &&
+            (ExpandedHardpoints::IsBuiltIn(SourceIt->ArchId) ||
+             !ExpandedHardpoints::IsValidItem(SourceIt->ArchId, Ship.ShipArchId, nullptr)))
+            GoodId = 0;
         int const Class =
             static_cast<int>(Archetype::GetEquipment(SourceIt->ArchId)->get_class_type()); // vt+0x10
         if (GoodId == 0 || Class == Archetype::AClassEngine || Class == Archetype::AClassScanner ||
@@ -1503,7 +1513,13 @@ void NnInventory::BuyFromDealer(int Count)
                             G_WeaponGroups.AddHardpoint(0, Hardpoint); // FUN_004f6200
                     }
                 }
-                NnVoiceEnqueue(G_NnVoiceMountedId, 0); // FUN_00489e80(DAT_00671c70, 0)
+                // Expanded hardpoints (0x0047ec0b): no free subtype hardpoint for it -- the
+                // server puts it in the hold, and the voice says so.
+                if (!ExpandedHardpoints::IsValidItem(Good->ArchId, GetPlayerShipArchetypeIdRetail(),
+                                                     &GetPlayerEquipDescListRetail()))
+                    NnVoiceEnqueue(G_NnVoiceLoadedIntoCargoHoldId, 0);
+                else
+                    NnVoiceEnqueue(G_NnVoiceMountedId, 0); // FUN_00489e80(DAT_00671c70, 0)
                 FInventoryShipModel::PlayMountSound(Good->ArchId);
             }
             else if (NnItemFilterMode(Good->ArchId) == 3 && Count == 1 &&
@@ -2935,6 +2951,34 @@ void NnInventory::JettisonSelected()
     NnVoiceEnqueue(G_NnVoiceCargoJettisonedId, 0);
 }
 
+// Expanded hardpoints: FLUF's MountInternal, in place of ToggleEquip's "no place to mount" for
+// internal equipment (armour, scanner, tractor, engine, power plant; not the cloak). The one of
+// its class mounted in the bay (a single, non-mission item) comes off, and Item goes into the bay.
+static char const* NnMountInternalEquipment(EquipDescList& Loadout, EquipDesc const* Item)
+{
+    Archetype::Equipment* const Arch = Archetype::GetEquipment(Item->ArchId);
+    if (Arch == nullptr)
+        return nullptr;
+    Archetype::AClassType const Class = Arch->get_class_type();
+    if (Class != Archetype::AClassArmor && Class != Archetype::AClassScanner &&
+        Class != Archetype::AClassTractor && Class != Archetype::AClassEngine &&
+        Class != Archetype::AClassPower)
+        return nullptr;
+    for (EquipDesc& Other : Loadout.Items)
+    {
+        if (!Other.bEquipped || Other.Count != 1 || Other.bMission ||
+            _stricmp(Other.Hardpoint, EquipDesc::CARGO_BAY_HP_NAME.Value) != 0)
+            continue;
+        Archetype::Equipment* const OtherArch = Archetype::GetEquipment(Other.ArchId);
+        if (OtherArch != nullptr && OtherArch->get_class_type() == Class)
+        {
+            Other.set_equipped(false);
+            break;
+        }
+    }
+    return EquipDesc::CARGO_BAY_HP_NAME.Value;
+}
+
 void NnInventory::ToggleEquip(EquipDesc* Item, int State)
 {
     // FUN_0047f720 (RET 8).
@@ -2944,6 +2988,10 @@ void NnInventory::ToggleEquip(EquipDesc* Item, int State)
     {
         Filter = NnItemFilterMode(Item->ArchId);
         bHardpointItem = (Filter == 0 || Filter == 2);
+        // Expanded hardpoints (0x0047f73f): internal equipment (filter 3) too, so it mounts
+        // through the subtype checks below.
+        if (Filter == 3 && ExpandedHardpoints::Enabled())
+            bHardpointItem = true;
     }
 
     if (!bHardpointItem)
@@ -2979,6 +3027,13 @@ void NnInventory::ToggleEquip(EquipDesc* Item, int State)
                     continue;
                 if (OtherArch->get_class_type() != Class)
                     continue;
+                // Expanded hardpoints (0x0047f7e0 / 0x0047f7ee): equipment built into the
+                // ship is not taken off; it is the one equipped below instead of Item.
+                if (ExpandedHardpoints::Enabled() && ExpandedHardpoints::IsBuiltIn(Other->ArchId))
+                {
+                    Item = Other;
+                    continue;
+                }
                 if (Dealer != nullptr && Dealer->TradeMode == 3)
                     ReqModifyPlayerEquipRetail(Other->Id, &Other->get_hardpoint(), Other->Count,
                                                Other->Health, false);
@@ -3055,7 +3110,9 @@ void NnInventory::ToggleEquip(EquipDesc* Item, int State)
     else
     {
         // 0047f9dd..0047fafe: onto the first free hardpoint that takes it.
-        char const* const Hardpoint = Ship.ShipView->FindHardpointForEquipDesc(Item, false); // FUN_00585ef0
+        char const* Hardpoint = Ship.ShipView->FindHardpointForEquipDesc(Item, false); // FUN_00585ef0
+        if (Hardpoint == nullptr && ExpandedHardpoints::Enabled())
+            Hardpoint = NnMountInternalEquipment(Ship.Loadout, Item); // 0x0047f9ec
         if (Hardpoint == nullptr)
         {
             // 0047f9f9..0047fa0f: FUN_00489e80(G_NnVoiceNoPlaceToMountId, 0).
@@ -3137,6 +3194,15 @@ static int NnHpTypeClassNumber(int HpType)
     return (HpType - 0x25) % 10 + 1;
 }
 
+// Expanded hardpoints: FLUF's note of the item on each row of the player's own list (written at
+// 0x0047c8c3), which the row's equip toggle reads (0x0047f5aa).
+struct FNnRowItem
+{
+    unsigned ArchId;
+    bool bEquipped;
+};
+static FNnRowItem G_NnRowItems[kNnInventoryRows];
+
 bool NnInventory::FillItemRow(int* Counter, unsigned ArchId, int FilterMode, int Count, int Price,
                               int Health, unsigned char bShowToggle, unsigned char bEquipped,
                               unsigned char bMission, unsigned char bUsable, int EmptyIds,
@@ -3213,6 +3279,8 @@ bool NnInventory::FillItemRow(int* Counter, unsigned ArchId, int FilterMode, int
             }
             else
             {
+                if (bDealerMode == 0)
+                    G_NnRowItems[Row] = {ArchId, bEquipped != 0}; // expanded hardpoints
                 Archetype::Equipment* const Arch = Archetype::GetEquipment(ArchId);
                 if (Arch == nullptr)
                 {
@@ -4088,6 +4156,21 @@ void NnInventory::UpdateRowVisibility(int Count)
             {
                 if (static_cast<NnDealer*>(this)->TradeMode != 2)
                     EquipToggle[Row]->SetProperty(2, 1, 0);
+            }
+            else if (ExpandedHardpoints::Enabled())
+            {
+                // Expanded hardpoints (0x0047f5aa): docked, the toggle shows for mounted
+                // equipment that is not built into the ship and for equipment with a free
+                // hardpoint of its subtype; otherwise it is hidden (in space too).
+                FNnRowItem const& RowItem = G_NnRowItems[Row];
+                bool bShow = IsPlayerDockedRetail();
+                if (bShow && RowItem.bEquipped)
+                    bShow = !ExpandedHardpoints::IsBuiltIn(RowItem.ArchId);
+                else if (bShow)
+                    bShow = ExpandedHardpoints::IsValidItem(RowItem.ArchId, Ship.ShipArchId,
+                                                            &Ship.Loadout);
+                if (!bShow)
+                    EquipToggle[Row]->SetProperty(1, 1, 0);
             }
             else if (!IsPlayerDockedRetail()) // FUN_004c4810
             {

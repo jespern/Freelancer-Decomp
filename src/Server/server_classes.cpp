@@ -6,6 +6,7 @@
 
 #include "../include/common_server.h"
 #include "../include/hd_plugins.h"
+#include "../include/common_expanded_hardpoints.h" // the port: Discovery's hardpoint subtypes
 #include "../include/common_net.h"
 #include "../include/common_physys.h"
 #include "../include/common_ivp_real_object.h" // IVP_Real_Object +0x1c/+0xa4 (StarSystem_MpCollisionFilter)
@@ -1353,10 +1354,24 @@ unsigned short __cdecl PlayerData_AddEquipment(PlayerSlot& Slot, unsigned int Ar
     EquipDesc Desc;
     Desc.set_arch_id(ArchId);
     Desc.set_id(EquipId);
-    Desc.set_hardpoint(Hardpoint);
+    // Expanded hardpoints (common_expanded_hardpoints.h): FLUF's patch of these two setters
+    // (.text:06d4f067 / .text:06d4f094) moves a subtype item onto a free hardpoint of its
+    // subtype, or into the hold unequipped when the ship has none for it.
+    bool bUnequip = false;
+    if (ExpandedHardpoints::Enabled()) {
+        char const* const Chosen = ExpandedHardpoints::ServerHardpoint(
+            ArchId, Slot.ship_archetype, Hardpoint.Value, &Slot.equipment, &bUnequip);
+        if (Chosen != nullptr) {
+            CacheString ChosenHardpoint;
+            ChosenHardpoint.Value = Chosen;
+            Desc.set_hardpoint(ChosenHardpoint);
+        }
+    } else {
+        Desc.set_hardpoint(Hardpoint);
+    }
     Desc.set_count(Count);
     Desc.set_status(Health);
-    Desc.set_equipped(bEquipped);
+    Desc.set_equipped(bUnequip ? 0 : bEquipped);
 
     // .text:06d4f0ae -- add_equipment_item(Desc, bCombine).
     int const Combined = Slot.equipment.add_equipment_item(Desc, bCombine);

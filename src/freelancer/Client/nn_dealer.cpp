@@ -37,6 +37,7 @@
 #include "hd_plugins.h"
 
 #include "common_archetype.h"       // Archetype::Gun / Munition (the equipment sort)
+#include "common_expanded_hardpoints.h" // the port: Discovery's hardpoint subtypes
 #include "common_goods.h"           // Good2Arch / Arch2Good / GoodList
 #include "common_ini.h"             // StringAlloc
 #include "common_reputation.h"
@@ -914,10 +915,19 @@ void NnDealer::Update()
                 QuantityEdit->SetProperty(0x43, 0, 0);
                 QuantityPrompt->SetProperty(1, 1, 0);
             }
-            Archetype::Equipment* const Shown = Archetype::GetEquipment(Field390);
-            if (Shown != nullptr && Shown->get_class_type() == Archetype::AClassEngine &&
-                TradeMode == 2)
-                ShowErrorText(0x52d, 0);
+            // Expanded hardpoints (0x00480892): equipment built into the ship cannot change
+            // hands -- the panel goes blank (ids 0) in every trade mode.
+            if (ExpandedHardpoints::Enabled() && ExpandedHardpoints::IsBuiltIn(Field390))
+            {
+                ShowErrorText(0, 0);
+            }
+            else
+            {
+                Archetype::Equipment* const Shown = Archetype::GetEquipment(Field390);
+                if (Shown != nullptr && Shown->get_class_type() == Archetype::AClassEngine &&
+                    TradeMode == 2)
+                    ShowErrorText(0x52d, 0);
+            }
         }
         else
         {
@@ -929,9 +939,17 @@ void NnDealer::Update()
                 if (PartnerItem != nullptr && PartnerItem->bMission) // +0x18
                     ShowErrorText(0x575, 0);
             }
-            Archetype::Equipment* const Shown = Archetype::GetEquipment(Field390);
-            if (Shown != nullptr && Shown->get_class_type() == Archetype::AClassEngine)
-                ShowErrorText(TradeMode == 2 ? 0x52d : 0x52c, 0);
+            // Expanded hardpoints (0x0048092b): likewise when selling.
+            if (ExpandedHardpoints::Enabled() && ExpandedHardpoints::IsBuiltIn(Field390))
+            {
+                ShowErrorText(0, 0);
+            }
+            else
+            {
+                Archetype::Equipment* const Shown = Archetype::GetEquipment(Field390);
+                if (Shown != nullptr && Shown->get_class_type() == Archetype::AClassEngine)
+                    ShowErrorText(TradeMode == 2 ? 0x52d : 0x52c, 0);
+            }
             swprintf(ToolTipText, 0xff, L"%d", Field38c);
             TransferItemQuantity->SetProperty(0x1d, reinterpret_cast<uintptr_t>(ToolTipText), 0);
             if (Field38c > 1)
@@ -1585,6 +1603,10 @@ bool NnDealer::CanBuyGood(unsigned GoodId)
         if (Inventory->Ship.ShipView->FindHardpointForGood(GoodId, true) == nullptr)
             return false;
     }
+
+    // Expanded hardpoints (0x00482ed2): nothing the player's ship has no subtype for.
+    if (!ExpandedHardpoints::IsValidItem(Good2Arch(GoodId), GetPlayerShipArchetypeIdRetail(), nullptr))
+        return false;
 
     // 00482ed2..00482f03: the ammo filter needs a launcher for it in the partner's loadout
     // (FUN_00482d80 on +0x34c with Good2Arch(GoodId)); every other case -- true.

@@ -7,6 +7,7 @@
 // DataConfig -- retail DataConfig.cpp (startup 0x06308e60, shutdown 0x06309850). Declared
 // in common_dataconfig.h.
 #include "common_dataconfig.h"
+#include "common_expanded_hardpoints.h" // the port: hardpoint subtypes read the same files
 #include "common_archetype.h"  // Archetype::Load* / Free / FreeExplosions
 #include "common_fuses.h"      // FuseDB, PetalDB_*, WeaponModDB_*
 #include "common_goods.h"      // ReadConstants, Loadout, GoodList_*, BaseDataList_*
@@ -61,6 +62,7 @@ namespace
         else if (Reader.is_value("equipment"))
         {
             GetFileSysPath(FullPath, Reader.get_value_string(), nullptr);
+            ExpandedHardpoints::NoteDataFile(false, FullPath); // not retail
             if (Archetype::LoadEquipment(FullPath, false, Factory) == 0)
             {
                 FDUMP(0x100002, kFmtEquipmentEmpty, kDataConfigSource, 0x5c, FullPath);
@@ -77,6 +79,7 @@ namespace
         else if (Reader.is_value("ships"))
         {
             GetFileSysPath(FullPath, Reader.get_value_string(), nullptr);
+            ExpandedHardpoints::NoteDataFile(true, FullPath); // not retail
             if (Archetype::LoadShips(FullPath, false, Factory) == 0)
             {
                 FDUMP(0x100002, kFmtShipsEmpty, kDataConfigSource, 0x75, FullPath);

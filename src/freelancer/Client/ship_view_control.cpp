@@ -22,6 +22,7 @@
 
 #include "client_cliobj.h"
 #include "common_archetype.h"
+#include "common_expanded_hardpoints.h" // the port: Discovery's hardpoint subtypes
 #include "common_csys.h"       // Acquire3DMathEngine (FUN_005b73e0)
 #include "common_goods.h"
 #include "common_ini.h"
@@ -1195,9 +1196,32 @@ char const* ShipViewControl::FindHardpointForGood(unsigned GoodId, bool bFirstMa
     if (Visuals == nullptr || GoodId == 0)
         return nullptr;
 
+    GoodInfo const* const Good = GoodList::find_by_id(GoodId);
+
+    // Expanded hardpoints (common_expanded_hardpoints.h): FLUF sends every call of this
+    // function through its own search first -- an item with subtypes on a ship with subtype
+    // hardpoints takes the first free one of them, whatever bFirstMatch asks.
+    if (Good != nullptr && ExpandedHardpoints::Enabled())
+    {
+        struct FContext
+        {
+            HardpointSummary const* Summary;
+            FEquipVisualSet const* Visuals;
+        } Context = {Visuals->Summary, Visuals};
+        int const Count = Context.Summary != nullptr ? Context.Summary->get_count() : 0;
+        char const* const Subtype = ExpandedHardpoints::FindSubtypeHardpoint(
+            Good->ArchId, ShipId.Id, Count,
+            [](void* C, int Index) -> char const*
+            { return static_cast<FContext*>(C)->Summary->get_name(Index); },
+            [](void* C, int Index) -> bool
+            { return static_cast<FContext*>(C)->Visuals->GetInstance(Index) == -1; },
+            &Context);
+        if (Subtype != nullptr)
+            return Subtype;
+    }
+
     Archetype::Equipment const* Weapon = nullptr;
     Archetype::Equipment const* Shield = nullptr;
-    GoodInfo const* const Good = GoodList::find_by_id(GoodId);
     int const HpClass =
         (Good != nullptr) ? ShipViewEquipmentHpClass(Good->ArchId, &Weapon, &Shield) : 0;
 
@@ -1518,6 +1542,9 @@ void ShipViewControl::BuildHardpointList()
                 continue;
             FShipViewHpEntry Entry;
             Entry.Ids = G_ShipViewHpTypeCaptions[BestRow].Ids;
+            // Expanded hardpoints: the ship's hp_info caption for this hardpoint, if any.
+            if (unsigned const InfoIds = ExpandedHardpoints::HardpointInfoIds(ShipId.Id, Name))
+                Entry.Ids = static_cast<int>(InfoIds);
             Entry.Name = Name;
             Entry.SortKey = BestRow;
             Entry.Group = HpTypeGroup(BestType);
