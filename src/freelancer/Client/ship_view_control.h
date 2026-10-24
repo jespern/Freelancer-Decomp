@@ -237,3 +237,6 @@ static_assert(offsetof(ShipViewControl, Camera) == 0x388, "ShipViewControl +0x38
 static_assert(offsetof(ShipViewControl, Lights) == 0x44c, "ShipViewControl +0x44c");
 static_assert(offsetof(ShipViewControl, Instance) == 0x4b8, "ShipViewControl +0x4b8");
 static_assert(offsetof(ShipViewControl, Equipment) == 0x4c8, "ShipViewControl +0x4c8");
+
+// Not retail: Discovery engclass.dll's strings (ship_view_control.cpp).
+void ShipViewRegisterEngClass();

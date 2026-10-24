@@ -43,6 +43,17 @@ namespace DiscoveryPlugins
     COMMON_API void EndBaseMass();
     bool BaseMassOnly();
 
+    // engclass.dll: engines and power plants as class equipment on hardpoints. 60 hp types after
+    // retail's: hp_{fighter,elite,freighter}_{power,engine}_special_1..10 = 0x43..0x7e.
+    COMMON_API bool EngClassEnabled();
+    COMMON_API unsigned EngClassLookupType(char const* Name); // 0 when not one of the 60
+    void NoteEngClass(unsigned EquipArchId, unsigned Type);
+    unsigned EngClassType(unsigned EquipArchId); // 0 when the item has none
+    inline bool IsEngClassType(unsigned Type)
+    {
+        return Type >= 0x43 && Type <= 0x7e;
+    }
+
     // MuzzleCone.dll
     bool MuzzleConeEnabled();
     void NoteMuzzleCone(unsigned GunArchId, float Degrees);

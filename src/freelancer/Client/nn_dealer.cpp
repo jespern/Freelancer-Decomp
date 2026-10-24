@@ -7,6 +7,7 @@
 // Retail NN_Dealer -- see nn_dealer.h for the class, its vftable and layout.
 
 #include "nn_dealer.h"
+#include "nn_inventory.h" // NnEngClassMode
 #include "hd_plugins.h"
 
 #include "client_base_market.h"     // GetClientLocationBaseMarket (FUN_0043a510), the market
@@ -37,6 +38,7 @@
 #include "hd_plugins.h"
 
 #include "common_archetype.h"       // Archetype::Gun / Munition (the equipment sort)
+#include "common_discovery_plugins.h" // the port: Discovery's engclass
 #include "common_expanded_hardpoints.h" // the port: Discovery's hardpoint subtypes
 #include "common_goods.h"           // Good2Arch / Arch2Good / GoodList
 #include "common_ini.h"             // StringAlloc
@@ -793,7 +795,9 @@ void NnDealer::Update()
                         // 0 or 2; the partner is not null-tested): no hardpoint for the good at
                         // all (FUN_00585f20(GoodId, 1)) -- reason 7; with something to buy, no
                         // free one (FUN_00585f20(GoodId, 0)) -- reason 8.
-                        int const Filter = Inventory->Mode;
+                        // Discovery engclass.dll (0x004804e8): class engines / power plants count
+                        // as hardpoint items.
+                        int const Filter = NnEngClassMode(Inventory->Mode, Good2Arch(GoodId));
                         if (Filter == 0 || Filter == 2)
                         {
                             ShipViewControl* const View = Inventory->Ship.ShipView; // +0x330
@@ -929,8 +933,9 @@ void NnDealer::Update()
             else
             {
                 Archetype::Equipment* const Shown = Archetype::GetEquipment(Field390);
+                // Discovery engclass.dll (0x0048089d): engines are no longer untradeable.
                 if (Shown != nullptr && Shown->get_class_type() == Archetype::AClassEngine &&
-                    TradeMode == 2)
+                    TradeMode == 2 && !DiscoveryPlugins::EngClassEnabled())
                     ShowErrorText(0x52d, 0);
             }
         }
@@ -952,7 +957,9 @@ void NnDealer::Update()
             else
             {
                 Archetype::Equipment* const Shown = Archetype::GetEquipment(Field390);
-                if (Shown != nullptr && Shown->get_class_type() == Archetype::AClassEngine)
+                // Discovery engclass.dll (0x00480936): likewise.
+                if (Shown != nullptr && Shown->get_class_type() == Archetype::AClassEngine &&
+                    !DiscoveryPlugins::EngClassEnabled())
                     ShowErrorText(TradeMode == 2 ? 0x52d : 0x52c, 0);
             }
             swprintf(ToolTipText, 0xff, L"%d", Field38c);
@@ -1602,7 +1609,7 @@ bool NnDealer::CanBuyGood(unsigned GoodId)
 
     // 00482ea1..00482ecf: the partner's weapons / equipment filters (+0x32c 0 or 2; the partner
     // is not null-tested): no hardpoint for the good at all (FUN_00585f20(GoodId, 1)) -- false.
-    int const Filter = Inventory->Mode;
+    int const Filter = NnEngClassMode(Inventory->Mode, Good2Arch(GoodId)); // engclass (0x00482ea7)
     if (Filter == 0 || Filter == 2)
     {
         if (Inventory->Ship.ShipView->FindHardpointForGood(GoodId, true) == nullptr)
@@ -1867,7 +1874,8 @@ int NnDealer::GetMaxBuyCount(unsigned GoodId, int* OutReason)
         {
             Inventory->Field394.clear();
             unsigned const Selected = GetSelectedMarketGood(); // FUN_00483580
-            if (Selected != 0 && (Mode == 0 || Mode == 2))
+            // Discovery engclass.dll (0x00483869): the hint in every mode.
+            if (Selected != 0 && (Mode == 0 || Mode == 2 || DiscoveryPlugins::EngClassEnabled()))
             {
                 char const* const Hardpoint =
                     Inventory->Ship.ShipView->FindHardpointForGood(Selected, false);

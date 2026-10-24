@@ -18,6 +18,8 @@
 #include "hd_plugins.h"
 #include "../IVP/ivp_physics/ivp_core.h"
 
+#include <cstdlib>
+#include <cstring>
 #include <unordered_map>
 
 namespace
@@ -41,6 +43,12 @@ namespace
     }
 
     thread_local int GBaseMassDepth = 0;
+
+    std::unordered_map<unsigned, unsigned>& EngClassTypes()
+    {
+        static std::unordered_map<unsigned, unsigned> Table;
+        return Table;
+    }
 }
 
 namespace DiscoveryPlugins
@@ -117,6 +125,48 @@ namespace DiscoveryPlugins
     bool BaseMassOnly()
     {
         return GBaseMassDepth > 0;
+    }
+
+    bool EngClassEnabled()
+    {
+        static bool const bEnabled = HdPlugins::Enabled("engclass.dll");
+        return bEnabled;
+    }
+
+    unsigned EngClassLookupType(char const* Name)
+    {
+        // The plugin's 0x10001260: a matching prefix with anything but 1..10 after it is not
+        // tried against the later prefixes.
+        static char const* const kPrefixes[6] = {
+            "hp_fighter_power_special_", "hp_elite_power_special_", "hp_freighter_power_special_",
+            "hp_fighter_engine_special_", "hp_elite_engine_special_", "hp_freighter_engine_special_"};
+        if (Name == nullptr)
+            return 0;
+        for (unsigned Family = 0; Family < 6; ++Family)
+        {
+            size_t const Length = std::strlen(kPrefixes[Family]);
+            if (_strnicmp(Name, kPrefixes[Family], Length) != 0)
+                continue;
+            char* End = nullptr;
+            long const Class = std::strtol(Name + Length, &End, 10);
+            if (Class < 1 || Class > 10 || *End != '\0')
+                return 0;
+            return 0x42 + Family * 10 + static_cast<unsigned>(Class);
+        }
+        return 0;
+    }
+
+    void NoteEngClass(unsigned EquipArchId, unsigned Type)
+    {
+        EngClassTypes()[EquipArchId] = Type;
+    }
+
+    unsigned EngClassType(unsigned EquipArchId)
+    {
+        if (!EngClassEnabled())
+            return 0;
+        std::unordered_map<unsigned, unsigned>::const_iterator It = EngClassTypes().find(EquipArchId);
+        return It != EngClassTypes().end() ? It->second : 0;
     }
 
     bool MuzzleConeEnabled()

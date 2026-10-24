@@ -588,6 +588,16 @@ namespace Archetype
             return true;
         }
 
+        // Discovery engclass.dll (its hook of this "no key" tail, 0x062f4878): the class.
+        if (Reader.is_value("hp_type"))
+        {
+            unsigned const Type = DiscoveryPlugins::EngClassLookupType(Reader.get_value_string(0));
+            if (Type == 0)
+                return false;
+            DiscoveryPlugins::NoteEngClass(Nickname.Id, Type);
+            return true;
+        }
+
         return false;
     }
 
@@ -614,6 +624,9 @@ namespace Archetype
     // get_hp_type overrides -- all return the same unnamed constant 2.
     HpAttachmentType Power::get_hp_type() const
     {
+        // Discovery engclass.dll replaces this slot: the class read from hp_type, else 2.
+        if (unsigned const Type = DiscoveryPlugins::EngClassType(Nickname.Id))
+            return static_cast<HpAttachmentType>(Type);
         return HpTypeInternal;
     }
 
@@ -680,6 +693,16 @@ namespace Archetype
             return true;
         }
 
+        // Discovery engclass.dll: the class (its hook chains after multiCruise's, 0x062f51b8).
+        if (Reader.is_value("hp_type"))
+        {
+            unsigned const Type = DiscoveryPlugins::EngClassLookupType(Reader.get_value_string(0));
+            if (Type == 0)
+                return false;
+            DiscoveryPlugins::NoteEngClass(Nickname.Id, Type);
+            return true;
+        }
+
         // Discovery multiCruise.dll: its hook on this function's "no key" tail (0x062f51b8).
         if (Reader.is_value("cruise_speed"))
         {
@@ -715,6 +738,9 @@ namespace Archetype
 
     HpAttachmentType Engine::get_hp_type() const
     {
+        // Discovery engclass.dll replaces this slot: the class read from hp_type, else 2.
+        if (unsigned const Type = DiscoveryPlugins::EngClassType(Nickname.Id))
+            return static_cast<HpAttachmentType>(Type);
         return HpTypeInternal;
     }
 

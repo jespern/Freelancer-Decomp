@@ -6,7 +6,8 @@
 
 #include "globals.h"
 #include "hd_client.h"
-#include "nn_ship_trader.h" // ShipTraderRegisterShipClasses (Discovery shipclass.dll)
+#include "nn_ship_trader.h"
+#include "ship_view_control.h" // ShipViewRegisterEngClass (Discovery engclass.dll) // ShipTraderRegisterShipClasses (Discovery shipclass.dll)
 #include "hd_plugins.h"
 #include "widescreen.h"   // port-only (FREELANCER_WIDESCREEN_SUPPORT)
 #include "win_factory.h"   // WinFactoryCreate (FUN_0059db20)
@@ -930,6 +931,7 @@ bool InitializeEngine(const FClientCommandLine* CommandLine)
     // 0x005b1ca5..0x005b1caf: FUN_005b0c30(DAT_00679d04) -- freelancer.ini's client [Data]
     // keys, its [Resources] DLLs and audio\SoundCFG.ini; the result is not read.
     LoadClientIniData(g_display.ini_path.c_str());
+    ShipViewRegisterEngClass(); // Discovery engclass.dll (in LoadClientIniData, 0x005b0fad)
     HdZoneRegisterResources(); // HD: Zone.dll's strings after [Resources] (0x005b1cb3)
     ShipTraderRegisterShipClasses(); // Discovery shipclass.dll (0x005b1caa)
     if (!PumpInitMessages())

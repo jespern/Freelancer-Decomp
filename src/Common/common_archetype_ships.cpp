@@ -8,6 +8,8 @@
 // common_archetype.cpp (retail Archetype.cpp, one TU) in CMN-SPLIT phase B.
 
 #include "common_archetype.h"
+#include <cstdio>
+#include "common_discovery_plugins.h" // the port: Discovery's engclass
 #include "common_archetype_internal.h"
 
 #include "common_cobject.h" // CollisionGroupDesc (get_undamaged_collision_group_list)
@@ -1157,19 +1159,45 @@ namespace Archetype
         if (Reader.is_value("hp_type"))
         {
             unsigned Value = 0;
-            if (!TryLookupHpType(Reader.get_value_string(0), &Value) || Value == 0)
-                return true;
-            HpAttachmentType const Type = (HpAttachmentType)Value;
-
-            LegalHps.push_back(LegalHpTypes());
-            LegalHpTypes& Entry = LegalHps.back();
-            Entry.Type = Type;
-
-            for (int Index = 1; !Reader.is_value_empty(Index); ++Index)
+            // Discovery engclass.dll (its hook of the not-found return, 0x062f2598): the 60 class
+            // names, and "<family> N" for classes N down to 1 (the plugin repeats the line).
+            unsigned Repeat = 1;
+            if (!TryLookupHpType(Reader.get_value_string(0), &Value))
             {
-                CacheString Hp;
-                Hp.Value = StringAlloc(Reader.get_value_string(Index), false);
-                Entry.Hardpoints.push_back(Hp);
+                if (!DiscoveryPlugins::EngClassEnabled())
+                    return true;
+                char const* const Token = Reader.get_value_string(0);
+                char Family[64];
+                int Count = 0;
+                if (Token != nullptr && sscanf(Token, "%63s %d", Family, &Count) == 2 && Count >= 1)
+                {
+                    char Name[96];
+                    snprintf(Name, sizeof(Name), "hp_%s_special_%d", Family, Count);
+                    Value = DiscoveryPlugins::EngClassLookupType(Name);
+                    Repeat = static_cast<unsigned>(Count);
+                }
+                else
+                {
+                    Value = DiscoveryPlugins::EngClassLookupType(Token);
+                }
+                if (Value == 0)
+                    return true;
+            }
+            if (Value == 0)
+                return true;
+
+            for (unsigned Step = 0; Step < Repeat; ++Step)
+            {
+                LegalHps.push_back(LegalHpTypes());
+                LegalHpTypes& Entry = LegalHps.back();
+                Entry.Type = (HpAttachmentType)(Value - Step);
+
+                for (int Index = 1; !Reader.is_value_empty(Index); ++Index)
+                {
+                    CacheString Hp;
+                    Hp.Value = StringAlloc(Reader.get_value_string(Index), false);
+                    Entry.Hardpoints.push_back(Hp);
+                }
             }
             return true;
         }

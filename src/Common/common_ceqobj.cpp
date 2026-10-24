@@ -6,6 +6,7 @@
 
 // CEqObj (retail CEqObj.cpp) and CEqObj::DockAnimInfo.
 #include "common_cobject.h"
+#include "common_discovery_plugins.h" // the port: Discovery's engclass
 #include "hd_plugins.h" // the port: Discovery's moors
 #include "x86math.h"
 
@@ -169,7 +170,7 @@ bool CEqObj::add_equipped_item(EquipDesc const& Desc)
         {
             Ext->Connect(Desc.Hardpoint);                              // vtable +0x5c
         }
-        else
+        else if (!DiscoveryPlugins::EngClassEnabled()) // Discovery engclass.dll skips it (062a9775)
         {
             // 062a9783..062a97c0: object nickname, equipment nickname, hardpoint (raw).
             FDUMP(0x100002,

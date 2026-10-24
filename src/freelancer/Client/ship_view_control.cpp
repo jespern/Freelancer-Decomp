@@ -8,6 +8,8 @@
 // Retail source: E:\FL\Scratch\Source\Client\Interface\ShipViewControl.cpp (.rdata 0x005e4cd8).
 
 #include "ship_view_control.h"
+#include "ids_strings.h"        // RegisterIdsResourceModule (engclass)
+#include "nn_inventory.h"       // NnInventorySetEngClassInfoIds (engclass)
 
 #include "engine_light.h"      // FEngineLight, EngineLight* (FUN_00410ca0 .. FUN_004114f0)
 #include "gf_object_ship.h"    // GfShipApplyCollisionDamage (FUN_004482b0)
@@ -22,6 +24,7 @@
 
 #include "client_cliobj.h"
 #include "common_archetype.h"
+#include "common_discovery_plugins.h" // the port: Discovery's engclass
 #include "common_expanded_hardpoints.h" // the port: Discovery's hardpoint subtypes
 #include "common_csys.h"       // Acquire3DMathEngine (FUN_005b73e0)
 #include "common_goods.h"
@@ -66,7 +69,9 @@ namespace
         int Ids;
     };
 
-    FHpTypeCaption const G_ShipViewHpTypeCaptions[0x3c] = {
+    // Discovery engclass.dll doubles it (0x78 rows): its 60 class types after retail's, captioned
+    // from its own string table (ShipViewRegisterEngClass).
+    FHpTypeCaption G_ShipViewHpTypeCaptions[0x78] = {
         {15, 1525}, {16, 1526}, {17, 1527}, {18, 1528}, {19, 1529}, {20, 1530},
         {21, 1531}, {22, 1532}, {23, 1533}, {24, 1534}, {13, 1524}, {25, 1731},
         {26, 1732}, {27, 1733}, {28, 1734}, {29, 1735}, {30, 1736}, {31, 1737},
@@ -77,6 +82,7 @@ namespace
         {52, 1716}, {53, 1717}, {54, 1718}, {55, 1719}, {56, 1720}, {7, 1518},
         {57, 1721}, {58, 1722}, {59, 1723}, {60, 1724}, {61, 1725}, {62, 1726},
         {63, 1727}, {64, 1728}, {65, 1729}, {66, 1730}, {8, 1519},  {9, 1520}};
+    int G_ShipViewHpTypeCaptionCount = 0x3c;
 
     // The grouping switch FUN_00586800 (table 0x00586880) and FUN_00586b70 (table 0x00587008)
     // each inline: 0 for 4, 0xa..0xd and 0xf..0x24; 1 for 5..9 and 0x25..0x42; 2 for 0xe and for
@@ -90,6 +96,18 @@ namespace
         if ((HpType >= 5 && HpType <= 9) || HpType >= 0x25)
             return 1;
         return 0;
+    }
+
+    // engclass's grouping in BuildHardpointList (its table 0x00586c8f), which is also the row's
+    // inventory mode: 0 for guns and the like and for the cargo pod, 2 for shields and the like,
+    // 3 for its class types (and anything else). HasHpTypeGroup keeps retail's.
+    int EngClassHpTypeGroup(int HpType)
+    {
+        if (DiscoveryPlugins::IsEngClassType(static_cast<unsigned>(HpType)) || HpType < 4 || HpType > 0x42)
+            return 3;
+        if (HpType == 0xe)
+            return 0;
+        return HpTypeGroup(HpType) == 1 ? 2 : 0;
     }
 
     void* HandleOf(long Instance)
@@ -183,6 +201,10 @@ int ShipViewEquipDescHpClass(EquipDesc const* Desc, Archetype::Equipment const**
 int ShipViewHpTypeClass(int HpType)
 {
     // FUN_00585b10: switch on HpType - 4 through the byte table 0x00585b90.
+    // Discovery engclass.dll (0x00585b19): its six families are classes 10..15.
+    if (DiscoveryPlugins::IsEngClassType(static_cast<unsigned>(HpType)) &&
+        DiscoveryPlugins::EngClassEnabled())
+        return 10 + (HpType - 0x43) / 10;
     switch (HpType)
     {
     case 0xa:
@@ -227,7 +249,7 @@ int ShipViewHpTypeTableCount()
 int ShipViewHpTypeTableType(int Index)
 {
     // FUN_00584720.
-    if (Index < 0 || Index >= 0x3c)
+    if (Index < 0 || Index >= G_ShipViewHpTypeCaptionCount) // engclass: 0x78 (0x0058472a)
         return 0;
     return G_ShipViewHpTypeCaptions[Index].HpType;
 }
@@ -1526,7 +1548,7 @@ void ShipViewControl::BuildHardpointList()
                 continue;
             int BestRow = -1;
             int BestType = 0;
-            for (int Row = 0; Row < 0x3c; ++Row)
+            for (int Row = 0; Row < G_ShipViewHpTypeCaptionCount; ++Row) // engclass: 0x78
             {
                 int const RowType = G_ShipViewHpTypeCaptions[Row].HpType;
                 for (size_t TypeIndex = 0; TypeIndex < HpTypes.size(); ++TypeIndex)
@@ -1547,7 +1569,8 @@ void ShipViewControl::BuildHardpointList()
                 Entry.Ids = static_cast<int>(InfoIds);
             Entry.Name = Name;
             Entry.SortKey = BestRow;
-            Entry.Group = HpTypeGroup(BestType);
+            Entry.Group = DiscoveryPlugins::EngClassEnabled() ? EngClassHpTypeGroup(BestType)
+                                                              : HpTypeGroup(BestType);
             Entry.Class = ShipViewHpTypeClass(BestType); // FUN_00585b10
             Collected.push_back(Entry);                  // FUN_00587200
         }
@@ -1631,4 +1654,24 @@ WinControl* WinControl::CreateShipViewControl(char const* Name, float const* Rot
                                                      WireColor);
     }
     return static_cast<WinControl*>(Created);
+}
+
+// HD-style built-in of Discovery's engclass.dll string registration (its hook in LoadClientIniData
+// after [Resources], 0x005b0fad): ids 0..5 are the empty-hardpoint info texts, 6..65 the captions
+// of its 60 class types.
+void ShipViewRegisterEngClass()
+{
+    if (!DiscoveryPlugins::EngClassEnabled())
+        return;
+    HMODULE const Strings = LoadLibraryExA("engclass.dll", nullptr, LOAD_LIBRARY_AS_DATAFILE);
+    if (Strings == nullptr)
+        return;
+    unsigned const Base = RegisterIdsResourceModule(Strings);
+    for (int Index = 0; Index < 60; ++Index)
+    {
+        G_ShipViewHpTypeCaptions[0x3c + Index].HpType = 0x43 + Index;
+        G_ShipViewHpTypeCaptions[0x3c + Index].Ids = static_cast<int>(Base + 6 + static_cast<unsigned>(Index));
+    }
+    G_ShipViewHpTypeCaptionCount = 0x78;
+    NnInventorySetEngClassInfoIds(Base);
 }

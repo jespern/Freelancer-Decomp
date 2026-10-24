@@ -50,6 +50,7 @@
 #include "win_factory.h"
 #include "wire_controls.h"          // WireControlsJoinColumn (FUN_005a4b50)
 
+#include "common_discovery_plugins.h" // the port: Discovery's engclass
 #include "common_expanded_hardpoints.h" // the port: Discovery's hardpoint subtypes
 #include "DALib.h"
 #include "render/IRenderPipeline.h"
@@ -795,6 +796,29 @@ int NnShipResaleValue(unsigned ShipArchId, bool bApplyCondition)
     return static_cast<int>(static_cast<double>(Conditioned) * 0.800000011920929);
 }
 
+// Discovery engclass.dll's mode remap: an engine or power plant with a class (hp type 0x43..0x7e)
+// counts as a hardpoint item (mode 0) where the internal tab (mode 3) is shown. The plugin looks
+// the item up by good id; Discovery's goods share their equipment's nickname, so the archetype id
+// gives the same answer.
+int NnEngClassMode(int Mode, unsigned ArchId)
+{
+    if (Mode != 3 || !DiscoveryPlugins::EngClassEnabled())
+        return Mode;
+    Archetype::Equipment* const Arch = Archetype::GetEquipment(ArchId);
+    if (Arch == nullptr)
+        return 3;
+    return DiscoveryPlugins::IsEngClassType(static_cast<unsigned>(Arch->get_hp_type())) ? 0 : 3;
+}
+
+// engclass's hardpoint-row mode: the ship view's own group (0 / 2 / 3, BuildHardpointList),
+// where retail maps group 1 to mode 2 and the rest to 0.
+static int NnHardpointRowMode(FShipViewHpEntry const* Entry)
+{
+    if (DiscoveryPlugins::EngClassEnabled())
+        return Entry->Group;
+    return (Entry->Group == 1) ? 2 : 0;
+}
+
 int NnItemFilterMode(unsigned ArchId)
 {
     // FUN_0047e460 (cdecl).
@@ -832,6 +856,10 @@ int NnItemFilterMode(unsigned ArchId)
         return 2;
     if (HpType == 0xe)
         return 4;
+    // Discovery engclass.dll (0x0047e4e0): the class engines and power plants stay internal.
+    if (DiscoveryPlugins::IsEngClassType(static_cast<unsigned>(HpType)) &&
+        DiscoveryPlugins::EngClassEnabled())
+        return 3;
     if (HpType >= 0x25 && HpType <= 0x42)
         return 2;
     if (HpType == 4 || (HpType >= 0xa && HpType <= 0xd) || (HpType >= 0xf && HpType <= 0x24))
@@ -1315,8 +1343,11 @@ void NnInventory::TransferEquipmentFromDealer()
             GoodId = 0;
         int const Class =
             static_cast<int>(Archetype::GetEquipment(SourceIt->ArchId)->get_class_type()); // vt+0x10
-        if (GoodId == 0 || Class == Archetype::AClassEngine || Class == Archetype::AClassScanner ||
-            Class == Archetype::AClassTractor || Class == Archetype::AClassPower)
+        // Discovery engclass.dll (0x0047b022 / 0x0047b03d): engines and power plants move too.
+        bool const bEngClass = DiscoveryPlugins::EngClassEnabled();
+        if (GoodId == 0 || (Class == Archetype::AClassEngine && !bEngClass) ||
+            Class == Archetype::AClassScanner || Class == Archetype::AClassTractor ||
+            (Class == Archetype::AClassPower && !bEngClass))
         {
             Record.Id = 0;
             Record.Price = 0.0f;
@@ -2987,6 +3018,7 @@ void NnInventory::ToggleEquip(EquipDesc* Item, int State)
     if (Item != nullptr)
     {
         Filter = NnItemFilterMode(Item->ArchId);
+        Filter = NnEngClassMode(Filter, Item->ArchId); // Discovery engclass.dll (0x0047f73a)
         bHardpointItem = (Filter == 0 || Filter == 2);
         // Expanded hardpoints (0x0047f73f): internal equipment (filter 3) too, so it mounts
         // through the subtype checks below.
@@ -3184,6 +3216,10 @@ static char const* const G_NnGoodDealIcons[6] = {
 // table's entry 10, which also covers 0x23 / 0x24, and the JA default).
 static int NnHpTypeClassNumber(int HpType)
 {
+    // Discovery engclass.dll (0x0047c942 / 0x0047c94c): its 60 types are classes 1..10.
+    if (DiscoveryPlugins::IsEngClassType(static_cast<unsigned>(HpType)) &&
+        DiscoveryPlugins::EngClassEnabled())
+        return (HpType - 0x43) % 10 + 1;
     unsigned const Index = static_cast<unsigned>(HpType - 0xf);
     if (Index > 0x33)
         return 0;
@@ -3289,7 +3325,7 @@ bool NnInventory::FillItemRow(int* Counter, unsigned ArchId, int FilterMode, int
                 else
                 {
                     int ClassNumber = 0;
-                    if (Mode == 0 || Mode == 2)
+                    if (Mode == 0 || Mode == 2 || DiscoveryPlugins::EngClassEnabled()) // engclass: every mode (0x0047c8de)
                     {
                         int HpType = static_cast<int>(Arch->get_hp_type()); // vt+0x18
                         if (Arch->get_class_type() == Archetype::AClassGun)
@@ -3461,7 +3497,8 @@ bool NnInventory::FillItemRow(int* Counter, unsigned ArchId, int FilterMode, int
             {
                 bToggle = 0;
             }
-            else if (bEquipped == 0 && (Mode == 0 || Mode == 2))
+            else if (bEquipped == 0 && (NnEngClassMode(Mode, ArchId) == 0 ||
+                                        Mode == 2)) // engclass remap (0x0047ce7d)
             {
                 if (Good == nullptr)
                     bToggle = 0;
@@ -4222,9 +4259,17 @@ void NnInventory::UpdateRowVisibility(int Count)
 
 // DAT_00611a24 -- the info-card text of an empty hardpoint row, by FShipViewHpEntry::Class
 // (read only at 0x0047e03e).
-static unsigned const G_NnHpClassInfoIds[10] = {
+// Discovery engclass.dll grows it to 16 (0x0047e041): classes 10..15 are its empty engine and
+// power hardpoints, captioned from its strings (NnInventorySetEngClassInfoIds).
+static unsigned G_NnHpClassInfoIds[16] = {
     0x38b, 0x38c, 0x394, 0x38f, 0x38d, 0x38e, 0x390, 0x391, 0x392, 0x393,
 };
+
+void NnInventorySetEngClassInfoIds(unsigned Base)
+{
+    for (unsigned Index = 0; Index < 6; ++Index)
+        G_NnHpClassInfoIds[10 + Index] = Base + Index;
+}
 
 void NnInventory::RefreshItemList(EquipDescList const* List, int Arg2, unsigned char bArg3)
 {
@@ -4358,7 +4403,7 @@ void NnInventory::RefreshItemList(EquipDescList const* List, int Arg2, unsigned 
             unsigned char bShowToggle = 0; // V_34
             unsigned char bEquipped = 0;   // V_38
             unsigned char bMission = 0;    // V_3c
-            int const RowMode = (Entry->Group == 1) ? 2 : 0; // V_24
+            int const RowMode = NnHardpointRowMode(Entry); // V_24; engclass: the group (0x0047d609)
 
             // 0047d639..0047d661: the item on this hardpoint.
             CacheString Hardpoint;
@@ -4482,7 +4527,10 @@ void NnInventory::RefreshItemList(EquipDescList const* List, int Arg2, unsigned 
 
         // 0047d974..0047d981: mounted weapons and equipment are already on the hardpoint rows.
         bool bSelected = false;
-        if (!((Filter == 0 || Filter == 2) && bEquipped != 0))
+        // Discovery engclass.dll (0x0047d974): a class engine / power plant is on a hardpoint row
+        // too.
+        int const MountedFilter = (Filter == 3 && NnEngClassMode(3, Item->ArchId) == 0) ? 2 : Filter;
+        if (!((MountedFilter == 0 || MountedFilter == 2) && bEquipped != 0))
         {
             // 0047d987..0047d9a3
             if (Field948 != SUBOBJ_ID_NONE && Item->Id == Field948)
@@ -4491,7 +4539,8 @@ void NnInventory::RefreshItemList(EquipDescList const* List, int Arg2, unsigned 
             // 0047d9a7..0047da06: whether the item can be used: a free hardpoint for an
             // unmounted weapon / equipment of an own inventory, a launcher for ammo.
             bool bUnusable = false;
-            if (bEquipped == 0 && bDealerMode == 0 && Good != nullptr && (Mode == 0 || Mode == 2))
+            int const UsableMode = NnEngClassMode(Mode, Item->ArchId); // engclass (0x0047d9bb)
+            if (bEquipped == 0 && bDealerMode == 0 && Good != nullptr && (UsableMode == 0 || UsableMode == 2))
             {
                 if (Ship.ShipView->FindHardpointForGood(Good->Id, true) == nullptr) // FUN_00585f20
                     bUnusable = true;
@@ -4769,7 +4818,7 @@ EquipDesc* NnInventory::GetSelectedItem()
             FShipViewHpEntry const* const Entry = Ship.ShipView->GetHardpointListEntry(Index); // FUN_00587070
             if (Entry == nullptr)
                 continue;
-            int const RowMode = (Entry->Group == 1) ? 2 : 0;
+            int const RowMode = NnHardpointRowMode(Entry); // engclass: the group (0x0047e821)
             if (bAllModes == 0 && RowMode != Mode)
                 continue;
             CacheString Hardpoint;
@@ -4799,7 +4848,8 @@ EquipDesc* NnInventory::GetSelectedItem()
             continue;
         if (bAllModes == 0 && Filter != Mode)
             continue;
-        if (Item->bEquipped && (Mode == 0 || Mode == 2))
+        int const ItemMode = NnEngClassMode(Mode, Item->ArchId); // engclass (0x0047e8d7)
+        if (Item->bEquipped && (ItemMode == 0 || ItemMode == 2))
             continue;
         if (Counter == SelectedIndex)
         {

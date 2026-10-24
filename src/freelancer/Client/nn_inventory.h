@@ -440,3 +440,9 @@ void NnInventoryOpenDealer(int TradeMode, FNnInventoryResultFn ResultFn, void* R
 // market sells (market category 3; the first one when Index is out of range; nothing when the
 // market sells none). Caller: NavBarOpenDealer FUN_004421a0 (0x004421f0).
 void NnInventoryOpenShipDealer(int Index, FNnInventoryResultFn ResultFn, void* ResultArg);
+
+// Not retail: Discovery engclass.dll's empty-hardpoint info texts (nn_inventory.cpp).
+void NnInventorySetEngClassInfoIds(unsigned Base);
+// Not retail: Discovery engclass.dll's mode remap (an engine / power plant with a class counts
+// as a hardpoint item, mode 0, where mode 3 is shown).
+int NnEngClassMode(int Mode, unsigned ArchId);
