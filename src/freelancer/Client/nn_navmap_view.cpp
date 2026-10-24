@@ -9,6 +9,7 @@
 // and the side panels' slide. See nn_navmap.h. Retail Client\Interface\NeuroNet\NavMap.cpp.
 
 #include "nn_navmap.h"
+#include "nn_navmap_multiuniverse.h" // the port: Discovery's MultiUniverse
 #include "character_select_equip.h" // GetPlayerStarSystemIdRetail (FUN_004c4830)
 #include "DALib.h"                  // DALib::Engine
 #include "engine/engbase.h"         // IEngine
@@ -394,12 +395,18 @@ void NeuroNetNavMap::EnterUniverseView()
     for (int Index = 0; Index < 0x63; ++Index)
         BestPathItems[Index] = nullptr;
 
+    // Discovery MultiUniverse.dll (0x0049e639): the sector (or galaxy) shown, on its atlas region;
+    // no marker in another sector than the player's (the port hides it rather than leave
+    // PlayerItem pointing at a freed item).
+    NavMapMultiUniverse::PrepareUniverseView(this);
     BuildUniverseItems(); // FUN_004915b0
     AddPlayerMarker();    // FUN_00491410
+    if (!NavMapMultiUniverse::WantPlayerMarker() && PlayerItem != nullptr)
+        PlayerItem->bShown = 0;
 
     // 0049e647..0049e692: the player marker onto the player's system's star (no null test of
     // PlayerItem or of the star's system, as in retail).
-    unsigned const PlayerSystem = GetPlayerStarSystemIdRetail();
+    unsigned const PlayerSystem = NavMapMultiUniverse::PlayerMarkerSystem(GetPlayerStarSystemIdRetail());
     for (std::list<FNavMapItem*>::iterator It = Items.begin(); It != Items.end(); ++It)
     {
         FNavMapItem* const Item = *It;
@@ -441,6 +448,7 @@ void NeuroNetNavMap::EnterUniverseView()
     for (int Index = 0; Index < 8; ++Index)
         GridNumbers[Index]->SetProperty(1, 1, 0);
     SystemNameText->SetProperty(0x1e, 0x505, 0);
+    NavMapMultiUniverse::FinishUniverseView(this); // Discovery MultiUniverse.dll (0x0049e867)
 }
 
 // ----------------------------------------------------------------------------------------

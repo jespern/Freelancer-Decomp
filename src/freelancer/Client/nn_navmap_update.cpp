@@ -8,6 +8,7 @@
 // nn_navmap.h. Retail Client\Interface\NeuroNet\NavMap.cpp.
 
 #include "nn_navmap.h"
+#include "nn_navmap_multiuniverse.h" // the port: Discovery's MultiUniverse
 #include "best_path.h"              // BestPath* (FUN_004c4fb0 / 4ff0 / 5530 / 52d0 / 58e0)
 #include "cargo_bar_control.h"      // ToolTipHoverInit / SetCaption
 #include "character_select_equip.h" // GetPlayerStarSystemIdRetail / BaseId / LastPosition
@@ -322,10 +323,12 @@ void NeuroNetNavMap::PlayerMapPosition(float* OutPos, float* OutHeading)
         OutPos[1] = 0.0f;
         OutPos[2] = 0.0f;
         *OutHeading = 0.0f;
+        // Discovery MultiUniverse.dll (0x00491c2d): the galaxy view marks the player's sector.
+        unsigned const Marked = NavMapMultiUniverse::PlayerMarkerSystem(GetPlayerStarSystemIdRetail());
         for (Universe::ISystem* System = Universe::GetFirstSystem(); System != nullptr;
              System = Universe::GetNextSystem())
         {
-            if (System->GetId() != GetPlayerStarSystemIdRetail())
+            if (System->GetId() != Marked)
                 continue;
             Vector const* const Pos = System->GetPos();
             OutPos[0] = Pos->x;
@@ -1392,6 +1395,8 @@ void NeuroNetNavMap::Update()
         bShipButton = 0;
     if (bTransition != 0)
         bShipButton = 0;
+    if (NavMapMultiUniverse::ShipButtonHidden()) // Discovery MultiUniverse.dll (0x004949a2)
+        bShipButton = 0;
     if (bShipButton != static_cast<unsigned char>((ShipButton->Flags >> 1) & 1))
         ShipButton->SetProperty(1, bShipButton == 0 ? 1u : 0u, 0);
 
@@ -1776,6 +1781,12 @@ void NeuroNetNavMap::Update()
             if (View == 0)
             {
                 bViewSwitch = 0;
+                // Discovery MultiUniverse.dll (0x00495ceb): a sector / galaxy switch rebuilds the
+                // universe view and fades it back in.
+                if (ViewMode == 0 && NavMapMultiUniverse::OnSwitchEnded(this))
+                    return;
+                if (ViewMode != 0)
+                    NavMapMultiUniverse::OnLeaveSystem();
                 if (ViewMode == 0)
                 {
                     // 00495cfd..00495dd2: back on the universe -- the texts opaque again.
@@ -1837,7 +1848,8 @@ void NeuroNetNavMap::Update()
         {
             // 00496057..00496199: a view switch fades the texts (out, then -- on the way into
             // the target view -- back in); nothing moves.
-            if (TransitionView == ViewMode)
+            // Discovery MultiUniverse.dll (0x00496057): its switch-out fades the texts out.
+            if (TransitionView == ViewMode && !NavMapMultiUniverse::FadesOut())
                 TransitionEase = static_cast<float>(1.0 - static_cast<double>(Ease));
             NavMapTintTexts(this, NavMapFadeAlpha(TransitionEase), 1);
         }

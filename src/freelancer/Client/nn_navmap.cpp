@@ -8,6 +8,7 @@
 // Retail Client\Interface\NeuroNet\NavMap.cpp, 0x0048d700..0x004a3f90.
 
 #include "nn_navmap.h"
+#include "nn_navmap_multiuniverse.h" // the port: Discovery's MultiUniverse
 #include "hd_client.h"
 #include "best_path.h"               // BestPathGetWaypointCount (FUN_004c4fb0)
 #include "character_select_equip.h"  // GetPlayerStarSystemIdRetail, GetPlayerVisitFlagsRetail
@@ -933,6 +934,9 @@ bool NeuroNetNavMap::Create(Win3D* NewParent, void* Data)
                                             nullptr, 0.219f, 0.03f, 1.9f, 0x3cd, 0, 0, 1);
     }
 
+    // Discovery MultiUniverse.dll (its hook of the call at 0x00490b3b): the player's sector.
+    NavMapMultiUniverse::OnCreate(this);
+
     // 00490b3b..00490b75: "clear all waypoints" is hidden with no waypoints or in best-path
     // mode (NEG / SBB / INC = the count is zero).
     unsigned char bHideClearAll = GetPlayerWaypointCountRetail() == 0 ? 1 : 0;
@@ -1076,8 +1080,11 @@ void NeuroNetNavMap::LoadMapResources()
     ClientMeshLoadFromPath(&ZoomedMapMesh2,
                            "Interface\\NeuroNet\\NavMap\\NewNavMap\\zoomedmap_liberty.3db", 0,
                            true);
+    // Discovery MultiUniverse.dll (0x00490d1d): its pretty-map atlas.
     ClientMeshLoadFromPath(&PrettyMapMesh,
-                           "Interface\\NeuroNet\\NavMap\\NewNavMap\\NAV_prettymap.3db", 0, true);
+                           NavMapMultiUniverse::PrettyMapPath(
+                               "Interface\\NeuroNet\\NavMap\\NewNavMap\\NAV_prettymap.3db"),
+                           0, true);
 
     IEngine* const Engine = DALib::Engine;
     float Transform[12];
@@ -1220,6 +1227,10 @@ void NeuroNetNavMap::BuildUniverseItems()
         // 004915f0..0049161d: rand() * 2000 / 32768 + 3000, kept as a float.
         int const Random = rand() * 0x7d0 / 0x8000 + 0xbb8;
         float const RandomRadius = static_cast<float>(Random);
+        // Discovery MultiUniverse.dll (0x004915f2, after the rand()): the shown sector's systems
+        // at their sector positions, or the visited sectors in the galaxy view.
+        if (!NavMapMultiUniverse::KeepUniverseSystem(System))
+            continue;
 
         // 00491621..00491684: the [system] pos scaled to the map (1/15 * 200000 - 100000; z
         // is rounded to float after the first product and shifted by 5000).

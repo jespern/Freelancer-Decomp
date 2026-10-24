@@ -9,6 +9,7 @@
 // prompt, the known-bases list). See nn_navmap.h. Retail Client\Interface\NeuroNet\NavMap.cpp.
 
 #include "nn_navmap.h"
+#include "nn_navmap_multiuniverse.h" // the port: Discovery's MultiUniverse
 #include "hd_plugins.h"
 #include "best_path.h"               // G_BestPaths (DAT_00672950), BestPathGetFirst / HasText
 #include "character_select_equip.h"  // GetPlayerStarSystemIdRetail, GetPlayerVisitFlagsRetail
@@ -177,6 +178,9 @@ intptr_t NeuroNetNavMap::SetProperty(int Msg, uintptr_t A, uintptr_t B)
     // 0x0049370e..0x0049375e: the universe button starts a view switch unless one runs.
     if (A == reinterpret_cast<uintptr_t>(UniverseButton))
     {
+        // Discovery MultiUniverse.dll: on the universe view it switches sector <-> galaxy.
+        if (NavMapMultiUniverse::OnUniverseButton(this))
+            return 0;
         if (bTransition != 0)
             return 0;
         bViewSwitch = 1;
@@ -356,6 +360,10 @@ intptr_t NeuroNetNavMap::SetProperty(int Msg, uintptr_t A, uintptr_t B)
     }
     if (A == reinterpret_cast<uintptr_t>(ShipButton))
     {
+        // Discovery MultiUniverse.dll (0x00493d66): ignored in the galaxy; another sector's view
+        // switches to the player's sector first.
+        if (NavMapMultiUniverse::OnShipButton(this))
+            return 0;
         // 0x00493d6e..0x00493d8c: the player's system, not null-tested.
         PendingSystem = Universe::get_system(GetPlayerStarSystemIdRetail());
         return 0;
@@ -466,6 +474,7 @@ intptr_t NeuroNetNavMap::SetProperty(int Msg, uintptr_t A, uintptr_t B)
         if (Item->Kind == 0 && Item->System != nullptr)
         {
             PendingSystem = Item->System;
+            NavMapMultiUniverse::OnOpenSystem(Item->System); // Discovery MultiUniverse.dll (0x004940df)
             return 1;
         }
         if (Item->Kind == 3)
@@ -482,7 +491,10 @@ intptr_t NeuroNetNavMap::SetProperty(int Msg, uintptr_t A, uintptr_t B)
                         continue;
                     // 0x00494178: found -- 1 whether or not it has a system.
                     if (Target->System != nullptr)
+                    {
                         PendingSystem = Target->System;
+                        NavMapMultiUniverse::OnOpenSystem(Target->System);
+                    }
                     return 1;
                 }
             }
@@ -493,6 +505,7 @@ intptr_t NeuroNetNavMap::SetProperty(int Msg, uintptr_t A, uintptr_t B)
         if (Under == nullptr || Under->Kind != 0 || Under->System == nullptr)
             return 0;
         PendingSystem = Under->System;
+        NavMapMultiUniverse::OnOpenSystem(Under->System);
         return 1;
     }
     if (A == reinterpret_cast<uintptr_t>(InZoomButton) ||
@@ -505,6 +518,9 @@ intptr_t NeuroNetNavMap::SetProperty(int Msg, uintptr_t A, uintptr_t B)
             // 0x004944e4..0x00494553: into the clicked star's system.
             FNavMapItem* const Item = ItemAt(ClickMapPos, 0);
             if (Item == nullptr || (Item->Kind != 0 && Item->Kind != 1))
+                return 1;
+            // Discovery MultiUniverse.dll: in the galaxy, a sector star opens that sector.
+            if (NavMapMultiUniverse::OnZoomIntoStar(this, Item))
                 return 1;
             CurrentSystem = Item->System;
             bViewSwitch = 1;
@@ -597,6 +613,7 @@ intptr_t NeuroNetNavMap::SetProperty(int Msg, uintptr_t A, uintptr_t B)
         bViewSwitch = 0;
         bTransition = 0;
         EnterSystemView(); // FUN_0049e1d0
+        NavMapMultiUniverse::OnOpenSystem(CurrentSystem); // Discovery MultiUniverse.dll (0x0049435b)
 
         // 0x00494352..0x004943ab: the base in map-frame fractions of the new system (x kept in
         // the FPU, z * scale stored as a float first).

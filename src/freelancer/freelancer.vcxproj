@@ -209,6 +209,7 @@
     <ClInclude Include="Client\nn_mission_vendor.h" />
     <ClInclude Include="Client\nn_news.h" />
     <ClInclude Include="Client\nn_navmap.h" />
+    <ClInclude Include="Client\nn_navmap_multiuniverse.h" />
     <ClInclude Include="Client\mission_created_solars.h" />
     <ClInclude Include="Client\nn_scanner.h" />
     <ClInclude Include="Client\nn_text_scratch.h" />
@@ -510,6 +511,7 @@
     <ClCompile Include="Client\nn_navmap_update.cpp" />
     <ClCompile Include="Client\nn_navmap_build.cpp" />
     <ClCompile Include="Client\nn_navmap_view.cpp" />
+    <ClCompile Include="Client\nn_navmap_multiuniverse.cpp" />
     <ClCompile Include="Client\nn_navmap_draw.cpp" />
     <ClCompile Include="Client\nn_navmap_input.cpp" />
     <ClCompile Include="Client\mission_created_solars.cpp" />

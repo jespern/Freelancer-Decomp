@@ -8,6 +8,7 @@
 // view's jump links. See nn_navmap.h. Retail Client\Interface\NeuroNet\NavMap.cpp.
 
 #include "nn_navmap.h"
+#include "nn_navmap_multiuniverse.h" // the port: Discovery's MultiUniverse
 #include "best_path.h"               // BestPathGetWaypointCount / BestPathGetWaypoint / First
 #include "character_select_equip.h"  // GetPlayerStarSystemIdRetail, GetPlayerVisitFlagsRetail
 #include "hud_target.h"              // NavMapSectorName (FUN_0048dc10)
@@ -47,6 +48,9 @@ void NeuroNetNavMap::BuildJumpLinks()
     // 004975b4..004975c9: FUN_004a2f80 erases every node; the records are NOT freed (retail
     // leaks them here -- only the destructor frees what is left).
     JumpLinks.clear();
+    // Discovery MultiUniverse.dll: the galaxy view links sectors instead.
+    if (NavMapMultiUniverse::BuildGalaxyLinks(this))
+        return;
 
     for (std::list<FNavMapItem*>::iterator It = Items.begin(); It != Items.end(); ++It)
     {
@@ -62,8 +66,11 @@ void NeuroNetNavMap::BuildJumpLinks()
             Universe::FSystemConnection Connection;
             System->GetConnection(static_cast<unsigned>(Index), &Connection);
             unsigned char VisitFlags = 0;
-            GetPlayerVisitFlagsRetail(Connection.ObjectId, &VisitFlags, 0, 0); // FUN_004c4da0 0x0049764d
-            unsigned char const Flags = static_cast<unsigned char>(VisitFlags | Connection.Visit);
+            bool const bFound =
+                GetPlayerVisitFlagsRetail(Connection.ObjectId, &VisitFlags, 0, 0); // FUN_004c4da0 0x0049764d
+            // Discovery MultiUniverse.dll's hook of this call keeps "an entry exists".
+            unsigned char const Flags =
+                NavMapMultiUniverse::ConnectionVisitFlags(bFound, VisitFlags, Connection.Visit);
             if ((Flags & 1) == 0)
                 continue;
 
@@ -184,6 +191,7 @@ void NeuroNetNavMap::AddJumpLink(FNavMapItem* From, FNavMapItem* To)
     }
 
     // 00497869..0049789c: push_back.
+    NavMapMultiUniverse::MarkGalaxyLink(Link); // Discovery MultiUniverse.dll (0x0049786d)
     JumpLinks.push_back(Link);
 }
 
