@@ -390,6 +390,45 @@ namespace
         Out[Length] = '\0';
     }
 
+    // kill:@hostile's second opinion: not invulnerable, and the ship's own attitude to the player on the (in-process)
+    // server, which carries a mission's per-ship vibes (Act_SetVibe) -- the client's faction view
+    // calls Mission 4's LSF escort hostile while the mission has made it friendly. True when the
+    // server answer is unavailable.
+    bool ServerShipHostileToPlayer(unsigned ShipId)
+    {
+        using FShipRepFn = int (*)(unsigned int, int&);
+        using FPlayerRepFn = int (*)(unsigned int const&, int&);
+        using FAttitudeFn = int (*)(int const&, int const&, float&);
+        static FShipRepFn const ShipRep =
+            reinterpret_cast<FShipRepFn>(dlsym(RTLD_DEFAULT, "_ZN3pub8SpaceObj6GetRepEjRi"));
+        static FPlayerRepFn const PlayerRep =
+            reinterpret_cast<FPlayerRepFn>(dlsym(RTLD_DEFAULT, "_ZN3pub6Player6GetRepERKjRi"));
+        static FAttitudeFn const Attitude =
+            reinterpret_cast<FAttitudeFn>(dlsym(RTLD_DEFAULT, "_ZN3pub10Reputation11GetAttitudeERKiS2_Rf"));
+        // A ship a mission keeps alive (Act_Invulnerable: a story character, an escort that turns
+        // later) is never a kill:@hostile target -- Destroy would get past it.
+        using FInvincibleFn = int (*)(unsigned int, unsigned char&, unsigned char&, float&);
+        static FInvincibleFn const Invincible = reinterpret_cast<FInvincibleFn>(
+            dlsym(RTLD_DEFAULT, "_ZN3pub8SpaceObj13GetInvincibleEjRhS1_Rf"));
+        if (Invincible != nullptr)
+        {
+            unsigned char bOn = 0, bOther = 0;
+            float Floor = 0.0f;
+            if (Invincible(ShipId, bOn, bOther, Floor) == 0 && bOn != 0)
+                return false;
+        }
+        if (ShipRep == nullptr || PlayerRep == nullptr || Attitude == nullptr)
+            return true;
+        int Ship = 0, Player = 0;
+        unsigned const PlayerId = 1;   // single player
+        if (ShipRep(ShipId, Ship) != 0 || PlayerRep(PlayerId, Player) != 0)
+            return true;
+        float Value = 0.0f;
+        if (Attitude(Ship, Player, Value) != 0)
+            return true;
+        return Value <= -0.6f;
+    }
+
     // Port test aid: an input script's kill:TEXT step destroys (DESTROY_TYPE1, explode) every
     // listed object whose row label contains the text, through the in-process server's
     // pub::SpaceObj::Destroy, so mission Cnd_Destroyed conditions see ordinary kills.
@@ -427,7 +466,8 @@ namespace
             {
                 unsigned Type = 0;
                 Obj->get_type(Type);
-                if ((Type & 0x7f0000) != 0 && Player != nullptr && GetAttitudeClass(Player, Obj) == -1)
+                if ((Type & 0x7f0000) != 0 && Player != nullptr && GetAttitudeClass(Player, Obj) == -1 &&
+                    ServerShipHostileToPlayer(It->Id))
                     Ids.push_back(It->Id);
                 continue;
             }
