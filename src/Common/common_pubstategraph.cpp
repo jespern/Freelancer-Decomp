@@ -183,6 +183,14 @@ int __cdecl pub::StateGraph::get_state_graph(int GraphId, Type GraphType)
     if (GStateGraphCount <= 0)
         return -1;
 
+    // Port: the guard is back for ids outside the array (COMMON-STATEGRAPH-ID-RANGE in
+    // docs/re/deviations.md). pub::AI::get_state_graph_id answers -1 for a ship without a
+    // behavior (Content's ResetFormationState on a ship being destroyed), and
+    // GStateGraphs[-1].Name is then a wild pointer the stricmp reads through -- on 32-bit
+    // retail, bytes of the heap that happened to match no name, so -1; here a fault.
+    if (GraphId < 0 || GraphId >= GStateGraphCount)
+        return -1;
+
     char const* Name = GStateGraphs[GraphId].Name;
     int Index = 0;
     for (; Index < GStateGraphCount; ++Index)

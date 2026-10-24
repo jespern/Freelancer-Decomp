@@ -37,6 +37,17 @@ The port with the define (`src/include/port_display.h`):
 - `RenderMgrCreateBuffers` (`src/freelancer/Client/engine_init.cpp`) makes the full-screen surface the desktop's size — `GetWindowRect(GetDesktopWindow())`, which the port's runtime reports in pixels, so a high-density display renders at its native resolution — unless the options' size is smaller with the desktop's aspect ratio (within 1%), which stays as chosen. The window layout is retail's (a desktop-sized `WS_POPUP` window); the runtime turns that into a borderless window covering the display.
 - RP9 `CreateBuffers` (`src/RP9/RP9.cpp`) picks no adapter mode, creates the device `Windowed = TRUE` with the descriptor's size as the back buffer, and keeps the full-screen swap effect and present interval (so the vsync option holds); the mode blob's full-screen byte stays set, as the session is a full-screen one for the client (mouse clamping, `WM_ACTIVATEAPP`, print screen). The runtime's window layer scales the back buffer to the display on present when the two differ.
 - `g_display` and `PerfOptions.ini`'s `size=` take the surface actually made, so the options page shows the display's size as the current mode.
+## Common: LaunchAction holds a reference to its base object (COMMON-LAUNCHACTION-BASEREF, 2026-10-24)
+
+Status: OPEN — intentional port deviation. Owner: jespern; Common.dll / LaunchAction. Removal condition: none (memory safety).
+
+Retail's LaunchAction (FUN_062afda0) keeps the base object at +0x24 as a raw pointer. When a mission respawns the solar the player launches from (Mission 5: `Act_SpawnSolar = bw01_01_dock_ring_1` on the Sprague launch), the client reaps the old solar (`ClientObjDb_Reap` → `~FClientSolarGameobj` → `CObject::Release`) while the action is still running, and `LaunchAction::update` reads `BaseObj->Id` from freed memory — in retail a harmless stale read, in the port an AddressSanitizer heap-use-after-free (`tools/mission/campaign.sh` under `game-asan`). The port's constructor takes `CObject::AddRef` on the base object and the destructor releases it; nothing else changes, the object only outlives its removal from the database by the action's own lifetime.
+
+## Common: `pub::StateGraph::get_state_graph(int)` range-checks its id (COMMON-STATEGRAPH-ID-RANGE, 2026-10-24)
+
+Status: OPEN — intentional port deviation. Owner: jespern; Common.dll. Removal condition: none (memory safety).
+
+Retail (0x062df4c0) reads `GStateGraphs[GraphId].Name` for any id once the count is positive. Content's `ResetFormationState` (DockQueues.cpp) passes `pub::AI::get_state_graph_id(ship)`, which is -1 for a ship without a behavior — a formation member being destroyed (Mission 10, `kill:@hostile` in the campaign regression) — so retail compared every graph name against the bytes 0x72c before the array: no match, -1. On 64-bit the same read makes a wild `Name` pointer and the stricmp faults (AddressSanitizer heap-buffer-overflow). The port answers -1 for an id outside [0, count), retail's effective result. (This reinstates the guard CMN-S2 removed on 2026-10-14 as "cheap retail UB"; it is not cheap on this platform.)
 
 ## Client: widescreen resolutions, Hor+ cameras (WIDESCREEN, 2026-10-16)
 
