@@ -32,6 +32,12 @@ Status: OPEN — intentional port deviation. Owner: jespern; Common.dll / Launch
 
 Retail's LaunchAction (FUN_062afda0) keeps the base object at +0x24 as a raw pointer. When a mission respawns the solar the player launches from (Mission 5: `Act_SpawnSolar = bw01_01_dock_ring_1` on the Sprague launch), the client reaps the old solar (`ClientObjDb_Reap` → `~FClientSolarGameobj` → `CObject::Release`) while the action is still running, and `LaunchAction::update` reads `BaseObj->Id` from freed memory — in retail a harmless stale read, in the port an AddressSanitizer heap-use-after-free (`tools/mission/campaign.sh` under `game-asan`). The port's constructor takes `CObject::AddRef` on the base object and the destructor releases it; nothing else changes, the object only outlives its removal from the database by the action's own lifetime.
 
+## Common: `pub::StateGraph::get_state_graph(int)` range-checks its id (COMMON-STATEGRAPH-ID-RANGE, 2026-10-24)
+
+Status: OPEN — intentional port deviation. Owner: jespern; Common.dll. Removal condition: none (memory safety).
+
+Retail (0x062df4c0) reads `GStateGraphs[GraphId].Name` for any id once the count is positive. Content's `ResetFormationState` (DockQueues.cpp) passes `pub::AI::get_state_graph_id(ship)`, which is -1 for a ship without a behavior — a formation member being destroyed (Mission 10, `kill:@hostile` in the campaign regression) — so retail compared every graph name against the bytes 0x72c before the array: no match, -1. On 64-bit the same read makes a wild `Name` pointer and the stricmp faults (AddressSanitizer heap-buffer-overflow). The port answers -1 for an id outside [0, count), retail's effective result. (This reinstates the guard CMN-S2 removed on 2026-10-14 as "cheap retail UB"; it is not cheap on this platform.)
+
 ## Client: widescreen resolutions, Hor+ cameras (WIDESCREEN, 2026-10-16)
 
 Status: OPEN — intentional port-only feature at the owner's direct request. Owner: Giperion; freelancer.exe / Client. Removal condition: only an explicit instruction from Giperion. All code is under `FREELANCER_WIDESCREEN_SUPPORT`; a build with `/p:FreelancerWidescreenSupport=0` (the "Freelancer — diagnostics" sheet → "Widescreen resolutions" = Off) gives retail 4:3 behaviour. Do not close on a retail audit.
