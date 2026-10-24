@@ -5,6 +5,7 @@
     <FreelancerEnableTickProfile>0</FreelancerEnableTickProfile>
     <FreelancerBetaLabel>0</FreelancerBetaLabel>
     <FreelancerWidescreenSupport>1</FreelancerWidescreenSupport>
+    <FreelancerBorderlessFullscreen>1</FreelancerBorderlessFullscreen>
     <FreelancerRp9>0</FreelancerRp9>
     <FreelancerWalkMode>1</FreelancerWalkMode>
   </PropertyGroup>

@@ -1372,6 +1372,16 @@ void SetClientSoftwareCursor(int X, int Y)
     G_CursorY = Y;
 }
 
+// Port dev aid: a scripted cursor move (the macOS runtime's FLWIN_INPUT_SCRIPT) in a full-screen
+// session, which takes no WM_MOUSEMOVE snap: the position, and the move event MouseFrameUpdate
+// would queue for the motion (the HUD picks on it), so a click there lands as a real one does.
+void ScriptSetClientCursor(int X, int Y)
+{
+    G_CursorX = X;
+    G_CursorY = Y;
+    QueueMoveEvent();
+}
+
 unsigned GetClientDoubleClickTime()
 {
     // The object's +0x40, latched by the device creation.

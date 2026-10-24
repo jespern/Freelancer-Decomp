@@ -10,6 +10,7 @@
 #include "ship_view_control.h" // ShipViewRegisterEngClass (Discovery engclass.dll) // ShipTraderRegisterShipClasses (Discovery shipclass.dll)
 #include "hd_plugins.h"
 #include "widescreen.h"   // port-only (FREELANCER_WIDESCREEN_SUPPORT)
+#include "port_display.h"  // port-only (FREELANCER_BORDERLESS_FULLSCREEN)
 #include "win_factory.h"   // WinFactoryCreate (FUN_0059db20)
 #include "character_info.h"
 #include "client_ime_focus.h"
@@ -572,6 +573,23 @@ bool RenderMgrCreateBuffers(HWND Hwnd, const DisplaySettings* Mode, DisplaySetti
     bool bLaidOut = false;
     if (Local.fullscreen != 0)
     {
+#ifdef FREELANCER_BORDERLESS_FULLSCREEN
+        // Port-only (port_display.h): the surface of a borderless full screen is the desktop
+        // (the window below covers it), unless the chosen size is smaller with the desktop's
+        // aspect ratio, which the renderer then scales up on present. Any adapter mode the
+        // options named (mode_field00) is moot.
+        if (PortDisplay::BorderlessFullscreen())
+        {
+            RECT Desktop;
+            GetWindowRect(GetDesktopWindow(), &Desktop);
+            if (!PortDisplay::KeepsChosenSize(Local.width, Local.height, Desktop.right, Desktop.bottom))
+            {
+                Local.width = Desktop.right;
+                Local.height = Desktop.bottom;
+            }
+            Local.mode_field00 = -1;
+        }
+#endif
         ApplyGameWindowLayout(Hwnd, true, static_cast<unsigned>(Local.width),
                               static_cast<unsigned>(Local.height));
         bLaidOut = true;

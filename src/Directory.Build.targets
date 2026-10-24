@@ -32,6 +32,12 @@
       <PreprocessorDefinitions>FREELANCER_WIDESCREEN_SUPPORT;%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
   </ItemDefinitionGroup>
+  <!-- Port-only borderless full screen: the client (the surface size) and RP9 (the swap chain). -->
+  <ItemDefinitionGroup Condition="'$(FreelancerBorderlessFullscreen)'=='1' and ('$(MSBuildProjectName)'=='freelancer' or '$(MSBuildProjectName)'=='RP9')">
+    <ClCompile>
+      <PreprocessorDefinitions>FREELANCER_BORDERLESS_FULLSCREEN;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+  </ItemDefinitionGroup>
   <!-- Port-only Direct3D 9 extensions: the client's hooks (RP9.vcxproj itself turns into an empty
        Utility project when the property is off). -->
   <ItemDefinitionGroup Condition="'$(FreelancerRp9)'=='1' and '$(MSBuildProjectName)'=='freelancer'">

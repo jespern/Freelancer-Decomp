@@ -26,6 +26,18 @@ Retail has no subtitles: `FUN_00425080` goes from the batcher flush (`0x0042508f
 
 The port's `EndSceneHalf` calls `DrawClientSubtitles` (`src/freelancer/Client/client_subtitles.cpp`) after `MaterialBatcher->FlushAll(1)`, before the CLIENT-BETA-LABEL overlay. Once per frame it walks the playing-source list `DAT_00667c70` through the port-only `VisitPlayingClientSounds` (`menu_sound_arch.cpp`, a read-only copy of `FUN_00428000`'s walk). It keys each source by its archetype, a VoiceMsg by `<profile>:<message id>` or a SoundImpl by its wav path, looks the key up in `bin/subtitles.txt` (compiled from the community FLSubs pack by the macOS port's `tools/subtitles.py`), and draws the captions with Font::String in the `fonts.ini` faces. It changes no sound state; `GetStartTick` (which latches flag 8) is not called, and timed captions use the overlay's own clock. `main.cpp` releases its strings (`ShutdownClientSubtitles`) before `FontShutdown`, next to `ShutdownClientTickProfile`. `FLWIN_SUBTITLES=0` turns it off.
 
+## Client, RP9: borderless full screen (BORDERLESS-FULLSCREEN, 2026-10-24)
+
+Status: OPEN — intentional port-only feature for the macOS port. Owner: jespern; freelancer.exe / Client and RP9.dll. Removal condition: none planned. All code is under `FREELANCER_BORDERLESS_FULLSCREEN` (`FreelancerBorderlessFullscreen`, 1 by default); a build without it, or a run with `FLWIN_EXCLUSIVE_FULLSCREEN=1`, gives retail's exclusive mode.
+
+Retail's full screen is an exclusive display mode: `FUN_004249c0` (RenderMgr create_buffers) lays the window out as `WS_POPUP` over the desktop (`FUN_00424870`) and RP8 `FUN_06d08811` picks an adapter mode of the options' size (`select_mode`), creates the device `Windowed = FALSE` and switches the display to it.
+
+The port with the define (`src/include/port_display.h`):
+
+- `RenderMgrCreateBuffers` (`src/freelancer/Client/engine_init.cpp`) makes the full-screen surface the desktop's size — `GetWindowRect(GetDesktopWindow())`, which the port's runtime reports in pixels, so a high-density display renders at its native resolution — unless the options' size is smaller with the desktop's aspect ratio (within 1%), which stays as chosen. The window layout is retail's (a desktop-sized `WS_POPUP` window); the runtime turns that into a borderless window covering the display.
+- RP9 `CreateBuffers` (`src/RP9/RP9.cpp`) picks no adapter mode, creates the device `Windowed = TRUE` with the descriptor's size as the back buffer, and keeps the full-screen swap effect and present interval (so the vsync option holds); the mode blob's full-screen byte stays set, as the session is a full-screen one for the client (mouse clamping, `WM_ACTIVATEAPP`, print screen). The runtime's window layer scales the back buffer to the display on present when the two differ.
+- `g_display` and `PerfOptions.ini`'s `size=` take the surface actually made, so the options page shows the display's size as the current mode.
+
 ## Client: widescreen resolutions, Hor+ cameras (WIDESCREEN, 2026-10-16)
 
 Status: OPEN — intentional port-only feature at the owner's direct request. Owner: Giperion; freelancer.exe / Client. Removal condition: only an explicit instruction from Giperion. All code is under `FREELANCER_WIDESCREEN_SUPPORT`; a build with `/p:FreelancerWidescreenSupport=0` (the "Freelancer — diagnostics" sheet → "Widescreen resolutions" = Off) gives retail 4:3 behaviour. Do not close on a retail audit.

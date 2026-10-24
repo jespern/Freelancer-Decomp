@@ -17,6 +17,7 @@
 #include "x86math.h"
 #include "msvcrt_compat.h"
 #include "hd_plugins.h"
+#include "port_display.h"
 
 #include <cmath>
 #include <cstdarg>
@@ -3415,11 +3416,16 @@ GENRESULT DACOM_API FDirectX9::CreateBuffers(HWND Hwnd, int* Mode, int* OutMode)
         FdumpHr("create_buffers_select_mode: %s", Hr, 2018);
         return (GENRESULT)(Hr);
     }
+    // Port-only (port_display.h): a borderless full screen is a windowed swap chain of the
+    // descriptor's size over a window the runtime has laid over the desktop -- no adapter mode is
+    // picked and the device is created Windowed; the swap effect and the present interval stay
+    // the full-screen ones, so the vsync option means what it says.
+    const bool bBorderless = Desc->Fullscreen != 0 && PortDisplay::BorderlessFullscreen();
     // 06d089a4: full screen (mode byte +0x25) picks an adapter mode: mode[0] < 0 -> a copy of
     // the descriptor (bits -1 -> the display format's bits) through this->vtbl[0x2c]
     // (select_mode), then EnumAdapterModes (+0x1c) of the found index, whose format becomes
     // the back buffer's; mode[0] >= 0 -> EnumAdapterModes of that index only.
-    if (Desc->Fullscreen != 0)
+    if (Desc->Fullscreen != 0 && !bBorderless)
     {
         ModeIndex = Desc->Field00;
         if (ModeIndex < 0)
@@ -3509,7 +3515,7 @@ GENRESULT DACOM_API FDirectX9::CreateBuffers(HWND Hwnd, int* Mode, int* OutMode)
     }
     else
     {
-        Windowed = FALSE;
+        Windowed = bBorderless ? TRUE : FALSE;
         if (Desc->SwapExtra != 0 && BltNotFlip == 0)
         {
             BackBufferCount = (UINT)(Desc->BufferCount - 1);
@@ -3563,10 +3569,11 @@ GENRESULT DACOM_API FDirectX9::CreateBuffers(HWND Hwnd, int* Mode, int* OutMode)
     //    vertical blank and FullScreen_PresentationInterval must be DEFAULT); D3D9's windowed
     //    DEFAULT interval waits, so IMMEDIATE keeps D3D8's behaviour.
     //  - Full screen: FullScreen_PresentationInterval is D3D9's PresentationInterval, same bits.
+    //    A borderless full screen keeps them too (D3D9 accepts them for a windowed swap chain).
     //  - MultiSampleQuality (D3D9 only) = 0 with D3DMULTISAMPLE_NONE.
     D3DSWAPEFFECT SwapEffect9 = (D3DSWAPEFFECT)(SwapEffect);
     UINT PresentInterval9 = PresentInterval;
-    if (Windowed != FALSE)
+    if (Windowed != FALSE && !bBorderless)
     {
         if (SwapEffect == kD3d8SwapEffectCopyVsync)
         {
@@ -3691,7 +3698,9 @@ GENRESULT DACOM_API FDirectX9::CreateBuffers(HWND Hwnd, int* Mode, int* OutMode)
     // RP8 tests bit 1 of its D3D8 swap effect (FLIP 2 / COPY 3 set it, COPY_VSYNC 4 does not);
     // the D3D8 value is the one tested here too.
     ModeFlags[0] = (SwapEffect & 2) != 0 ? 1 : 0;
-    ModeFlags[1] = Present.Windowed == 0 ? 1 : 0;
+    // RP8: Present.Windowed == 0, which is the descriptor's full-screen byte; said so here, as a
+    // borderless full screen (bBorderless) presents windowed and is a full-screen session still.
+    ModeFlags[1] = Desc->Fullscreen != 0 ? 1 : 0;
     // D3D9 only: the depth width the D3DRS_ZBIAS conversion scales by; set before the default
     // render states (ZBIAS among them) are applied below.
     RenderStates_.DepthBiasZBits = ModeBlob_[5];

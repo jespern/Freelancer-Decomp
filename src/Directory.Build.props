@@ -6,6 +6,9 @@
     <FreelancerBetaLabel Condition="'$(FreelancerBetaLabel)'==''">0</FreelancerBetaLabel>
     <!-- Port-only widescreen (Hor+) support, FREELANCER_WIDESCREEN_SUPPORT; 0 builds retail's 4:3-only client. -->
     <FreelancerWidescreenSupport Condition="'$(FreelancerWidescreenSupport)'==''">1</FreelancerWidescreenSupport>
+    <!-- Port-only borderless full screen (a desktop-sized window, no mode switch), FREELANCER_BORDERLESS_FULLSCREEN;
+         0 builds retail's exclusive mode. -->
+    <FreelancerBorderlessFullscreen Condition="'$(FreelancerBorderlessFullscreen)'==''">1</FreelancerBorderlessFullscreen>
     <!-- Port-only Direct3D 9 rendering (RP9.dll + the client's Ex hooks: volumetric nebula),
          FREELANCER_RP9; 0 builds neither RP9.dll nor the client hooks (docs/re/rp9.md). -->
     <FreelancerRp9 Condition="'$(FreelancerRp9)'==''">0</FreelancerRp9>
