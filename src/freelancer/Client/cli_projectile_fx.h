@@ -166,21 +166,18 @@ FCliLauncherFx* CliCmEquipFxConstruct(CEquip* Equip, void* Host);
 // FUN_0052d880 — Gun arm (TurretVoice Source3D via CreateClientSoundSource3D).
 FCliLauncherFx* CliGunEquipFxConstruct(CEquip* Equip, void* Host);
 
-// Gun archetype Companion (ICliObj) — muzzle fields used by FUN_0052cfd0.
-// Retail Gun::ReadUnknown: flash_particle_name@+0x54, flash_radius@+0x58,
-// light_anim name@+0x60 (char buf) with length@+0x5c (0 = no anim).
+// Gun / launcher archetype Companion (ICliObj, CliEQLauncher) — the muzzle fields FUN_0052cfd0
+// reads. Retail Launcher::ReadUnknown: flash_particle_name @+0x54, flash_radius @+0x58,
+// light_anim name @+0x60 (char buf) with its length @+0x5c (0 = no anim). The companion is a C++
+// object whose native layout differs from retail's on 64-bit builds, so this is a view of those
+// fields taken through Archetype::CliCompanionAt, not an overlay of the object.
 struct FCliGunFxCompanion
 {
-    unsigned char Pad00[0x54];
-    ID_String OneShotEffect; // +0x54  flash_particle_name
-    float FlashRadius;       // +0x58  FUN_00537af0 Range
-    unsigned LightAnimLen;   // +0x5c  0 → skip player-light arm
-    char LightAnimName[32];  // +0x60  FUN_00538e80 (NOT ID_String)
+    ID_String OneShotEffect;   // +0x54  flash_particle_name
+    float FlashRadius;         // +0x58  FUN_00537af0 Range
+    unsigned LightAnimLen;     // +0x5c  0 → skip player-light arm
+    char const* LightAnimName; // +0x60  FUN_00538e80 (NOT ID_String)
 };
-static_assert(offsetof(FCliGunFxCompanion, OneShotEffect) == 0x54, "gun fx @ +0x54");
-static_assert(offsetof(FCliGunFxCompanion, FlashRadius) == 0x58, "flash radius @ +0x58");
-static_assert(offsetof(FCliGunFxCompanion, LightAnimLen) == 0x5c, "anim len @ +0x5c");
-static_assert(offsetof(FCliGunFxCompanion, LightAnimName) == 0x60, "anim name @ +0x60");
 
 class FClientEquippedObj; // client_gameobj.h
 

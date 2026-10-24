@@ -944,14 +944,21 @@ namespace
         return Nested;
     }
 
-    FCliGunFxCompanion* GunCompanionFx(CELauncher* Launch)
+    // The muzzle fields of the launcher's companion, through CliCompanionAt (retail reads
+    // them at fixed offsets of the companion; this port's companion is laid out natively). No
+    // launcher, archetype or companion gives empty fields.
+    FCliGunFxCompanion GunCompanionFx(CELauncher* Launch)
     {
-        if (Launch == nullptr || Launch->Arch == nullptr)
-            return nullptr;
-        Archetype::Root* Root = Launch->Arch;
-        if (Root->Companion == nullptr)
-            return nullptr;
-        return reinterpret_cast<FCliGunFxCompanion*>(Root->Companion);
+        FCliGunFxCompanion Fields{};
+        Fields.LightAnimName = "";
+        if (Launch == nullptr || Launch->Arch == nullptr || Launch->Arch->Companion == nullptr)
+            return Fields;
+        void const* const Companion = Launch->Arch->Companion;
+        Fields.OneShotEffect = *reinterpret_cast<ID_String const*>(Archetype::CliCompanionAt(Companion, 0x54));
+        Fields.FlashRadius = *reinterpret_cast<float const*>(Archetype::CliCompanionAt(Companion, 0x58));
+        Fields.LightAnimLen = *reinterpret_cast<unsigned const*>(Archetype::CliCompanionAt(Companion, 0x5c));
+        Fields.LightAnimName = reinterpret_cast<char const*>(Archetype::CliCompanionAt(Companion, 0x60));
+        return Fields;
     }
 
     unsigned HostObjectId(FClientEquippedObj* Host)
@@ -1090,7 +1097,7 @@ std::unordered_map<FCliLauncherFx const*, std::vector<void*>> G_ExtraMuzzleEffec
 
 // 0x0052d1b4..0x0052d26a for one barrel (retail: barrel 0 into +0x28).
 void PlayMuzzleFxOnBarrel(FCliLauncherFx* Launcher, CELauncher* Launch,
-                          FCliGunFxCompanion* Companion, void*& Slot, unsigned BarrelIndex)
+                          FCliGunFxCompanion const* Companion, void*& Slot, unsigned BarrelIndex)
 {
     // 0x0052d1b4..0x0052d1d0: the previous muzzle effect -- FUN_004f8110, its vt+4, and
     // FUN_004f7a90 -- then cleared.
@@ -1141,7 +1148,8 @@ void CliLauncherPlayMuzzleFx(FCliLauncherFx* Launcher)
 
     // 0x0052cfd7..0x0052cfe9: EBP = the gun companion, [[+4]+0xc]+4, zero when the launcher or
     // its archetype is null.
-    FCliGunFxCompanion* const Companion = GunCompanionFx(Launch);
+    FCliGunFxCompanion const CompanionFields = GunCompanionFx(Launch);
+    FCliGunFxCompanion const* const Companion = &CompanionFields;
 
     // 0x0052cfec..0x0052d00b: CELauncher::GetBarrelPosWS(0) is taken before the launcher is
     // tested; a null launcher or a destroyed one (vt+8) ends the call.
