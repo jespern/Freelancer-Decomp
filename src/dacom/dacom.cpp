@@ -51,7 +51,7 @@ namespace
         // (common_expanded_hardpoints.h).
         "expanded_hardpoints.dll",
         // Discovery's own plugins (common_discovery_plugins.h).
-        "multiCruise.dll", "EquipMass.dll", "MuzzleCone.dll", "ShieldOffline.dll", "chklootvol.dll", "NoNavMap.dll", "scroller.dll", "shipclass.dll", "shipfilter.dll",
+        "multiCruise.dll", "EquipMass.dll", "MuzzleCone.dll", "ShieldOffline.dll", "chklootvol.dll", "NoNavMap.dll", "scroller.dll", "shipclass.dll", "shipfilter.dll", "moors.dll", "healing.dll",
     };
     std::map<std::string, std::string> GHdPlugins; // lower-case name -> options
 

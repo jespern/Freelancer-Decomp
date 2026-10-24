@@ -10,6 +10,7 @@
 // CMN-SPLIT stage 1 (2026-10-14): split out of common_iface.cpp unchanged.
 
 #include "common_iface.h"
+#include "hd_plugins.h" // the port: Discovery's moors
 #include "common_behavior.h"
 #include "common_aisteer.h"
 #include "common_cobjdb.h"
@@ -1248,6 +1249,10 @@ bool IObjInspectImpl::has_dock_hardpoints() const
     {
         unsigned const Type = It->Type;
         if (Type == 1 || Type == 6 || Type == 7)
+            return true;
+        // Discovery moors.dll (062c08aa): the moor spheres (3..5) count as well.
+        static bool const bMoors = HdPlugins::Enabled("moors.dll");
+        if (bMoors && Type >= 3 && Type <= 5)
             return true;
     }
     return false;

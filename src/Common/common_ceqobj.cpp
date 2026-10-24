@@ -6,6 +6,7 @@
 
 // CEqObj (retail CEqObj.cpp) and CEqObj::DockAnimInfo.
 #include "common_cobject.h"
+#include "hd_plugins.h" // the port: Discovery's moors
 #include "x86math.h"
 
 #include "common_cobjdb.h"
@@ -980,6 +981,18 @@ bool CEqObj::launch_pos(Vector& OutPos, Matrix& OutOrient, int HardpointIndex) c
         // 062aa9bc-062aa9de: HardpointPosition(instance, sphere+0x04 name, &OutPos, &OutOrient).
         char const* HpName = Arch->DockingSpheres[(unsigned)HardpointIndex].HardpointName.c_str();
         HardpointPosition(this->EngineInstanceId, HpName, &OutPos, &OutOrient);
+        // Discovery moors.dll (its hook of this call, 062aa9de): a moor_medium / moor_large
+        // point launches the ship turned round (the sign of matrix elements 0..2 and 6..8).
+        static bool const bMoors = HdPlugins::Enabled("moors.dll");
+        unsigned const SphereType = Arch->DockingSpheres[(unsigned)HardpointIndex].Type;
+        if (bMoors && (SphereType == 4 || SphereType == 5))
+        {
+            for (int Column = 0; Column < 3; ++Column)
+            {
+                OutOrient.E[0][Column] = -OutOrient.E[0][Column];
+                OutOrient.E[2][Column] = -OutOrient.E[2][Column];
+            }
+        }
 
         // 062aa9e3-062aaa3b: Col1 = column 1 of the hardpoint orientation (float copies);
         // W = (float)cos(A), A = DAT_0639e2d8 (double, float pi/2); the scale

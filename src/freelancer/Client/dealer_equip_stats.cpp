@@ -24,6 +24,8 @@
 #include <cstdio>
 #include <cstring>
 
+#include <cmath>
+
 namespace
 {
     // The line and unit-suffix scratch are retail's shared DAT_0066fc60 / DAT_0066dc60
@@ -224,6 +226,12 @@ namespace
 
     float EnergyFromHullAndEnergy(float Hull, float Energy)
     {
+        // Discovery healing.dll (0x0048423e / 0x0048464b / 0x00484b85): the hull share counts
+        // by its size (healing weapons have negative hull damage), and the line rounds to the
+        // nearest whole number (FISTP) where retail truncates.
+        static bool const bHealing = HdPlugins::Enabled("healing.dll");
+        if (bHealing)
+            return std::nearbyint(std::fabs(Hull * ShieldEquipConsts::HULL_DAMAGE_FACTOR) + Energy);
         return Hull * ShieldEquipConsts::HULL_DAMAGE_FACTOR + Energy;
     }
 

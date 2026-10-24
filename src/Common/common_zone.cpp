@@ -23,6 +23,7 @@
 
 #include <cmath>
 #include "common_zone.h"
+#include "hd_plugins.h" // the port: Discovery's healing
 #include "common_archetype.h" // CacheString
 
 #include "common_csys.h"  // Acquire3DMathEngine (FUN_06391cf0)
@@ -1938,7 +1939,10 @@ bool ZONE::HasPhysicalEffect() const
 {
     if (PhysicalEffect < 0)
     {
-        if (DragModifier < 1.0f || Interference > 0.0f || Damage > 0.0f)
+        // Discovery healing.dll (0633ad44): a healing (negative damage) zone has an effect too.
+        static bool const bHealing = HdPlugins::Enabled("healing.dll");
+        if (DragModifier < 1.0f || Interference > 0.0f || Damage > 0.0f ||
+            (bHealing && Damage != 0.0f))
             PhysicalEffect = 1;
         else
         {
