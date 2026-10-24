@@ -233,16 +233,20 @@ int MoveIdea::Update(float DeltaTime)
 
     // ---- LAB_062d50df: the steering body. `PUSH EBX` here is what shifts every
     // ---- later stack displacement by four. ----
-    // 062d50df-062d50e6: EDI = [Context+0xc] + 0x214, never tested.
-    unsigned char* const SlotBlock = SlotArrayOf(Context) + PathfindSlot(0x214);
+    // 062d50df-062d50e6: EDI = [Context+0xc] + 0x214, never tested -- the PathfindManager's
+    // avoidance record. Retail reads it at +0x00 (Field_214), +0x18 (Field_22C), +0x28
+    // (Field_23C) and +0x2c (Field_240). Port: by name -- on LP64 the watcher at +0x218 is
+    // wider, so the retail offsets past it land 8 bytes early (+0x28 read the avoidance
+    // point's z, a throttle of -1: full reverse whenever an avoidance point was set).
+    PathfindManager const& Record = *static_cast<IBehaviorManager*>(Context)->Pathfind;
 
-    // 062d5104-062d510b: bit 1 of the dword at SlotBlock+0x00, kept in BL.
-    bool const bSlotOverride = ((*reinterpret_cast<unsigned int const*>(SlotBlock) >> 1) & 1u) != 0;
+    // 062d5104-062d510b: bit 1 of the dword at +0x00, kept in BL.
+    bool const bSlotOverride = ((static_cast<unsigned int>(Record.Field_214) >> 1) & 1u) != 0;
 
     Vector Goal{ 0.0f, 0.0f, 0.0f };   // 062d50ec-062d50fc, zeroed first
     if (bSlotOverride)
     {
-        Goal = *reinterpret_cast<Vector const*>(SlotBlock + 0x18); // 062d510d-062d5120
+        Goal = Record.Field_22C; // 062d510d-062d5120
     }
     else if (TargetKind48 == 1)
     {
@@ -324,11 +328,11 @@ int MoveIdea::Update(float DeltaTime)
     int ModeEff = Mode;
     if (bSlotOverride)
     {
-        if (*reinterpret_cast<int const*>(SlotBlock + 0x2c) == 1)
+        if (Record.Field_240 == 1)
         {
             ModeEff = 0;
         }
-        else if (*reinterpret_cast<float const*>(SlotBlock + 0x28) < 1.0f)
+        else if (Record.Field_23C < 1.0f)
         {
             // DAT_0639a1d0 == 1.0f. `TEST AH,5; JP` skips on >=, so the
             // ModeEff = 0 fall-through is strictly less-than.
@@ -476,9 +480,9 @@ int MoveIdea::Update(float DeltaTime)
     // and one other candidate; which candidate depends on the slot block's own
     // first dword, tested here as a whole dword (not the bit-1 test used above).
     float Speed2 = Throttle;
-    if (*reinterpret_cast<int const*>(SlotBlock) != 0)
+    if (Record.Field_214 != 0)
     {
-        float const SlotValue = *reinterpret_cast<float const*>(SlotBlock + 0x28);
+        float const SlotValue = Record.Field_23C;
         if (SlotValue < Speed2)
         {
             Speed2 = SlotValue;   // 062d5625

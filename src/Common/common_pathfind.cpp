@@ -12,6 +12,7 @@
 // Split out of common_aisteer.cpp and common_stubs.cpp (CMN-SPLIT stage 1, 2026-10-14);
 // the bodies are unchanged.
 
+#include <ctime>
 #include "common_pathfind.h"
 #include "common_geometry_internal.h" // ClampPointToBoxSurface, MathTransposeTransformVia3DMathEngine
 #include "common_aisteer.h"
@@ -376,6 +377,37 @@ void PathfindManager::Update(float Dt)
 
     // 062dd9c7-062dd9f2: is_player (+0xbc) on the owner object, result dropped; no null test.
     (void)PathfindOwnerObject(Owner)->is_player();
+
+    // Port dev aid: FLWIN_AVOID_TRACE logs the player's avoidance state once a second.
+    static bool const bAvoidTrace = getenv("FLWIN_AVOID_TRACE") != nullptr;
+    if (bAvoidTrace && PathfindOwnerObject(Owner)->is_player())
+    {
+        static time_t Last = 0;
+        time_t const Now = time(nullptr);
+        if (Now != Last)
+        {
+            Last = Now;
+            Vector const& P = PathfindOwnerObject(Owner)->get_position();
+            IObjRW* const Self = PathfindOwnerObject(Owner);
+            float Thr = -1.0f;
+            Self->get_throttle(Thr);
+            bool bCr = false;
+            Self->is_cruise_active(bCr);
+            Vector const V = Self->get_velocity();
+            Transform const& X = Self->get_transform();
+            fprintf(stderr, "[avoid] thr %.2f cruise %d vel (%.0f %.0f %.0f) fwd (%.2f %.2f %.2f) pt22c (%.0f %.0f %.0f) scale %.2f\n",
+                    Thr, bCr ? 1 : 0, V.x, V.y, V.z, -X.Rotation.E[0][2], -X.Rotation.E[1][2],
+                    -X.Rotation.E[2][2], Field_22C.x, Field_22C.y, Field_22C.z, Field_23C);
+            fprintf(stderr,
+                    "[avoid] pos (%.0f %.0f %.0f) rec %d kind %d nudge (%.2f %.2f %.2f) obst %d "
+                    "contact %d/%d obj %u dir (%.2f %.2f %.2f) pt (%.0f %.0f %.0f) beh %d\n",
+                    P.x, P.y, P.z, Field_214, Field_240, Field_220.x, Field_220.y, Field_220.z,
+                    Field_258, Avoidance.HasContact, Avoidance.Active, Avoidance.ContactObjectId,
+                    Avoidance.AvoidDirection.x, Avoidance.AvoidDirection.y, Avoidance.AvoidDirection.z,
+                    Avoidance.AvoidPoint.x, Avoidance.AvoidPoint.y, Avoidance.AvoidPoint.z,
+                    BehaviorIndex);
+        }
+    }
 }
 
 void PathfindManager::RefreshAvoidance()
