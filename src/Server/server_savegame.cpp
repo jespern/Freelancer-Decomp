@@ -184,6 +184,13 @@ FmtStr ReadMissionLogEntry(INI_Reader& Reader, unsigned int& Index) {
             // .text:06d4cb7b). The Val below owns it (FmtStr::Val::~Val deletes a
             // tag-0x21 subtree).
             DataPointer = new FmtStr(ReadMissionLogEntry(Reader, Index));
+        } else if (static_cast<short>(Tag) == 0x4E) {
+            // Port: a nav-marker entry (tag 0x4E) owns a 0x14-byte block that the writer
+            // records as its address (Server_FormatMissionLogEntry), which means nothing once
+            // read back -- retail reads that stale pointer when the log is copied; on a 64-bit
+            // build it is a truncated address and the copy faults (the autosave on leaving a
+            // base with a job in the log). The entry gets an empty block of its own instead.
+            DataPointer = new FmtStr::NavMarker();
         }
         FmtStr::Val* Node = new FmtStr::Val(static_cast<unsigned short>(Tag), DataPointer, Flags);
         Local.append(Node);

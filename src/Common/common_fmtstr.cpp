@@ -64,9 +64,18 @@ int __cdecl PackMissionLogData(int Type, FmtStr const* Fmt, unsigned char* Buffe
 FmtStr::Val::Val(unsigned short InType, void* InData, unsigned char InFlags)
 {
     // RVA 0xAD570. The exported signature takes the payload as void*; retail stores the dword
-    // as-is into +0x04, whatever the tag.
+    // as-is into +0x04, whatever the tag. On a 64-bit build the slot is pointer-sized: the
+    // owned payloads of tags 0x21 (Subtree) and 0x4E (Marker) keep the whole pointer --
+    // narrowed to 32 bits they were garbage, and the first copy of the string faulted (a
+    // mission log entry read back by the autosave on leaving a base with a job taken).
     Next = nullptr;
-    Value = (unsigned int)(std::uintptr_t)InData;
+    Subtree = nullptr;
+    if (InType == 0x21)
+        Subtree = static_cast<FmtStr*>(InData);
+    else if (InType == 0x4E)
+        Marker = static_cast<NavMarker*>(InData);
+    else
+        Value = (unsigned int)(std::uintptr_t)InData;
     TypeTag = InType;
     Flags = InFlags;
 }

@@ -1089,8 +1089,11 @@ static void Server_FormatMissionLogEntry(char* Out, FmtStr const& Entry) {
     FmtStr::Val const* Node = Entry.Head;
     for (int Remaining = Count; Remaining > 0; --Remaining) {
         // .text:06d4cc60 .. .text:06d4cc82 -- appended at strlen(Out).
+        // Port: a nav marker's payload (tag 0x4E) is a heap address, meaningless in a file
+        // and 64 bits wide here; 0 is written instead (the reader gives the entry a block of
+        // its own).
         sprintf(Out + strlen(Out), ", %u, %u, %u",
-                Node->Value,   // the raw payload dword, whatever the tag
+                Node->TypeTag == 0x4E ? 0u : Node->Value,   // the raw payload dword, whatever the tag
                 (unsigned int)Node->TypeTag,
                 (unsigned int)Node->Flags);
 
