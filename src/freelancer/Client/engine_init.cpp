@@ -6,6 +6,7 @@
 
 #include "globals.h"
 #include "hd_client.h"
+#include "nn_ship_trader.h" // ShipTraderRegisterShipClasses (Discovery shipclass.dll)
 #include "hd_plugins.h"
 #include "widescreen.h"   // port-only (FREELANCER_WIDESCREEN_SUPPORT)
 #include "win_factory.h"   // WinFactoryCreate (FUN_0059db20)
@@ -930,6 +931,7 @@ bool InitializeEngine(const FClientCommandLine* CommandLine)
     // keys, its [Resources] DLLs and audio\SoundCFG.ini; the result is not read.
     LoadClientIniData(g_display.ini_path.c_str());
     HdZoneRegisterResources(); // HD: Zone.dll's strings after [Resources] (0x005b1cb3)
+    ShipTraderRegisterShipClasses(); // Discovery shipclass.dll (0x005b1caa)
     if (!PumpInitMessages())
         return false;
 

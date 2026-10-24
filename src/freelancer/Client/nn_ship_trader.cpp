@@ -54,7 +54,10 @@ namespace
 
     // DAT_00611f78 -- the class captions of Archetype::Ship::ShipClass 0..3 (read only by this
     // window: 0x004b79ca, 0x004b808d, 0x004b8be7, 0x004b8fd2, 0x004b95b1).
-    int G_ShipTraderClassIds[4] = {0x39b, 0x39c, 0x39d, 0x39e};
+    // Discovery's shipclass.dll grows this to 20 captions (classes 4..19 from its own string
+    // table, registered by ShipTraderRegisterShipClasses) and the two range tests below with it.
+    int G_ShipTraderClassIds[20] = {0x39b, 0x39c, 0x39d, 0x39e};
+    int G_ShipTraderClassCount = 4;
 
     uintptr_t PointerArg(void const* Pointer)
     {
@@ -175,7 +178,7 @@ bool NnShipTrader::Create(Win3D* NewParent, void* Data)
             GoodInfo const* const Hull = GoodList::find_by_id(Package->HullGoodId); // +0x90
             Archetype::Ship const* const Ship = Archetype::GetShip(Hull->ShipArchId); // +0x54
             RowShipClasses[Row] = Ship->ShipClass; // +0xf8
-            if (RowShipClasses[Row] < 0 || RowShipClasses[Row] >= 4)
+            if (RowShipClasses[Row] < 0 || RowShipClasses[Row] >= G_ShipTraderClassCount)
                 RowShipClasses[Row] = 0;
 
             // 004b768e..004b76b5: the ship's name and the hull's market price.
@@ -401,7 +404,7 @@ bool NnShipTrader::Create(Win3D* NewParent, void* Data)
 
             // 004b806c..004b80d2: the class (not kept).
             CurrentShipClass = Ship->ShipClass; // +0xf8
-            if (CurrentShipClass < 0 || CurrentShipClass >= 4)
+            if (CurrentShipClass < 0 || CurrentShipClass >= G_ShipTraderClassCount)
                 CurrentShipClass = 0;
             {
                 float const Position[3] = {0.135f, -0.198f, 0.0f};
@@ -953,4 +956,19 @@ void NnShipTrader::SelectRow(int Row)
         BuyText->SetProperty(1, 1, 0);
         ErrorHelp->SetProperty(1, 1, 0);
     }
+}
+
+// HD-style built-in of Discovery's shipclass.dll (its hook after LoadClientIniData, 0x005b1caa):
+// the DLL's 16 strings (ids 0..15) become the captions of ship classes 4..19.
+void ShipTraderRegisterShipClasses()
+{
+    if (!HdPlugins::Enabled("shipclass.dll"))
+        return;
+    HMODULE const Strings = LoadLibraryExA("shipclass.dll", nullptr, LOAD_LIBRARY_AS_DATAFILE);
+    if (Strings == nullptr)
+        return;
+    unsigned const Base = RegisterIdsResourceModule(Strings);
+    for (int Class = 4; Class < 20; ++Class)
+        G_ShipTraderClassIds[Class] = static_cast<int>(Base | static_cast<unsigned>(Class - 4));
+    G_ShipTraderClassCount = 20;
 }

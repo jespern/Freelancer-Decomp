@@ -133,3 +133,6 @@ static_assert(offsetof(NnShipTrader, bDragStart) == 0x3e4, "NN_ShipTrader +0x3e4
 static_assert(offsetof(NnShipTrader, BaseFeeling) == 0x3f8, "NN_ShipTrader +0x3f8");
 static_assert(offsetof(NnShipTrader, RankLevel) == 0x420, "NN_ShipTrader +0x420");
 static_assert(offsetof(NnShipTrader, RowClassTexts) == 0x43c, "NN_ShipTrader +0x43c");
+
+// Not retail: Discovery shipclass.dll's captions for ship classes 4..19 (nn_ship_trader.cpp).
+void ShipTraderRegisterShipClasses();

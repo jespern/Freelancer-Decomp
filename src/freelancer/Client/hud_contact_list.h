@@ -155,3 +155,6 @@ private:
     HUD_ContactList(HUD_ContactList const&) = delete;
     HUD_ContactList& operator=(HUD_ContactList const&) = delete;
 };
+
+// Not retail: Discovery shipfilter.dll's hook of StartServer's SetMultiPlayer (hud_contact_list.cpp).
+void HudContactListShipFilterOnMultiPlayer(bool bMultiPlayer);

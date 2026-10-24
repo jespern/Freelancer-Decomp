@@ -5,6 +5,7 @@
 // Author: Giperion.
 
 #include "hud_contact_list.h"
+#include "common_ini.h" // INI_Reader (shipfilter)
 #include "star_sys.h" // GetAttitudeClass (kill:@hostile)
 #include "hd_plugins.h"
 
@@ -65,6 +66,61 @@
 #include <wchar.h>
 
 unsigned char G_bHudContactListRefreshRequested = 0;
+
+// HD-style built-in of Discovery's shipfilter.dll: a sub-filter of the contact list's Ships
+// button in multiplayer. NPC is retail; player hides NPC ships everywhere and lists other players
+// under Ships; all lists both. Not retail.
+enum class EShipFilterSub
+{
+    Npc,
+    Player,
+    All
+};
+static EShipFilterSub G_ShipFilterSub = EShipFilterSub::Npc;
+static bool G_bShipFilterArmed = false;
+
+static bool DiscoveryShipFilterEnabled()
+{
+    static bool const bEnabled = HdPlugins::Enabled("shipfilter.dll");
+    return bEnabled;
+}
+
+// The plugin's hook of StartServer's SetMultiPlayer call (0x005a8119): multiplayer arms the click
+// and reads ..\data\interface\filter.ini ([Filter] ships = NPC | player | all, the last wins; the
+// mode stays as it was without the file); single player disarms it and shows NPCs again.
+void HudContactListShipFilterOnMultiPlayer(bool bMultiPlayer)
+{
+    if (!DiscoveryShipFilterEnabled())
+        return;
+    G_bShipFilterArmed = bMultiPlayer;
+    if (!bMultiPlayer)
+    {
+        if (G_ShipFilterSub == EShipFilterSub::Player)
+            G_ShipFilterSub = EShipFilterSub::All; // it restores only the NPC jump
+        return;
+    }
+    INI_Reader Reader;
+    if (!Reader.open("..\\data\\interface\\filter.ini", false))
+        return;
+    while (Reader.read_header())
+    {
+        if (!Reader.is_header("Filter"))
+            continue;
+        while (Reader.read_value())
+        {
+            if (!Reader.is_value("ships"))
+                continue;
+            char const* const Value = Reader.get_value_string(0);
+            if (_stricmp(Value, "NPC") == 0)
+                G_ShipFilterSub = EShipFilterSub::Npc;
+            else if (_stricmp(Value, "player") == 0)
+                G_ShipFilterSub = EShipFilterSub::Player;
+            else if (_stricmp(Value, "all") == 0)
+                G_ShipFilterSub = EShipFilterSub::All;
+        }
+    }
+    Reader.close();
+}
 
 namespace
 {
@@ -1002,6 +1058,12 @@ intptr_t HUD_ContactList::SetProperty(int Msg, uintptr_t A, uintptr_t B)
         }
         if (A == reinterpret_cast<uintptr_t>(ShipsButton))
         {
+            // Discovery shipfilter.dll (0x004cfe8e, armed in multiplayer): Ships clicked again
+            // cycles NPC -> player -> all.
+            if (FilterMode == 1 && G_bShipFilterArmed && DiscoveryShipFilterEnabled())
+                G_ShipFilterSub = G_ShipFilterSub == EShipFilterSub::Npc      ? EShipFilterSub::Player
+                                  : G_ShipFilterSub == EShipFilterSub::Player ? EShipFilterSub::All
+                                                                              : EShipFilterSub::Npc;
             FilterMode = 1;
             bDirty = 1;
             return 1;
@@ -1495,13 +1557,20 @@ void HUD_ContactList::RebuildContacts()
                     // HD: contact_list_player_ships — and with "ships" (0x004d094b
                     // `jne skip` -> `je include; dec al; jne skip`).
                     static const bool bHdPlayerShips = HdPlugins::Feature("contact_list_player_ships");
-                    if (FilterMode != 0 && FilterMode != 4 && !(bHdPlayerShips && FilterMode == 1))
+                    // Discovery shipfilter.dll rewrites the same bytes per its sub-filter.
+                    bool const bPlayersInShips = DiscoveryShipFilterEnabled()
+                                                     ? G_ShipFilterSub != EShipFilterSub::Npc
+                                                     : bHdPlayerShips;
+                    if (FilterMode != 0 && FilterMode != 4 && !(bPlayersInShips && FilterMode == 1))
                     {
                         continue;
                     }
                     Contacts.push_back(FHudContactEntry(OtherPlayerKind(Ship), GameobjRw, 0.0f, 0, 0));
                     continue;
                 }
+                // Discovery shipfilter.dll (0x004d0936): in its "player" mode no NPC is listed.
+                if (G_ShipFilterSub == EShipFilterSub::Player && DiscoveryShipFilterEnabled())
+                    continue;
                 int Kind = 0;
                 if ((TypeBits & 0x420000u) != 0)
                 {
