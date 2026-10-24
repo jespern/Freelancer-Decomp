@@ -1199,6 +1199,9 @@ public:
     // (IsActive() && !IsDisabled() && !IsDestroyed()) plus the shield-specific
     // && bOnline.
     virtual bool IsFunctioning() const override;
+    // Not retail: Discovery's ShieldOffline.dll puts its hook in this slot (CEquip::IsActive
+    // otherwise, common_discovery_plugins.h).
+    virtual bool IsActive() const override;
     // Common.dll.c 0x3c020. If not currently functioning but active and CanActivate() holds,
     // fires INotify::ShieldCanReactivate and brings the shield back online via
     // Activate_Internal(true), then forwards to CAttachedEquip::Update.

@@ -114,8 +114,10 @@ namespace HdPlugins
     }
 
     // HD changes that came as exe patches: words of the "HDEdition.dll" line (mods/hd.ini).
+    // An exe patch HD ships as a feature of the HDEdition.dll line; Discovery's patched binaries
+    // carry some of the same ones, as features of its DiscoveryPatches.dll line.
     inline bool Feature(const char* Word)
     {
-        return Flag("HDEdition.dll", Word);
+        return Flag("HDEdition.dll", Word) || Flag("DiscoveryPatches.dll", Word);
     }
 }

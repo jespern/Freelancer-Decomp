@@ -1150,15 +1150,7 @@ void NeuroNetNavMap::InitialShow()
         bool bNameHidden = CurrentSystem == nullptr;
         if (!bNameHidden)
         {
-            unsigned const Id = CurrentSystem->GetId();
-            for (int Index = 0; Index < 4; ++Index)
-            {
-                if (SkipSystemIds[Index] == Id)
-                {
-                    bNameHidden = true;
-                    break;
-                }
-            }
+            bNameHidden = SkipsSystemId(SkipSystemIds, CurrentSystem->GetId());
         }
         if (bNameHidden)
         {

@@ -7,6 +7,7 @@
 #include "common_lootbehavior.h"
 
 #include "common_aisteer.h"        // FAiTarget
+#include "hd_plugins.h" // the port: Discovery's chklootvol
 #include "common_archetype.h"      // Archetype::Ship::HoldSize, Archetype::Root::get_class_type
 #include "common_cequip.h"         // ScanList
 #include "common_cobject.h"        // CObject, CShip, CLoot, CEqObj::get_behavior_interface
@@ -47,13 +48,18 @@ namespace
     // ship's CShip (null when it is not one -- retail then faults on [ECX+0x88]); with a
     // positive hold the free fraction, else 0.0; true when that exceeds 0.2 (double
     // .rdata:0639fa50, `TEST AH,0x41; JZ`).
-    bool OwnHoldHasRoom(SystemManager* Sys)
+    bool OwnHoldHasRoom(SystemManager* Sys, float* OutRemaining = nullptr)
     {
         CShip const* const Ship = static_cast<CShip const*>(CObjectOfClass(OwnShip(Sys), CObject::ClassShip));
         Archetype::Ship const* const Arch = static_cast<Archetype::Ship const*>(Ship->Archetype);
         double Fraction = 0.0;                                      // FLD DAT_06399408
         if (static_cast<double>(Arch->HoldSize) > 0.0)              // FCOMP double 0.0; `TEST AH,0x41; JNZ`
-            Fraction = static_cast<double>(Ship->get_cargo_hold_remaining()) / Arch->HoldSize;
+        {
+            float const Remaining = Ship->get_cargo_hold_remaining();
+            if (OutRemaining != nullptr)
+                *OutRemaining = Remaining; // Discovery chklootvol.dll keeps it (hook at 062ce8e8)
+            Fraction = static_cast<double>(Remaining) / Arch->HoldSize;
+        }
         return Fraction > 0.2;
     }
 
@@ -276,7 +282,8 @@ bool LootBehavior::AcquireLootTarget(FLootTarget* Slot)
     pub::AI::Personality::JobStruct const& Job = Sys->PersonalityData.JobParams;
     if (Job.LootPreference == 0)                                    // 062ce87c [Sys+0x18fc]: loot flags
         return false;
-    if (!OwnHoldHasRoom(Sys))                                       // 062ce896-062ce8fe
+    float HoldRemaining = 0.0f;
+    if (!OwnHoldHasRoom(Sys, &HoldRemaining))                       // 062ce896-062ce8fe
         return false;
 
     // LAB_062ce90c: the own position (ExternalIface transform slot 4, +0x24 = Position).
@@ -301,6 +308,11 @@ bool LootBehavior::AcquireLootTarget(FLootTarget* Slot)
         if (Loot->bCanAiTractor == 0)                               // 062ce9c5 [+0xfc]
             break;
 
+        // Discovery chklootvol.dll (062ce9d9): loot whose single unit does not fit the hold is
+        // passed over (NaN passes, as the plugin's FCOMP does).
+        static bool const bCheckLootVolume = HdPlugins::Enabled("chklootvol.dll");
+        if (bCheckLootVolume && Loot->ContentsArch->Volume > HoldRemaining)
+            continue;
         int const Kind = static_cast<int>(Loot->ContentsArch->get_class_type());   // 062ce9db [+0x10]
         if (Kind == 0xa)
         {

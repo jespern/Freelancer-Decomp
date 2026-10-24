@@ -8,6 +8,7 @@
 // Declared in common_cequip.h; helpers shared with the sibling TUs are in
 // common_cequip_internal.h (namespace CmnCequip).
 #include "common_cequip.h"
+#include "common_discovery_plugins.h" // the port: Discovery's per-engine cruise speed
 #include "x86math.h"
 
 #include "common_animdb.h"  // AnimDB::Add/Rem (common_animdb.cpp)
@@ -327,7 +328,7 @@ bool CEEngine::EngageCruise(bool Engage, bool Instant)
         // (get_linear_drag() * CRUISING_SPEED), kept on the FPU stack, FSTP float into +0x4c.
         float const Thrust = EngineArch->ThrustMultiplier;
         double const Drag = (double)(OwnerShipOrNull(Owner)->get_linear_drag()) *
-                            EngineEquipConsts::CRUISING_SPEED;
+                            DiscoveryPlugins::CruisingSpeed(Arch->Nickname.Id) /* CRUISING_SPEED; multiCruise */;
         CruiseChargeRate = (float)(
             (double)(EngineEquipConsts::CRUISE_ACCEL_TIME) * Thrust / Drag);
         // 06296319: Elapsed FCOMP 0.0, TEST AH,0x1 / JNZ: less or unordered -> wakeup only;
@@ -437,7 +438,7 @@ float CEEngine::GetPowerDraw(float Throttle) const
 float CEEngine::GetCruiseThrust(float LinearDrag) const
 {
     return (float)((double)(OwnerShipOrNull(Owner)->get_linear_drag()) *
-                              EngineEquipConsts::CRUISING_SPEED * LinearDrag);
+                              DiscoveryPlugins::CruisingSpeed(Arch->Nickname.Id) /* CRUISING_SPEED; multiCruise */ * LinearDrag);
 }
 
 // Listing 0x36420: FLD [arch+0x7c]; RET
@@ -526,7 +527,7 @@ void CEEngine::do_simulation_controller(IVP_Event_Sim* EventSim, IVP_U_Vector<IV
             // 062964e8..0629651b: the throttle is read before the call; one FSTP at the end.
             float const Throttle = Ship->Throttle;
             Force = (float)((double)(OwnerShipOrNull(Owner)->get_linear_drag()) *
-                                       EngineEquipConsts::CRUISING_SPEED * Throttle * Ramp);
+                                       DiscoveryPlugins::CruisingSpeed(Arch->Nickname.Id) /* CRUISING_SPEED; multiCruise */ * Throttle * Ramp);
         }
         PowerRate = EngineArch->CruisePowerUsage;
     }

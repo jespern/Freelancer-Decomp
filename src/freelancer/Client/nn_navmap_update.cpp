@@ -188,15 +188,7 @@ namespace
         bool bHidden = System == nullptr;
         if (!bHidden)
         {
-            unsigned const Id = System->GetId();
-            for (int Index = 0; Index < 4; ++Index)
-            {
-                if (SkipSystemIds[Index] == Id)
-                {
-                    bHidden = true;
-                    break;
-                }
-            }
+            bHidden = NeuroNetNavMap::SkipsSystemId(SkipSystemIds, System->GetId());
         }
         if (bHidden)
         {

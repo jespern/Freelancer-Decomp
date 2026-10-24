@@ -50,6 +50,8 @@ namespace
         // Not HD either: FLUF's expanded_hardpoints module, as Discovery ships it
         // (common_expanded_hardpoints.h).
         "expanded_hardpoints.dll",
+        // Discovery's own plugins (common_discovery_plugins.h).
+        "multiCruise.dll", "EquipMass.dll", "MuzzleCone.dll", "ShieldOffline.dll", "chklootvol.dll", "NoNavMap.dll", "scroller.dll",
     };
     std::map<std::string, std::string> GHdPlugins; // lower-case name -> options
 

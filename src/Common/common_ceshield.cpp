@@ -8,6 +8,7 @@
 // Declared in common_cequip.h; helpers shared with the sibling TUs are in
 // common_cequip_internal.h (namespace CmnCequip).
 #include "common_cequip.h"
+#include "hd_plugins.h" // the port: Discovery's ShieldOffline
 #include "x86math.h"
 
 #include "common_animdb.h"  // AnimDB::Add/Rem (common_animdb.cpp)
@@ -28,6 +29,7 @@
 #include "../IVP/ivp_physics/ivp_controller.h"  // IVP_Event_Sim (do_simulation_controller)
 
 #include <cstdarg>
+#include <cstring>
 #include <cstdint>
 #include <math.h>
 #include <new>
@@ -270,6 +272,23 @@ bool CEShield::GetEquipDesc(EquipDesc& Desc) const
     // CEquip::GetEquipDesc.
     (void)Desc;
     return false;
+}
+
+// Discovery ShieldOffline.dll (CEShield vtable slot 1, .rdata 0x0639d510): a shield whose owner's
+// hull is at 0 counts as inactive, so it absorbs nothing and shows no bubble. The plugin compares
+// the hit points' bits with 0, so -0.0f keeps the shield up.
+bool CEShield::IsActive() const
+{
+    static bool const bShieldOffline = HdPlugins::Enabled("ShieldOffline.dll");
+    if (bShieldOffline)
+    {
+        float const Hull = Owner->HitPts;
+        unsigned Bits;
+        memcpy(&Bits, &Hull, sizeof(Bits));
+        if (Bits == 0)
+            return false;
+    }
+    return CEquip::IsActive();
 }
 
 bool CEShield::IsFunctioning() const

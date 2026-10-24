@@ -5,6 +5,7 @@
 // Author: Giperion.
 
 #include "space_state.h"
+#include "common_discovery_plugins.h" // the port: Discovery's EquipMass
 #include "hd_console.h"
 #include "hd_client.h"
 #include "space_app.h"
@@ -783,7 +784,11 @@ namespace
             Parms.Inertia.z = 0.0f;
 
             // 0x0054a9e6..0x0054a9f1: the object's mass (vt+0x6c), then the inertia flag.
+            // Discovery EquipMass.dll exempts this caller (return address 0x0054a9ed): the body is
+            // rebuilt from the base mass.
+            DiscoveryPlugins::BeginBaseMass();
             Parms.Mass = Object->get_mass();
+            DiscoveryPlugins::EndBaseMass();
             Parms.bHasInertia = 1;
 
             // 0x0054a9f6..0x0054aa39: the moment of inertia when the object has a body (+0x54),

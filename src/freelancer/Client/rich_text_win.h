@@ -86,6 +86,13 @@ struct FRichTextSurface
     int Height;              // +0x10
 };
 
+class BaseRichTextWin;
+
+// HD-style built-in of Discovery's scroller.dll (Jason Hood): the dealer's and ship dealer's
+// Stats pane (the most recent one, as the plugin keeps it) scrolls with its Values pane. Not retail.
+bool DiscoveryScrollerEnabled();
+void DiscoveryScrollerLinkStats(BaseRichTextWin* Stats);
+
 class BaseRichTextWin : public WinControl
 {
 public:

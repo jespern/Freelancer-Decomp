@@ -299,6 +299,8 @@ public:
     bool HasVisitedContent();
     // Not a retail function: the SkipSystemIds test NavMap.cpp inlines at every use.
     bool IsSkippedSystem(Universe::ISystem const* System) const;
+    // Not retail: the same test on an id, through Discovery's NoNavMap.dll list when it is on.
+    static bool SkipsSystemId(unsigned const* SkipSystemIds, unsigned Id);
     // FUN_00491be0 (RET 8) -- the player's marker: the universe view's system point, or the
     // system view's position (the docked base's solar) and heading in degrees, scaled by
     // SystemScale.

@@ -10,6 +10,7 @@
 
 #include <cmath>
 #include "common_archetype.h"
+#include "common_discovery_plugins.h" // the port: Discovery's muzzle_cone_override
 #include "common_archetype_internal.h"
 
 #include "common_cobject.h" // CollisionGroupDesc (get_undamaged_collision_group_list)
@@ -333,6 +334,13 @@ namespace Archetype
                     PushGunHpType(*this, HpType);
                 Index += 1;
             }
+            return true;
+        }
+
+        // Discovery MuzzleCone.dll reads this key from the equipment files' [Gun] sections.
+        if (Reader.is_value("muzzle_cone_override"))
+        {
+            DiscoveryPlugins::NoteMuzzleCone(Nickname.Id, Reader.get_value_float(0));
             return true;
         }
 

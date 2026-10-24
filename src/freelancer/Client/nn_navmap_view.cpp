@@ -318,16 +318,7 @@ void NeuroNetNavMap::EnterSystemView()
     unsigned char bHidden = 1;
     if (CurrentSystem != nullptr)
     {
-        unsigned const Id = CurrentSystem->GetId();
-        bHidden = 0;
-        for (int Index = 0; Index < 4; ++Index)
-        {
-            if (SkipSystemIds[Index] == Id)
-            {
-                bHidden = 1;
-                break;
-            }
-        }
+        bHidden = SkipsSystemId(SkipSystemIds, CurrentSystem->GetId()) ? 1 : 0;
     }
 
     LabelButton->SetProperty(1, bHidden, 0);

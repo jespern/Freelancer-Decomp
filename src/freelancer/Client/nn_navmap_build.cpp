@@ -14,8 +14,11 @@
 #include "common_archetype.h"       // Archetype::GetSolar, Solar
 #include "common_id.h"              // CreateID
 #include "common_universe.h"
+#include "common_ini.h"               // INI_Reader (NoNavMap)
+#include "hd_plugins.h"
 
 #include <math.h>
+#include <vector>
 #include <stdio.h>
 #include <string.h>
 
@@ -50,7 +53,46 @@ bool NeuroNetNavMap::IsSkippedSystem(Universe::ISystem const* System) const
 {
     // Inlined in retail (e.g. 0x0049187b..0x00491892, 0x00491b44..0x00491b5b): the system's id
     // against the four SkipSystemIds.
-    unsigned const Id = System->GetId();
+    return SkipsSystemId(SkipSystemIds, System->GetId());
+}
+
+// HD-style built-in of Discovery's NoNavMap.dll (Jason Hood): the systems of
+// ..\data\universe\nonavmap.ini (every value of every section, at most 127) replace the four
+// retail ones at all seven inlined tests. Without the file the retail list stays, as the plugin
+// patches nothing then.
+bool NeuroNetNavMap::SkipsSystemId(unsigned const* SkipSystemIds, unsigned Id)
+{
+    struct FList
+    {
+        bool bLoaded = false;
+        std::vector<unsigned> Ids;
+    };
+    static FList const List = []
+    {
+        FList Out;
+        if (!HdPlugins::Enabled("NoNavMap.dll"))
+            return Out;
+        INI_Reader Reader;
+        if (!Reader.open("..\\data\\universe\\nonavmap.ini", false))
+            return Out;
+        Out.bLoaded = true;
+        while (Reader.read_header())
+        {
+            while (Reader.read_value() && Out.Ids.size() < 127)
+                Out.Ids.push_back(CreateID(Reader.get_value_string()));
+        }
+        Reader.close();
+        return Out;
+    }();
+    if (List.bLoaded)
+    {
+        for (unsigned const Listed : List.Ids)
+        {
+            if (Listed == Id)
+                return true;
+        }
+        return false;
+    }
     for (int Index = 0; Index < 4; ++Index)
     {
         if (SkipSystemIds[Index] == Id)

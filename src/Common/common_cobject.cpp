@@ -5,6 +5,7 @@
 // Author: Giperion.
 
 #include "common_cobject.h"
+#include "common_discovery_plugins.h" // the port: Discovery's EquipMass
 #include "common_cobject_internal.h" // CmnCobject helpers defined below
 #include "x86math.h"
 
@@ -642,9 +643,12 @@ float CObject::get_mass() const
 {
     // .text:062ada60..062ada7a: body (+0x54) -> PhySys::GetMass(this); else FLD float
     // [Archetype(+0x88)+0x20]. No null test on the archetype.
-    if (BodyPtr != nullptr)
-        return PhySys::GetMass(this);
-    return Archetype->Mass;
+    float const Base = BodyPtr != nullptr ? PhySys::GetMass(this) : Archetype->Mass;
+    // Discovery EquipMass.dll (CShip's slot only): the loadout's weight on top.
+    if (ObjectClass == ClassShip && DiscoveryPlugins::EquipMassEnabled() &&
+        !DiscoveryPlugins::BaseMassOnly())
+        return DiscoveryPlugins::ShipMass(static_cast<CShip const*>(this), Base);
+    return Base;
 }
 
 Vector CObject::get_angular_velocity() const

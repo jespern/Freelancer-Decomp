@@ -27,10 +27,15 @@
 #include "render/IRenderPipeline.h"
 #include "x86math.h"
 
+#include <cstring>
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <wctype.h>
+
+// Discovery scroller.dll's last created dealer Stats pane (its g_stats); cleared when that pane goes.
+static BaseRichTextWin* G_ScrollerStats = nullptr;
 
 namespace
 {
@@ -174,8 +179,21 @@ BaseRichTextWin::BaseRichTextWin()
     bSurfaceDirty = 1;
 }
 
+bool DiscoveryScrollerEnabled()
+{
+    static bool const bEnabled = HdPlugins::Enabled("scroller.dll");
+    return bEnabled;
+}
+
+void DiscoveryScrollerLinkStats(BaseRichTextWin* Stats)
+{
+    G_ScrollerStats = Stats;
+}
+
 BaseRichTextWin::~BaseRichTextWin()
 {
+    if (G_ScrollerStats == this)
+        G_ScrollerStats = nullptr;
     // FUN_00579620. The DebugWindow branch (0x00579655..0x0057967f: DestroyWindow, delete) is
     // not ported: +0x32c is only ever written null (see the header), so it never runs.
 
@@ -450,7 +468,18 @@ bool BaseRichTextWin::Slot23(unsigned Msg, uintptr_t A, uintptr_t B)
         if (A == reinterpret_cast<uintptr_t>(ScrollBarV))
         {
             int const OriginX = ScrollX;
-            SetScrollOrigin(OriginX, static_cast<int>(ScrollBarV->GetValue()));
+            int const OriginY = static_cast<int>(ScrollBarV->GetValue());
+            // Discovery scroller.dll (0x0057b003): "InfoCard_Values" / "ShipInfoCard_Values"
+            // move the linked Stats pane first.
+            if (G_ScrollerStats != nullptr && DiscoveryScrollerEnabled())
+            {
+                char const* Pane = Name;
+                if (std::strncmp(Pane, "Ship", 4) == 0)
+                    Pane += 4;
+                if (std::strcmp(Pane, "InfoCard_Values") == 0)
+                    G_ScrollerStats->SetScrollOrigin(OriginX, OriginY);
+            }
+            SetScrollOrigin(OriginX, OriginY);
             return true;
         }
         if (A == reinterpret_cast<uintptr_t>(ScrollBarH))

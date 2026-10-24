@@ -246,7 +246,12 @@ void NnDealer::Slot45()
         InfoCardFacts = CreateRichTextWin("InfoCard_Facts", 0.5f, 0.265f, InfoOffset, true); // +0x398
         InfoCardFacts->Flags = static_cast<unsigned char>(InfoCardFacts->Flags & 0xfc);
         float const StatsOffset[3] = {0.69f, -0.537f, 0.0f};
-        InfoCardStats = CreateRichTextWin("InfoCard_Stats", 0.29f, 0.265f, StatsOffset, true); // +0x39c
+        // Discovery scroller.dll (0x00481208 / 0x0048120d): no scrollbar of its own; it follows
+        // InfoCard_Values instead.
+        InfoCardStats = CreateRichTextWin("InfoCard_Stats", 0.29f, 0.265f, StatsOffset,
+                                          !DiscoveryScrollerEnabled()); // +0x39c
+        if (DiscoveryScrollerEnabled())
+            DiscoveryScrollerLinkStats(static_cast<BaseRichTextWin*>(InfoCardStats));
         InfoCardStats->Flags = static_cast<unsigned char>(InfoCardStats->Flags & 0xfc);
         float const ValuesOffset[3] = {0.99f, -0.537f, 0.0f};
         InfoCardValues = CreateRichTextWin("InfoCard_Values", 0.17f, 0.265f, ValuesOffset, true); // +0x3a0

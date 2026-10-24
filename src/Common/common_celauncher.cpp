@@ -8,6 +8,7 @@
 // Declared in common_cequip.h; helpers shared with the sibling TUs are in
 // common_cequip_internal.h (namespace CmnCequip).
 #include "common_cequip.h"
+#include "common_discovery_plugins.h" // the port: Discovery's MuzzleCone
 #include "x86math.h"
 
 #include "common_animdb.h"  // AnimDB::Add/Rem (common_animdb.cpp)
@@ -234,6 +235,14 @@ void CELauncher::Disconnect()
 
 FireResult CELauncher::Fire(Vector const& Target)
 {
+    // Discovery MuzzleCone.dll: an attempt that cannot fire leaves the refire timer alone (its
+    // detour asks CanFire first and only then runs this function).
+    if (DiscoveryPlugins::MuzzleConeEnabled())
+    {
+        FireResult const First = CanFire(Target);
+        if (First != FireOk)
+            return First;
+    }
     FireResult Result = CanFire(Target);
     if (Result != FireRefireDelay)
         RefireElapsed = 0.0f;

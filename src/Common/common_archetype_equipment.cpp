@@ -13,6 +13,7 @@
 #include "common_archetype_internal.h"
 
 #include "common_cobject.h" // CollisionGroupDesc (get_undamaged_collision_group_list)
+#include "common_discovery_plugins.h" // the port: Discovery's cruise_speed / mass_mult
 #include "common_fuses.h"
 #include "common_ini.h"
 #include "common_misc.h"
@@ -68,6 +69,13 @@ namespace Archetype
     {
         if (Root::read(Reader))
             return true;
+
+        // Discovery EquipMass.dll reads this key from the equipment files itself.
+        if (Reader.is_value("mass_mult"))
+        {
+            DiscoveryPlugins::NoteMassMult(Nickname.Id, Reader.get_value_float(0));
+            return true;
+        }
 
         if (Reader.is_value("inherit"))
         {
@@ -666,11 +674,19 @@ namespace Archetype
             return true;
         }
 
-        if (!Reader.is_value("reverse_fraction"))
-            return false;
+        if (Reader.is_value("reverse_fraction"))
+        {
+            ReverseFraction = Reader.get_value_float(0);
+            return true;
+        }
 
-        ReverseFraction = Reader.get_value_float(0);
-        return true;
+        // Discovery multiCruise.dll: its hook on this function's "no key" tail (0x062f51b8).
+        if (Reader.is_value("cruise_speed"))
+        {
+            DiscoveryPlugins::NoteCruiseSpeed(Nickname.Id, Reader.get_value_float(0));
+            return true;
+        }
+        return false;
     }
 
     // Common.dll.c 0x951c0.

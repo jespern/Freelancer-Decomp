@@ -66,6 +66,7 @@
     <ClInclude Include="..\include\common_errorhandler.h" />
     <ClInclude Include="..\include\common_dataconfig.h" />
     <ClInclude Include="..\include\common_expanded_hardpoints.h" />
+    <ClInclude Include="..\include\common_discovery_plugins.h" />
     <ClInclude Include="common_geometry_internal.h" />
     <ClInclude Include="common_cobject_internal.h" />
     <ClInclude Include="common_cequip_internal.h" />
@@ -303,6 +304,7 @@
     <ClCompile Include="common_misc.cpp" />
     <ClCompile Include="common_fl_checksum.cpp" />
     <ClCompile Include="common_expanded_hardpoints.cpp" />
+    <ClCompile Include="common_discovery_plugins.cpp" />
     <ClCompile Include="common_file.cpp" />
     <ClCompile Include="common_heap.cpp" />
     <ClCompile Include="common_damagelist.cpp" />

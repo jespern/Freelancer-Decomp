@@ -319,6 +319,8 @@ bool NnShipTrader::Create(Win3D* NewParent, void* Data)
     {
         float const Offset[3] = {HdHudShiftBase(0x004b7d3a, 0.01f), -0.164f, -1.0f}; // HD
         InfoStats = CreateRichTextWin("ShipInfoCard_Stats", 0.24f, 0.2f, Offset, true);
+        if (DiscoveryScrollerEnabled()) // Discovery scroller.dll (0x004b7d4e)
+            DiscoveryScrollerLinkStats(static_cast<BaseRichTextWin*>(InfoStats));
     }
     {
         float const Offset[3] = {HdHudShiftBase(0x004b7d75, 0.27f), -0.164f, -1.0f}; // HD
@@ -884,7 +886,8 @@ void NnShipTrader::SelectRow(int Row)
         InfoValues->SetScrollOrigin(0, 0);
         InfoValues->ClearContent();
         InfoValues->AppendContent(Text);
-        InfoValues->SetAutoScrollbar(false);
+        if (!DiscoveryScrollerEnabled()) // Discovery scroller.dll keeps it (0x004b8ee3)
+            InfoValues->SetAutoScrollbar(false);
     }
 
     // 004b8eeb..004b8f1e: the view's angle, for the object and for the drag.

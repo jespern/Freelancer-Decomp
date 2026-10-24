@@ -11,6 +11,7 @@
 // ===========================================================================
 
 #include "../include/server_gameobject.h"
+#include "common_discovery_plugins.h" // the port: Discovery's EquipMass
 #include "../include/hd_plugins.h"
 #include "../include/common_timing.h"  // Timing::read
 #include "../include/server_sysdb.h"   // StarSystem::on_object_destroyed (GameObject::destroy)
@@ -477,7 +478,10 @@ void GameObject::leave_system(PhySys::CreateParms* OutParms)
     // .text:06cee885 .. 06cee918 -- the caller's CreateParms, from the live body.
     if (OutParms != nullptr)
     {
+        // Discovery EquipMass.dll exempts this caller (.text:06cee898): the base mass.
+        DiscoveryPlugins::BeginBaseMass();
         OutParms->Mass = Raw->get_mass();                  // .text:06cee895 vt +0x6c
+        DiscoveryPlugins::EndBaseMass();
         OutParms->bHasInertia = 1;                         // .text:06cee89a
         // .text:06cee89e .. 06cee8c6 -- BodyPtr (+0x54) picks the IVP moment of
         // inertia or a zero vector.

@@ -9,6 +9,7 @@
 // common_cequip_internal.h (namespace CmnCequip).
 #include <cmath>
 #include "common_cequip.h"
+#include "common_discovery_plugins.h" // the port: Discovery's MuzzleCone
 #include "x86math.h"
 
 #include "common_animdb.h"  // AnimDB::Add/Rem (common_animdb.cpp)
@@ -352,7 +353,8 @@ FireResult CEGun::CanFire(Vector const& Target) const
 
     // 0629770a: FLD MUZZLE_CONE_ANGLE / FMUL DAT_0639d210 / FSTP float -- rounded to float
     // before the FCOS at 062977d9.
-    float const ConeAngle = MUZZLE_CONE_ANGLE * kDegToRad;
+    // Discovery MuzzleCone.dll repoints this FLD at the gun's muzzle_cone_override.
+    float const ConeAngle = DiscoveryPlugins::MuzzleConeAngle(Arch->Nickname.Id) * kDegToRad;
     Vector Muzzle = GetBarrelPosWS(0);
     Vector Delta;
     Delta.x = Target.x - Muzzle.x;
