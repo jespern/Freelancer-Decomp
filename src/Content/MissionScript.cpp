@@ -1,3 +1,4 @@
+#include <string>
 // Freelancer Decomp: a reimplementation of the Freelancer (2003) game client and engine,
 // faithful to the behaviour of the original game.
 // This file was reconstructed by reverse engineering the binaries of Freelancer 1.1,
@@ -812,8 +813,24 @@ void FMissionScript::SetChapter(int SlotCurrent, int SlotSucceed, unsigned int V
     Field_0x2c4 = Value2c4;
 }
 
+// Port dev aid: the mission folder of each loaded mission script ("M10" from
+// "Missions\M10\m10.ini"), for FLWIN_MSN_TRACE's outcome line.
+static std::map<FMissionScript const*, std::string>& MissionTraceNames()
+{
+    static std::map<FMissionScript const*, std::string> Names;
+    return Names;
+}
+
 void FMissionScript::LoadMissionIni(char const* IniPath)
 {
+    {
+        std::string Path = IniPath != nullptr ? IniPath : "";
+        size_t const End = Path.find_last_of("\\/");
+        size_t const Start = End == std::string::npos ? std::string::npos : Path.find_last_of("\\/", End - 1);
+        MissionTraceNames()[this] = (End != std::string::npos && Start != std::string::npos)
+                                        ? Path.substr(Start + 1, End - Start - 1)
+                                        : Path;
+    }
     INI_Reader Reader;
     OpenContentDataIni(IniPath, &Reader);
     LoadMission(&Reader);
@@ -844,6 +861,11 @@ void FMissionScript::ApplyDesiredMissionState()
     if (Desired == PreviousMissionState)
         return;
     PreviousMissionState = Desired;
+    // Port dev aid: FLWIN_MSN_TRACE logs the outcome (a nag's failure fires no trigger).
+    static bool const bTraceOutcome = getenv("FLWIN_MSN_TRACE") != nullptr;
+    if (bTraceOutcome && (Desired == G_MissionStateFail || Desired == G_MissionStateSucceed))
+        fprintf(stderr, "[msn] mission %s %s\n", MissionTraceNames()[this].c_str(),
+                Desired == G_MissionStateFail ? "FAILED" : "SUCCEEDED");
     if (Desired == G_MissionStateFail)
     {
         OnMissionFail();

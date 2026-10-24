@@ -493,12 +493,35 @@ namespace
             Vector Pos{0.0f, 0.0f, 0.0f};
             float Range = 0.0f;
             IObjRW* const Ship = static_cast<IObjRW*>(GetPlayerObjRW());
-            if (Ship != nullptr && sscanf(Want + 6, "%f,%f,%f,%f", &Pos.x, &Pos.y, &Pos.z, &Range) == 4)
+            bool bParsed = false;
+            if (Want[6] == '#')
+            {
+                // select:@near:#Nickname,R -- within R of that object (its server-side location,
+                // so a solar out of scanner range counts too).
+                char Nick[0x80];
+                if (sscanf(Want + 7, "%127[^,],%f", Nick, &Range) == 2)
+                {
+                    using FGetLocationFn = int (*)(unsigned int, Vector&, Matrix&);
+                    static FGetLocationFn const GetLocation = reinterpret_cast<FGetLocationFn>(
+                        dlsym(RTLD_DEFAULT, "_ZN3pub8SpaceObj11GetLocationEjR6VectorR6Matrix"));
+                    Matrix Orient;
+                    bParsed = GetLocation != nullptr && GetLocation(CreateID(Nick), Pos, Orient) == 0;
+                }
+            }
+            else
+                bParsed = sscanf(Want + 6, "%f,%f,%f,%f", &Pos.x, &Pos.y, &Pos.z, &Range) == 4;
+            if (Ship != nullptr && bParsed)
             {
                 Vector const& Here = Ship->get_position();
                 double const Dx = Here.x - Pos.x, Dy = Here.y - Pos.y, Dz = Here.z - Pos.z;
                 if (Dx * Dx + Dy * Dy + Dz * Dz < static_cast<double>(Range) * Range)
+                {
+                    // also raised as a signal ("near:<what follows @near:>"), so a script can
+                    // poll arrival alongside its triggers (jumpif:near:...)
+                    std::string const Tag = std::string("near:") + (Want + 6);
+                    FlScriptSignal(Tag.c_str());
                     FlScriptSelectDone();
+                }
             }
             return;
         }

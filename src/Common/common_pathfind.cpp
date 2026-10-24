@@ -266,6 +266,18 @@ void PathfindManager::Update(float Dt)
     {
         Avoidance.ResetContact();
         Reaction.ResetState();
+        // and the avoidance record MoveIdea / FaceIdea read (a point left from before would keep
+        // steering the goto elsewhere), as RefreshAvoidance's reset does
+        if ((Field_214 & 1) != 0)
+        {
+            Vector Zero{0.0f, 0.0f, 0.0f};
+            Owner->Sys->Thrust.SetNudgeDirection(Zero);
+        }
+        Field_214 = 0;
+        Field_220 = Vector{0.0f, 0.0f, 0.0f};
+        Field_22C = Vector{0.0f, 0.0f, 0.0f};
+        Field_23C = 1.0f;
+        Field_240 = 0;
         return;
     }
 
