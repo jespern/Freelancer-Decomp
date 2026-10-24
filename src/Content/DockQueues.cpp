@@ -1031,6 +1031,18 @@ bool __cdecl IsShipAtDockPoint(unsigned int SystemId, unsigned int const* ShipId
     if (pub::SpaceObj::GetLocation(*ShipId, ShipPosition, ShipOrientation) != 0)
         return Trace(4, static_cast<int>(Info.Value)), false;
     Trace(0, static_cast<int>(Info.Value));
+    if (DockQueueTraceOn())
+    {
+        static double LastPosLog = 0.0;
+        double const Now = GetContentGameTime();
+        if (Now - LastPosLog > 3.0 || Now < LastPosLog)
+        {
+            LastPosLog = Now;
+            fprintf(stderr, "[dockq] at-dock-point ship %u hp (%.0f %.0f %.0f) ship (%.0f %.0f %.0f)\n",
+                    *ShipId, Hardpoint.x, Hardpoint.y, Hardpoint.z, ShipPosition.x, ShipPosition.y,
+                    ShipPosition.z);
+        }
+    }
 
     switch (Info.Value)
     {
