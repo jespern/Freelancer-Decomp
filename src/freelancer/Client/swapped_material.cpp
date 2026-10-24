@@ -21,18 +21,19 @@ namespace
 
     // The TextureLib slot 12 query: +0x04 is the name's CRC. Retail leaves +0x00 as whatever
     // the stack held (0x0042ce9e / 0x0042d5ae / 0x0042d5ea); it is zero here.
+    // The query ITextureLibrary slot 12 reads: the name, then the CRC after it (retail +0x04;
+    // after the name pointer, whatever its size -- FTextureLibrary::FindTextureByCrc).
     struct FTextureQuery
     {
-        unsigned long Field_0x00; // TODO: never written by these callers
-        unsigned long Crc;        // +0x04
+        char const* Name;
+        unsigned long Crc;
     };
 
     // Slot 12 writes straight into the member (retail passes its address), so a miss leaves the
     // member as it was.
     void FindTextureRecord(char const* Name, void** Out)
     {
-        FTextureQuery Query = {};
-        Query.Crc = DACOM_CRC::GetCRC32(Name);
+        FTextureQuery Query = {Name, DACOM_CRC::GetCRC32(Name)};
         DALib::TextureLib->FindTextureByCrc(&Query, Out);
     }
 
@@ -66,10 +67,12 @@ namespace
         return nullptr;
     }
 
-    // `REPE CMPSB` over 8 bytes against "Dt_name" (0x005ca818), the terminator included.
+    // `REPE CMPSB` over 8 bytes against "Dt_name" (0x005ca818), the terminator included. That
+    // stops at the first difference; memcmp(.., 8) may read all 8 bytes and run past a shorter
+    // parameter name ("Ac" is 3 bytes), so compare as the strings they are.
     bool IsDtName(char const* ParameterName)
     {
-        return memcmp(ParameterName, "Dt_name", 8) == 0;
+        return strcmp(ParameterName, "Dt_name") == 0;
     }
 }
 
