@@ -12172,11 +12172,36 @@ void Server_GetLaunchPosition(unsigned int PlayerId, unsigned int* OutObjId, int
                   "E:\\FL\\Scratch\\Source\\Server\\space\\ServerSpace.cpp", 0x1a3,
                   Players[PlayerId].exited_base_id);
 
-            GameObject* const Base = System->find_object(Players[PlayerId].exited_base_id);
+            GameObject* Base = System->find_object(Players[PlayerId].exited_base_id);
+            // Port guard: retail looks the base up as an object id and reads through a miss. A
+            // base's solar has its own nickname (a planet Bw01_01 with base = bw01_01_base and
+            // no docking ring), so take the solar whose base = names it; with none either, the
+            // launch is from the system's centre.
+            if (Base == nullptr)
+            {
+                MetaNode<GameObject>* Node = nullptr;
+                while (Base == nullptr && System->Solars.traverse(Node, true))
+                {
+                    CObject* const Cobj = Node->Data->cobj();
+                    if (Cobj != nullptr && (static_cast<unsigned int>(Cobj->ObjectClass) & 0x303u) == 0x303u &&
+                        (static_cast<CEqObj*>(Cobj)->DockingBaseId & 0x3fffffffu) ==
+                            (Players[PlayerId].exited_base_id & 0x3fffffffu))
+                        Base = Node->Data;
+                }
+            }
             CObject* const BaseRaw = (Base != nullptr) ? Base->Object : nullptr;
             CSimple* const BaseSimple =
                 (BaseRaw != nullptr && (static_cast<unsigned int>(BaseRaw->ObjectClass) & 3u) == 3u)
                     ? static_cast<CSimple*>(BaseRaw) : nullptr;
+            if (BaseSimple == nullptr)
+            {
+                OutPos->x = 0.0f;
+                OutPos->y = 0.0f;
+                OutPos->z = 0.0f;
+                OutOrient->w = 1.0f;
+                OutOrient->x = OutOrient->y = OutOrient->z = 0.0f;
+                return;
+            }
             Vector const& BasePos = BaseSimple->WorldPosition;       // EBX = EDI + 0x2c
 
             // FUN_06cf4990 / FUN_06cf4960 / FDIVR 1.0f, then three FMUL ST1 / FSTP float.
