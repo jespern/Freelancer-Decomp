@@ -75,6 +75,12 @@ LaunchAction::LaunchAction(IObjRW* DockObj, CEqObj* InBaseObj, int InLaunchType)
     , CoastTimer(0.0f)
 {
     DockObjWatcher.set(DockObj);   // IObjRW -> its Watchable base (+8); null stays null
+    // Port: a reference on the base object (retail keeps the raw pointer). A mission that
+    // respawns the dock the player launches from (M05's bw01_01_dock_ring_1) has the client
+    // reap the old solar while this action still reads BaseObj->Id in update(); retail read
+    // the freed memory, the port keeps the object alive until the action is gone
+    // (docs/re/deviations.md, COMMON-LAUNCHACTION-BASEREF).
+    BaseObj->AddRef();
     LaunchPos.x = 0.0f;
     LaunchPos.y = 0.0f;
     LaunchPos.z = 0.0f;
@@ -116,6 +122,9 @@ LaunchAction::~LaunchAction()
             BM->clear_directive_callback(this);
         }
     }
+
+    // Port: the reference the constructor took (COMMON-LAUNCHACTION-BASEREF).
+    BaseObj->Release();
 
     // .text:062aff36: the watcher member's destructor (unlink when watching) runs after
     // this body.

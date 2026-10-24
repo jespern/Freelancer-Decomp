@@ -26,6 +26,12 @@ Retail has no subtitles: `FUN_00425080` goes from the batcher flush (`0x0042508f
 
 The port's `EndSceneHalf` calls `DrawClientSubtitles` (`src/freelancer/Client/client_subtitles.cpp`) after `MaterialBatcher->FlushAll(1)`, before the CLIENT-BETA-LABEL overlay. Once per frame it walks the playing-source list `DAT_00667c70` through the port-only `VisitPlayingClientSounds` (`menu_sound_arch.cpp`, a read-only copy of `FUN_00428000`'s walk). It keys each source by its archetype, a VoiceMsg by `<profile>:<message id>` or a SoundImpl by its wav path, looks the key up in `bin/subtitles.txt` (compiled from the community FLSubs pack by the macOS port's `tools/subtitles.py`), and draws the captions with Font::String in the `fonts.ini` faces. It changes no sound state; `GetStartTick` (which latches flag 8) is not called, and timed captions use the overlay's own clock. `main.cpp` releases its strings (`ShutdownClientSubtitles`) before `FontShutdown`, next to `ShutdownClientTickProfile`. `FLWIN_SUBTITLES=0` turns it off.
 
+## Common: LaunchAction holds a reference to its base object (COMMON-LAUNCHACTION-BASEREF, 2026-10-24)
+
+Status: OPEN — intentional port deviation. Owner: jespern; Common.dll / LaunchAction. Removal condition: none (memory safety).
+
+Retail's LaunchAction (FUN_062afda0) keeps the base object at +0x24 as a raw pointer. When a mission respawns the solar the player launches from (Mission 5: `Act_SpawnSolar = bw01_01_dock_ring_1` on the Sprague launch), the client reaps the old solar (`ClientObjDb_Reap` → `~FClientSolarGameobj` → `CObject::Release`) while the action is still running, and `LaunchAction::update` reads `BaseObj->Id` from freed memory — in retail a harmless stale read, in the port an AddressSanitizer heap-use-after-free (`tools/mission/campaign.sh` under `game-asan`). The port's constructor takes `CObject::AddRef` on the base object and the destructor releases it; nothing else changes, the object only outlives its removal from the database by the action's own lifetime.
+
 ## Client: widescreen resolutions, Hor+ cameras (WIDESCREEN, 2026-10-16)
 
 Status: OPEN — intentional port-only feature at the owner's direct request. Owner: Giperion; freelancer.exe / Client. Removal condition: only an explicit instruction from Giperion. All code is under `FREELANCER_WIDESCREEN_SUPPORT`; a build with `/p:FreelancerWidescreenSupport=0` (the "Freelancer — diagnostics" sheet → "Widescreen resolutions" = Off) gives retail 4:3 behaviour. Do not close on a retail audit.
