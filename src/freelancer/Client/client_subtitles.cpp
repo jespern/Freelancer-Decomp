@@ -57,7 +57,9 @@ namespace
         {"Cinematic", "NewsTicker", 175.f, 885.f, 1050.f, 140.f, AnchorStretch, 1, true, 0xffe0c387u, 250},
         {"News", "NewsTicker", 175.f, 10.f, 1050.f, 140.f, AnchorStretch, 1, false, 0xff30f0ccu, 250},
         {"Ingame", "Normal", 164.f, 78.f, 512.f, 140.f, AnchorLeft, 0, false, 0xffe0c387u, 1500},
-        {"Ingame_BG", "Normal", 164.f, 5.f, 512.f, 72.f, AnchorLeft, 0, false, 0xff1dbf3bu, 1500},
+        // Other ships' chatter goes under the comm line (FLSubs had it at the top edge, where the
+        // nav bar and its tooltips are).
+        {"Ingame_BG", "Normal", 164.f, 222.f, 512.f, 72.f, AnchorLeft, 0, false, 0xff1dbf3bu, 1500},
         {"Ingame_NN", "Normal", 1110.f, 62.f, 284.f, 120.f, AnchorRight, 1, false, 0xffff5aceu, 1500},
     };
     int const kAreaCount = static_cast<int>(sizeof(kAreas) / sizeof(kAreas[0]));
@@ -324,7 +326,15 @@ namespace
                 ++Last->Live;
                 return Last->Id;
             }
-            if (Last->Live == 0 && Now - Last->Ended <= kJoinGapMs)
+            // Only fragments join: a previous caption that didn't end its sentence ("Planet
+            // Manhattan"), or a continuation (", this is", "-", a lowercase start). Whole
+            // sentences in quick succession -- a radio exchange -- are captions of their own,
+            // or one line would grow for as long as the talking goes on.
+            bool const bPrevFragment = !Last->Text.empty() && !EndsSentence(Last->Text.back());
+            bool const bContinuation = Caption.Text[0] == L',' || Caption.Text[0] == L'-' ||
+                                       iswlower(Caption.Text[0]);
+            if (Last->Live == 0 && Now - Last->Ended <= kJoinGapMs &&
+                (bPrevFragment || bContinuation) && Last->Text.size() < 200)
             {
                 JoinFragment(Last->Text, Caption.Text);
                 Last->Live = 1;
