@@ -5,6 +5,7 @@
 // Author: Giperion.
 
 #include "character_select_equip.h"
+#include "hd_console.h" // HD: console.dll "show"
 
 #include "server_characterset.h"
 #include "common_id.h"
@@ -492,10 +493,18 @@ bool GetPlayerVisitFlagsRetail(unsigned Id, unsigned char* OutFlags, unsigned Ar
     // [ESP+0xc] and [ESP+0x10] of the frame, i.e. arguments 1 and 2).
     (void)Arg3;
     (void)Arg4;
+    // HD: console.dll's "show" / "show paths" -- every object and zone counts as visited (bit 1)
+    // / a known patrol path (bit 4) while they are on.
+    unsigned char const Extra = HdConsoleEnabled() ? HdConsoleVisitBits() : 0;
     std::map<unsigned, unsigned char>::const_iterator const It = G_PlayerVisitMap.find(Id);
     if (It == G_PlayerVisitMap.end())
-        return false;
-    *OutFlags = It->second;
+    {
+        if (Extra == 0)
+            return false;
+        *OutFlags = Extra;
+        return true;
+    }
+    *OutFlags = static_cast<unsigned char>(It->second | Extra);
     return true;
 }
 

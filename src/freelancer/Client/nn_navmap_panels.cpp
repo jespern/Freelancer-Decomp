@@ -8,6 +8,7 @@
 // view's jump links. See nn_navmap.h. Retail Client\Interface\NeuroNet\NavMap.cpp.
 
 #include "nn_navmap.h"
+#include "hd_console.h" // HD: console.dll nav-map commands
 #include "nn_navmap_multiuniverse.h" // the port: Discovery's MultiUniverse
 #include "best_path.h"               // BestPathGetWaypointCount / BestPathGetWaypoint / First
 #include "character_select_equip.h"  // GetPlayerStarSystemIdRetail, GetPlayerVisitFlagsRetail
@@ -466,8 +467,8 @@ void NeuroNetNavMap::SetFilterMode(int Mode)
         CloseInfocardText->Flags = static_cast<unsigned char>(CloseInfocardText->Flags & 0xfc);
         if (ViewMode == 0)
         {
-            for (int Index = 0; Index < 4; ++Index)
-                FactionLabels[Index]->SetProperty(1, 0, 0);
+            for (int Index = 0; Index < 4; ++Index) // HD: console.dll "show houses" hides them
+                FactionLabels[Index]->SetProperty(1, HdConsoleEnabled() && !HdConsoleHouseLabels() ? 1 : 0, 0);
         }
         else
         {

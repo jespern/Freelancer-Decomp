@@ -9,6 +9,7 @@
 // and the side panels' slide. See nn_navmap.h. Retail Client\Interface\NeuroNet\NavMap.cpp.
 
 #include "nn_navmap.h"
+#include "hd_console.h" // HD: console.dll nav-map commands
 #include "nn_navmap_multiuniverse.h" // the port: Discovery's MultiUniverse
 #include "character_select_equip.h" // GetPlayerStarSystemIdRetail (FUN_004c4830)
 #include "DALib.h"                  // DALib::Engine
@@ -266,7 +267,8 @@ void NeuroNetNavMap::ZoomToClick()
     TransitionStart[1] = PanOffset[1];
     bTransition = 1;
     TransitionView = 2;
-    TransitionDuration = kNavMapZoomSeconds;
+    TransitionDuration = HdConsoleEnabled() ? HdConsoleNavMapZoomSeconds(kNavMapZoomSeconds)
+                                            : kNavMapZoomSeconds; // HD: console.dll "zoom"
     TransitionStart[2] = PanOffset[2];
     double const Distance = static_cast<double>(MapExtentX) / static_cast<double>(ZoomScale);
     TransitionDelta[2] = static_cast<float>(
@@ -434,8 +436,8 @@ void NeuroNetNavMap::EnterUniverseView()
     HostileFilter->SetProperty(1, 1, 0);
     FriendlyFilter->SetProperty(1, 1, 0);
     FilterTitle->SetProperty(1, 1, 0);
-    for (int Index = 0; Index < 4; ++Index)
-        FactionLabels[Index]->SetProperty(1, 0, 0);
+    for (int Index = 0; Index < 4; ++Index) // HD: console.dll "show houses" hides them
+        FactionLabels[Index]->SetProperty(1, HdConsoleEnabled() && !HdConsoleHouseLabels() ? 1 : 0, 0);
 
     // 0049e7e9..0049e87a: no pan, the items placed, the grid hidden, the title "Universe"
     // (ids 0x505).

@@ -9,6 +9,7 @@
 // prompt, the known-bases list). See nn_navmap.h. Retail Client\Interface\NeuroNet\NavMap.cpp.
 
 #include "nn_navmap.h"
+#include "hd_console.h" // HD: console.dll nav-map commands
 #include "nn_navmap_multiuniverse.h" // the port: Discovery's MultiUniverse
 #include "hd_plugins.h"
 #include "best_path.h"               // G_BestPaths (DAT_00672950), BestPathGetFirst / HasText
@@ -555,7 +556,8 @@ intptr_t NeuroNetNavMap::SetProperty(int Msg, uintptr_t A, uintptr_t B)
         TransitionDelta[2] = static_cast<float>(static_cast<double>(MapExtentX) - Distance);
         TransitionView = 1;
         TransitionTime = 0.0f;
-        TransitionDuration = kNavMapZoomOutSeconds;
+        TransitionDuration = HdConsoleEnabled() ? HdConsoleNavMapZoomSeconds(kNavMapZoomOutSeconds)
+                                                : kNavMapZoomOutSeconds; // HD: console.dll "zoom"
         NnToolTipHideGlobal(); // FUN_004be390
         PlayOrRewindUiSoundSlot(7);
         return 1;
