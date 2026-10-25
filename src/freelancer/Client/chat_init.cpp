@@ -26,6 +26,7 @@
 
 #include "character_select_equip.h"   // GetPlayerSpawnSystemIdRetail (FUN_004c4670)
 #include "chat_msg_win.h"
+#include "discovery_server_messages.h" // Discovery: HandleChat (the server plugins' commands)
 #include "chat_text_input.h"          // ChatTextInputDisplay ("CTID")
 #include "hud_command_dispatch.h"     // HudRegisterCommandHandler / HudDestroyEventHandler
 #include "ids_rdl.h"
@@ -656,6 +657,11 @@ void ChatDispatchIncoming(CHAT_ID Sender, void const* Buffer, unsigned SizeBytes
             G_ChatGroupControl->HandleInviteMessage(Buffer, SizeBytes);
         return;
     }
+
+    // Discovery: a server plugin's command in chat form (" ResetMarketOverride", ...) is acted
+    // on and not shown, as the directplay8.dll client plugin does.
+    if (DiscoveryServerMessages::HandleChat(Buffer, SizeBytes))
+        return;
 
     // 0x0046a180..0x0046a228: FUN_004683b0 inlined (with FUN_0046a300 for the empty pool).
     FChatMessageEntry* const Entry = ChatAcquireEntry();

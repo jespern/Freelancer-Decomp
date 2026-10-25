@@ -6,6 +6,8 @@
 
 #pragma once
 
+#include "client_base_market.h" // FClientMarket
+
 // Retail Gf\LocationController.cpp -- the singleton DAT_00668708: the base / room registry and
 // the base and location changes (enter, leave, load, unload) every client state goes through.
 
@@ -112,6 +114,12 @@ void LeaveClientLocationBase();
 // base frame FUN_00558c10.
 void DrawClientLocation();
 unsigned GetClientLocationCurrentBase();  // this+0x34
+// Not retail (the port, for Discovery's server messages): the market of BaseId's runtime, or
+// null when the base is not loaded -- GetClientLocationBaseMarket FDUMPs and reads through null
+// on a miss. RefillClientLocationBaseMarket fills that market again from the base's BaseData
+// (as the load does, FUN_00437de0); false when the base is not loaded.
+FClientMarket* TryGetClientLocationBaseMarket(unsigned BaseId);
+bool RefillClientLocationBaseMarket(unsigned BaseId);
 // FUN_0043bc90 (thiscall on DAT_00668708) -- this+0x54, the loaded base's solar object id
 // (FUN_004397a0). Callers (unported): 0x00440819 / 0x0044103e / 0x004411f9.
 unsigned GetClientLocationBaseSolarId();

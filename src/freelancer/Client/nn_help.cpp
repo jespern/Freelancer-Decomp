@@ -16,6 +16,7 @@
                                     // ClientMarketGetPrice (FUN_00438060)
 #include "client_gameobj.h"         // FClientGameobj
 #include "client_objdb.h"           // ClientObjDb_FindObject (FUN_005416c0)
+#include "discovery_server_messages.h" // Discovery: BaseInfoText (a player base's status)
 #include "hud_status_core.h"        // HudSampleShieldHitPoints (FUN_004d4b50)
 #include "hud_target.h"             // HudObjectVisitFlags (FUN_004d4d00), HudObjectTypeIds
                                     // (FUN_004d4d50), GetObjectIdsName (FUN_005472a0),
@@ -429,7 +430,17 @@ bool NnHelp::Create(Win3D* NewParent, void* Data)
         RenderDisplayList Card; // [ESP+0x18]
         AppendStyle(Card, 0x9ca4);
 
-        if (IsPlayerDockedRetail())
+        wchar_t const* const DiscoveryBaseInfo =
+            IsPlayerDockedRetail() ? DiscoveryServerMessages::BaseInfoText() : nullptr;
+        if (DiscoveryBaseInfo != nullptr)
+        {
+            // Discovery: docked at a player base, the status its server sent (SetBaseInfoText2,
+            // an RDL: name and system, core, cargo, money, hit points, crew, modules) in place of
+            // the base's infocard, which a player base (a proxy base) has none of.
+            AppendTextMaybeXmlRdl(DiscoveryBaseInfo, static_cast<unsigned>(wcslen(DiscoveryBaseInfo)),
+                                  Card, false);
+        }
+        else if (IsPlayerDockedRetail())
         {
             // 0x00474e43..0x00474e5b: the base's strid_name; nothing more without it or the
             // system's.

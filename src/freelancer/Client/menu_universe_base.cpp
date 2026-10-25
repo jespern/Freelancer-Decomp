@@ -683,6 +683,24 @@ FClientMarket* GetClientLocationBaseMarket(unsigned BaseId)
     return &Entry->Runtime->Market;
 }
 
+FClientMarket* TryGetClientLocationBaseMarket(unsigned BaseId)
+{
+    std::map<unsigned, FLocationBaseEntry*>::const_iterator It = G_LocationBaseById.find(BaseId);
+    if (It == G_LocationBaseById.end() || It->second == nullptr || It->second->Runtime == nullptr)
+        return nullptr;
+    return &It->second->Runtime->Market;
+}
+
+bool RefillClientLocationBaseMarket(unsigned BaseId)
+{
+    std::map<unsigned, FLocationBaseEntry*>::const_iterator It = G_LocationBaseById.find(BaseId);
+    if (It == G_LocationBaseById.end() || It->second == nullptr || It->second->Runtime == nullptr ||
+        It->second->Base == nullptr)
+        return false;
+    ClientMarketFill(&It->second->Runtime->Market, It->second->Base->PriceVariance, It->second->Base);
+    return true;
+}
+
 BaseData* GetClientCurrentLocationBaseData()
 {
     // FUN_0043b630 (thiscall): the same lookup on this+0x34 (FDUMP at 0x100 and a read through

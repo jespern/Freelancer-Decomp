@@ -7,6 +7,9 @@
 #include "client_base_market.h"
 #include "hd_plugins.h"
 
+#include "discovery_server_messages.h" // Discovery: ApplyMarketOverride (a player base's market)
+#include "menu_universe_base.h"        // GetClientLocationCurrentBase
+
 #include "login_mgr.h"    // G_Server (DAT_0067ecd0)
 #include "player_spawn.h" // GetPlayerConnectionId (DAT_00673344)
 
@@ -72,6 +75,11 @@ void ClientMarketFill(FClientMarket* Market, float PriceVariance, BaseData const
         // value with the entry.
         (*Market)[Key] = Entry;
     }
+
+    // Discovery: a player base's market, sent by the server, replaces the data's for its proxy
+    // base (discovery_server_messages.h).
+    DiscoveryServerMessages::ApplyMarketOverride(
+        Base != nullptr ? Base->BaseId : GetClientLocationCurrentBase(), Market);
 }
 
 int ClientMarketCollectCategory(FClientMarket const* Market,

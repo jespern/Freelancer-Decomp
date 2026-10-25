@@ -204,6 +204,7 @@
     <ClInclude Include="Client\nn_dealer.h" />
     <ClInclude Include="Client\commodity_by_base.h" />
     <ClInclude Include="Client\client_base_market.h" />
+    <ClInclude Include="Client\discovery_server_messages.h" />
     <ClInclude Include="Client\swapped_material.h" />
     <ClInclude Include="Client\mirror_property_bucket.h" />
     <ClInclude Include="Client\nn_mission_vendor.h" />
@@ -503,6 +504,7 @@
     <ClCompile Include="Client\nn_dealer.cpp" />
     <ClCompile Include="Client\commodity_by_base.cpp" />
     <ClCompile Include="Client\client_base_market.cpp" />
+    <ClCompile Include="Client\discovery_server_messages.cpp" />
     <ClCompile Include="Client\swapped_material.cpp" />
     <ClCompile Include="Client\nn_mission_vendor.cpp" />
     <ClCompile Include="Client\nn_news.cpp" />

@@ -52,6 +52,8 @@ namespace
         "expanded_hardpoints.dll",
         // Discovery's own plugins (common_discovery_plugins.h).
         "multiCruise.dll", "EquipMass.dll", "MuzzleCone.dll", "ShieldOffline.dll", "chklootvol.dll", "NoNavMap.dll", "scroller.dll", "shipclass.dll", "shipfilter.dll", "moors.dll", "healing.dll", "engclass.dll", "MultiUniverse.dll",
+        // Discovery's client side of its server plugins' chat commands (discovery_server_messages.h).
+        "directplay8.dll",
     };
     std::map<std::string, std::string> GHdPlugins; // lower-case name -> options
 
