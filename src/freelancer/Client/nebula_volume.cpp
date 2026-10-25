@@ -47,6 +47,7 @@
 #include "common_universe.h"
 #include "dacom.h"
 #include "engine_light.h" // the ship light of the lightning (GameLight)
+#include "globals.h"      // G_RenderSurfaceWidth / Height (the march pixel budget)
 #include "render/IRenderPipeline.h"
 #include "render/IRenderPipelineEx.h"
 
@@ -176,6 +177,7 @@ namespace
     {
         float Enabled;
         float ResolutionScale;
+        float MaxMarchPixels;
         float StepCount;
         float StepDistribution;
         float Jitter;
@@ -307,6 +309,7 @@ namespace
     const FSettingKey kSettingKeys[] = {
         {"enabled", &FNebulaVolumeSettings::Enabled},
         {"resolution_scale", &FNebulaVolumeSettings::ResolutionScale},
+        {"max_march_pixels", &FNebulaVolumeSettings::MaxMarchPixels},
         {"step_count", &FNebulaVolumeSettings::StepCount},
         {"step_distribution", &FNebulaVolumeSettings::StepDistribution},
         {"jitter", &FNebulaVolumeSettings::Jitter},
@@ -429,6 +432,7 @@ namespace
         FNebulaVolumeSettings S;
         S.Enabled = 1.0f;
         S.ResolutionScale = 0.5f;
+        S.MaxMarchPixels = 262144.0f;
         S.StepCount = 96.0f;
         S.StepDistribution = 1.5f;
         S.Jitter = 1.0f;
@@ -1064,6 +1068,19 @@ namespace
 
     // ---- resources ------------------------------------------------------------------------
 
+    // The ray march's resolution as a fraction of the back buffer: resolution_scale, lowered
+    // so the march covers at most max_march_pixels. Its cost is per march pixel (96 samples
+    // each), so a fixed scale made a 4K screen nine times as slow as 1280x720; the budget keeps
+    // the cost constant and only the nebula's sharpness follows the screen.
+    float MarchScale(FNebulaVolumeSettings const& Settings)
+    {
+        float Scale = Clamp(Settings.ResolutionScale, 0.125f, 1.0f);
+        const float Pixels = static_cast<float>(G_RenderSurfaceWidth) * static_cast<float>(G_RenderSurfaceHeight);
+        if (Settings.MaxMarchPixels > 0.0f && Pixels > 0.0f && Pixels * Scale * Scale > Settings.MaxMarchPixels)
+            Scale = Clamp(sqrtf(Settings.MaxMarchPixels / Pixels), 0.125f, Scale);
+        return Scale;
+    }
+
     bool CreateVolumeTarget(IRenderPipelineEx* Ex, float Scale)
     {
         if (GVolumeTarget != nullptr)
@@ -1140,7 +1157,7 @@ namespace
             }
         }
 
-        const float Scale = Clamp(Settings.ResolutionScale, 0.125f, 1.0f);
+        const float Scale = MarchScale(Settings);
         if (GVolumeTarget == nullptr || Scale != GVolumeTargetScale)
         {
             if (GbTargetFailed)
