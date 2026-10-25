@@ -15,6 +15,11 @@
 
 #include "freelancer_client.h"
 
+#include <cstdio>
+#include <cstdlib>
+#include <ctime>
+#include <map>
+
 #include "character_select_equip.h"   // player equip / collision / health setters (0x004c4xxx)
 #include "cli_projectile_fx.h"        // FCliLauncherFx::FireDirect (the dropper tails, slots 49..51)
 #include "client_cliobj.h"            // Archetype::LoadMountedEquipmentCompanions (FUN_004252d0)
@@ -436,8 +441,22 @@ namespace
     }
 }
 
+// FLWIN_MP_TRACE: log what the server creates, destroys and moves for this client -- every
+// CREATESOLAR / CREATESHIP / DESTROYOBJECT, the first UPDATEOBJECT for each id, a per-id update
+// count every 5 s and the client's object list every 30 s -- to see which remote objects exist
+// and move. A port development aid, not retail.
+static bool MpTraceOn()
+{
+    static bool const bOn = getenv("FLWIN_MP_TRACE") != nullptr;
+    return bOn;
+}
+
 void IClientImpl::SendServerCreateSolar(unsigned int /*ClientId*/, const CSolarCreateInfo& Info)
 {
+    if (MpTraceOn())
+        fprintf(stderr, "[mp] create solar id=%u arch=%08x pos=(%.0f,%.0f,%.0f) marked=%d vibe=%08x hp=%d dock=%u\n",
+                Info.ObjId, Info.ArchetypeNickname, Info.Position.x, Info.Position.y, Info.Position.z,
+                (int)Info.bMarkedBy, Info.VibeGroupId, Info.HitPts, Info.DockingBaseId);
     if (!PhySys::AnyActive())
     {
         return;
@@ -638,6 +657,16 @@ namespace
 
 void IClientImpl::SendServerCreateShip(unsigned int /*ClientId*/, const CShipCreateInfo& Info)
 {
+    if (MpTraceOn())
+    {
+        fprintf(stderr,
+                "[mp] create ship id=%u arch=%08x pos=(%.0f,%.0f,%.0f) vel=(%.1f,%.1f,%.1f) thr=%.2f "
+                "owner=%u marked=%d group=%u vibe=%08x hp=%d dock=%u lane=%d\n",
+                Info.ObjId, Info.ArchetypeNickname, Info.Position.x, Info.Position.y, Info.Position.z,
+                Info.Velocity.x, Info.Velocity.y, Info.Velocity.z, Info.Throttle, Info.OwnerPlayer,
+                (int)Info.bMarkedBy, Info.Field_0xd8, Info.VibeGroupId, Info.HitPts, Info.DockingBaseId,
+                (int)Info.bUsingTradelane);
+    }
     if (!PhySys::AnyActive())
     {
         return;
@@ -1037,6 +1066,34 @@ void IClientImpl::SendServerExplodeAsteroidMine(unsigned int /*ClientId*/, const
 void IClientImpl::SendCommonUpdateObject(unsigned int /*ClientId*/, const FCommonUpdateObjectInfo& Info)
 {
     FClientGameobj* const Go = ClientObjDb_FindObject(Info.ObjectId, 0);
+    if (MpTraceOn())
+    {
+        static std::map<unsigned int, unsigned int> Counts;
+        static std::map<unsigned int, Vector> Last;
+        static time_t NextSummary = 0;
+        unsigned int const n = ++Counts[Info.ObjectId];
+        if (n == 1 || Go == nullptr)
+            fprintf(stderr, "[mp] update id=%u n=%u pos=(%.0f,%.0f,%.0f) t=%.2f thr=%.2f beh=%u%s\n",
+                    Info.ObjectId, n, Info.Position.x, Info.Position.y, Info.Position.z,
+                    Info.Field_0x20, Info.Field_0x24, (unsigned)Info.Field_0x28,
+                    Go == nullptr ? " (no such object)" : "");
+        Last[Info.ObjectId] = Info.Position;
+        time_t const Now = time(nullptr);
+        if (Now >= NextSummary)
+        {
+            // every 5 s: id:updates@(x,z) for every id seen so far, then the counts restart
+            NextSummary = Now + 5;
+            fprintf(stderr, "[mp] 5s summary:");
+            for (auto const& kv : Counts)
+                fprintf(stderr, " %u:%u@(%.0f,%.0f)", kv.first, kv.second, Last[kv.first].x, Last[kv.first].z);
+            fprintf(stderr, "\n");
+            for (auto& kv : Counts)
+                kv.second = 0;
+            static int Dumps = 0;
+            if (Dumps++ % 6 == 0)   // every 30 s: what the client holds
+                ClientObjDb_MpTraceDump();
+        }
+    }
     if (Go == nullptr)
     {
         return;
@@ -1065,6 +1122,9 @@ void IClientImpl::SendServerDestroyObject(unsigned int /*ClientId*/, const FServ
     unsigned int DestroyType = 0;
     memcpy(&DestroyType, reinterpret_cast<unsigned char const*>(&Info) + 4, sizeof(DestroyType));
     FClientGameobj* const Go = ClientObjDb_FindObject(Info.ObjectId, 0);
+    if (MpTraceOn())
+        fprintf(stderr, "[mp] destroy id=%u type=%u%s\n", Info.ObjectId, DestroyType,
+                Go == nullptr ? " (no such object)" : "");
     if (Go == nullptr)
     {
         return;

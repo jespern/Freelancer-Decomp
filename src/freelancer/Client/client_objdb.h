@@ -56,6 +56,7 @@ void ClientObjDb_Reap();
 FClientGameobj* ClientObjDb_FindByCObject(CObject const* Obj);
 
 unsigned ClientObjDb_GetRegisteredCount();
+void ClientObjDb_MpTraceDump();   // FLWIN_MP_TRACE: list every gameobj on stderr
 unsigned ClientObjDb_GetSize();
 
 bool ClientObjDb_TryGetWorldPosById(unsigned NicknameId, float OutPos[3]);

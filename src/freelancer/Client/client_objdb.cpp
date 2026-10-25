@@ -596,6 +596,27 @@ FClientGameobj* ClientObjDb_FindByCObject(CObject const* Obj)
     return nullptr;
 }
 
+// FLWIN_MP_TRACE (client_iclient_space.cpp): every registered gameobj with its bucket, id,
+// archetype and position, so the trace's summary can be compared with what the server created.
+void ClientObjDb_MpTraceDump()
+{
+    for (int Kind = 1; Kind <= 10; ++Kind)
+    {
+        for (FClientGameobj* Go = G_ClientObjDb.Lists[Kind].First; Go != nullptr; Go = Go->ListNext)
+        {
+            if (Go->Object == nullptr)
+            {
+                fprintf(stderr, "[mp]  objdb kind=%d (no object)\n", Kind);
+                continue;
+            }
+            Archetype::Root* const Arch = Go->Object->get_archetype();
+            Vector const& Pos = Go->get_position();
+            fprintf(stderr, "[mp]  objdb kind=%d id=%u arch=%08x pos=(%.0f,%.0f,%.0f)\n", Kind, Go->get_id(),
+                    Arch != nullptr ? Arch->get_id() : 0u, Pos.x, Pos.y, Pos.z);
+        }
+    }
+}
+
 unsigned ClientObjDb_GetRegisteredCount()
 {
     return TotalCount(&G_ClientObjDb);
