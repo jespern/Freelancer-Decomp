@@ -628,8 +628,14 @@ namespace
         bool bBlank = Line.find_first_not_of(L" \t") == std::wstring::npos;
         if (bBlank && !SinglePlayer())
             return;
-        if (G_HdChatHistory.empty() || G_HdChatHistory.back() != Line)
-            G_HdChatHistory.push_back(Line);
+        // FUN_06117450: an earlier identical line is unlinked, then the line goes last.
+        for (size_t Index = 0; Index < G_HdChatHistory.size(); ++Index)
+            if (G_HdChatHistory[Index] == Line)
+            {
+                G_HdChatHistory.erase(G_HdChatHistory.begin() + static_cast<long>(Index));
+                break;
+            }
+        G_HdChatHistory.push_back(Line);
         G_HdChatHistoryPos = G_HdChatHistory.size();
     }
 

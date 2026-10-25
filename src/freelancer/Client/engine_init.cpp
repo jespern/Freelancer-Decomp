@@ -22,6 +22,7 @@
 #include "common_ini.h"
 #include "common_async.h"      // Async::Startup
 #include "common_dataconfig.h" // DataConfig::startup, DataConfig::ProgressCB
+#include "hd_console.h"        // HdConsoleRegisterResources, HdConsoleLoadShiplessShip
 #include "common_misc.h"       // GetFileSysPath, DAEngine_create_filesystem
 #include "common_timing.h"     // Timing::init
 #include "dacom.h"
@@ -939,6 +940,9 @@ bool InitializeEngine(const FClientCommandLine* CommandLine)
               "Config::startup() failed.\n");
         return false;
     }
+    // HD: console.dll's shipless placeholder, loaded after the [Data] ships (its wrapper of the
+    // Archetype::LoadShips import, 0x005c6cb8).
+    HdConsoleLoadShiplessShip(&Archetype::GCliObjFactory);
 
     RefreshLoadingProgress();
     if (!PumpInitMessages())
@@ -951,6 +955,7 @@ bool InitializeEngine(const FClientCommandLine* CommandLine)
     LoadClientIniData(g_display.ini_path.c_str());
     ShipViewRegisterEngClass(); // Discovery engclass.dll (in LoadClientIniData, 0x005b0fad)
     HdZoneRegisterResources(); // HD: Zone.dll's strings after [Resources] (0x005b1cb3)
+    HdConsoleRegisterResources(); // HD: console.dll's strings and help pages (its hook at 0x005b1cab)
     ShipTraderRegisterShipClasses(); // Discovery shipclass.dll (0x005b1caa)
     if (!PumpInitMessages())
         return false;

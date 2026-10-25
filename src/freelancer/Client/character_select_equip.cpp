@@ -124,6 +124,22 @@ namespace
 
 unsigned GetPlayerShipArchetypeIdRetail()
 {
+    // HD: console.dll detours FUN_004c3e10 (its JMP at 0x004c3e15 to 0x06114450): the shipless
+    // placeholder a parked player has reads as no ship (0) to every caller except those that
+    // draw or stock the ship itself (GetPlayerShipArchetypeIdRaw at those sites).
+    if (HdConsoleEnabled())
+    {
+        int const Forced = HdConsoleForcedShipArch();
+        if (Forced >= 0)
+            return static_cast<unsigned>(Forced);
+        if (HdConsoleIsShiplessArch(G_PlayerShipArchetypeId))
+            return 0;
+    }
+    return G_PlayerShipArchetypeId;
+}
+
+unsigned GetPlayerShipArchetypeIdRaw()
+{
     return G_PlayerShipArchetypeId;
 }
 
@@ -493,8 +509,8 @@ bool GetPlayerVisitFlagsRetail(unsigned Id, unsigned char* OutFlags, unsigned Ar
     // [ESP+0xc] and [ESP+0x10] of the frame, i.e. arguments 1 and 2).
     (void)Arg3;
     (void)Arg4;
-    // HD: console.dll's "show" / "show paths" -- every object and zone counts as visited (bit 1)
-    // / a known patrol path (bit 4) while they are on.
+    // HD: console.dll's "show" -- the function's tail at 0x004c4df1 becomes `MOV ECX,[ESP+8];
+    // OR BYTE PTR [ECX],1; RET`: every object and zone counts as visited while it is on.
     unsigned char const Extra = HdConsoleEnabled() ? HdConsoleVisitBits() : 0;
     std::map<unsigned, unsigned char>::const_iterator const It = G_PlayerVisitMap.find(Id);
     if (It == G_PlayerVisitMap.end())

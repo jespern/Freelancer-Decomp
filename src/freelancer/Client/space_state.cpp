@@ -1171,6 +1171,7 @@ int UpdateSpaceState(SpaceApp* State, float DeltaSeconds)
         ClientObjDb_UpdateRemotePhysics(DeltaSeconds);
     // 0x0054b175..0x0054b177: FUN_0054a940(this) -- a pending system switch (DAT_0067977c) or
     // landing (DAT_00679784).
+    HdConsoleSpaceTick(); // HD: console.dll's animation thread and launch hook
     ProcessPendingSystemSwitch();
 
     // 0x0054b17c..0x0054b1b5: the player's last position (slot 0) and orientation (slot 0xc)

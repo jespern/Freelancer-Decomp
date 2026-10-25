@@ -301,3 +301,33 @@ Rule for new code: a port of a call to `MSVCRT.DLL::atoi`/`atol`/`_wtoi`/`_wtol`
 **Retail.** `WinMain` starts with `CreateMutexA(NULL, FALSE, "FreelancerClient")` (.text:005b2f87..005b2fac); a null handle or `GetLastError() == ERROR_ALREADY_EXISTS` (0xb7) jumps to the exit (LAB_005b3385) and returns 1, so only one client runs per machine.
 **Port.** The same code, compiled only when `FL_SINGLE_INSTANCE` is defined. Nothing defines it, so by default the client creates no mutex and any number of instances start.
 **Why.** The owner tests multiplayer by running several local clients against one FLServer.
+
+## Client / Server: HD Edition console.dll -- the "system" switch as code, not patches (HD-CONSOLE-SWITCH, 2026-10-25)
+
+Status: OPEN -- intentional port deviation in mechanism; the effect is the DLL's. Owner: jespern; freelancer.exe / Client, Server.dll, Common.dll. Removal condition: none. Only with the HD profile's `console.dll` (`HdConsoleEnabled()`).
+
+console.dll's `system <sys> ...` (FUN_061134d0, [hd_console.md](hd_console.md)) rewrites Server.dll's `SystemSwitchOutComplete` (`0x06cef6d7`, `0x06cef719`, `0x06cef85d`, `0x06cef866`, `0x06cef8b0..`, `0x06cef988`, `0x06cef9c8`) and, from a base, hooks `CShip::launch` (`0x062b2a81`, where it also forces the LaunchAction's flags to 0x100) and `CEqObj::launch_pos` (`0x062aa9df`). The port keeps the same control flow with state instead of code writes: `FHdConsoleServerApi::SetSystemSwitch` is consumed once by `IServerImpl::SystemSwitchOutComplete` (`IServerImpl.cpp`), the client arms `DAT_0067977c` itself once the launched ship is in space and its LaunchAction has finished (`HdConsoleSpaceTick`; the DLL arms it inside `CShip::launch`, which in the port left the base's CSolar referenced across the system unload and faulted in `PhySys::DeactivatePhysics` at the next landing), so with no position given the ship keeps the end of its launch coast rather than the dock point, and `launch_pos` reads a flag (`HdConsoleLaunchFromDockPoint`). The LaunchAction flag write is not reproduced (it only changes how the launch animates). This replaces the port's earlier save-and-reload switch.
+
+## Client: HD Edition console.dll -- "xfer" not reproduced (HD-CONSOLE-XFER, 2026-10-25)
+
+Status: OPEN -- not implemented. Owner: jespern; freelancer.exe / Client. Removal condition: a transfer mode of the dealer window (`NnDealer` / `NnInventory`) that moves items between the player's ship and a stored one.
+
+The DLL's `xfer` (FUN_06115160) opens the equipment dealer over a copy of the client market in which the stored ship's items are the stock at price 0, with ~30 byte patches of the dealer and inventory windows (`0x00437fb5`..`0x00483ad0`: titles ids 141 / 142, counts, limits) and a result hook (`0x06114d20`) that moves what was bought and sold into the stored record. The port runs the command's checks and messages and then prints that the window is not available.
+
+## Client: HD Edition console.dll -- the room's player ship while shipless (HD-CONSOLE-SHIPLESS-ROOM, 2026-10-25)
+
+Status: OPEN -- intentional port simplification. Owner: jespern; freelancer.exe / Client. Removal condition: none planned.
+
+While the player is parked (the `shipless_ship` placeholder) the DLL hides the room script's "player" entity through its hooks of `FUN_0044eb20` / `FUN_0044ed90` / `FUN_0044f970` (`0x0044eb74`, `0x0044f021`, `0x0044f072`, `0x0044f985`), notes the "Equipment" room (`0x0043f664`) and flips a byte in `NN_MissionVendor` (`0x0048b8fe`). The port relies on the placeholder's invisible model (`csv_shield.3db`) and on `GetPlayerShipArchetypeIdRetail` answering 0; the pad's fixtures stay as they are.
+
+## Client: HD Edition console.dll -- where the command runs (HD-CONSOLE-ECHO, 2026-10-25)
+
+Status: OPEN -- intentional port deviation in mechanism. Owner: jespern; freelancer.exe / Client. Removal condition: none.
+
+The DLL runs a command when the single-player server echoes the chat line back (`0x005a6260` in the IClient CHATMSG handler, the text taken from the send buffer `DAT_0066d4f2`) and drops the echo unless the handler produced output. The port runs it from the chat input's Enter (`ChatTextInputDisplay::OnKeyDown`) and never submits the line; the output goes to the chat window the same way. Visible only in timing (no round trip).
+
+## Client: HD Edition console.dll -- "anim" without a thread (HD-CONSOLE-ANIM, 2026-10-25)
+
+Status: OPEN -- intentional port deviation. Owner: jespern; freelancer.exe / Client. Removal condition: none.
+
+The DLL polls a running animation from a thread (`LAB_06112c50`, every 100 ms) that exits, keeping the handle, when the player's CShip changes. The port polls once per space frame (`HdConsoleSpaceTick`) and forgets the handle when the ship changes (the DLL's 1.24 "don't crash if an animation is only used once" fix covers the same case).

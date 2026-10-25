@@ -135,7 +135,7 @@ public:
     // FUN_004bc2a0 -- rebuild the history text from the history list.
     void RebuildHistoryText();
     // FUN_004bc830 -- "Load Autosave": reload the auto-save character.
-    void LoadAutosave();
+    void LoadAutosave();           // FUN_004bc830 (thiscall; `this` unused)
 
     int Field_0x32c;                // +0x32c -- TODO: never written or read by this class
     WinControl* CloseButton;        // +0x330 "StoryStarCloseButton"
@@ -280,3 +280,6 @@ void StoryStarResolveIds(FmtStr* Text);
 // (or the rank-up) when no other NeuroNet window is in the way. Caller: NN_MainButton::Update
 // (0x0045c949).
 void StoryStarTick();
+
+// FUN_004bc830 as the cdecl call console.dll makes (hd_console.cpp "autoload").
+void NnStoryStarLoadAutosave();

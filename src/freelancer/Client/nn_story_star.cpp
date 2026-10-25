@@ -1250,6 +1250,12 @@ void NeuroNetStoryStar::RebuildHistoryText()
     Target->AppendContent(Rdl);
 }
 
+void NnStoryStarLoadAutosave()
+{
+    // FUN_004bc830 never reads `this` (HD: console.dll's "autoload" calls it with none).
+    static_cast<NeuroNetStoryStar*>(nullptr)->LoadAutosave();
+}
+
 void NeuroNetStoryStar::LoadAutosave()
 {
     // FUN_004bc830 (thiscall; `this` unused).

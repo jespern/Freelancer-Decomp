@@ -1467,6 +1467,34 @@ void NavBar::OnMoveFinished()
     }
 }
 
+void NavBarLaunch()
+{
+    // 0x00440f94..0x00441036: launch -- the equipment checked, the ship's launch script
+    // (or straight to the mission briefing), then the bar and its controls destroyed. (HD:
+    // console.dll's "launch" jumps here, 0x00440f94, with the button's frame rebuilt.)
+    if (!CheckLaunchEquipment())
+        return;
+    if (GetPlayerShipArchetypeIdRetail() == 0)
+        return;
+    FObjectShip* const Ship = GfObjectShip();
+    if (Ship != nullptr)
+        Ship->PlayLaunchScript();
+    else
+        RequestGameflowMissionBriefing();
+    Win3D* const Found = Win3DFindByName("NavBar");
+    if (Found == nullptr)
+        return;
+    NavBar* const Bar = static_cast<NavBar*>(Found);
+    if (Bar->ScaledBackground != nullptr)
+    {
+        Win3DDeleteTree(Bar->ScaledBackground);
+        Bar->ScaledBackground = nullptr;
+    }
+    NavBarDeleteRoomControls();
+    Bar->Destroy();
+    delete Bar; // usually this -- nothing after it touches a member
+}
+
 void NavBar::OnButtonClicked(FNavBarButton* Button)
 {
     // FUN_00440ac0 (RET 4).
@@ -1537,32 +1565,8 @@ void NavBar::OnButtonClicked(FNavBarButton* Button)
         return;
     }
     case 4:
-    {
-        // 0x00440f94..0x00441036: launch -- the equipment checked, the ship's launch script
-        // (or straight to the mission briefing), then the bar and its controls destroyed.
-        if (!CheckLaunchEquipment())
-            return;
-        if (GetPlayerShipArchetypeIdRetail() == 0)
-            return;
-        FObjectShip* const Ship = GfObjectShip();
-        if (Ship != nullptr)
-            Ship->PlayLaunchScript();
-        else
-            RequestGameflowMissionBriefing();
-        Win3D* const Found = Win3DFindByName("NavBar");
-        if (Found == nullptr)
-            return;
-        NavBar* const Bar = static_cast<NavBar*>(Found);
-        if (Bar->ScaledBackground != nullptr)
-        {
-            Win3DDeleteTree(Bar->ScaledBackground);
-            Bar->ScaledBackground = nullptr;
-        }
-        NavBarDeleteRoomControls();
-        Bar->Destroy();
-        delete Bar; // usually this -- nothing after it touches a member
+        NavBarLaunch();
         return;
-    }
     case 5:
     case 8:
     {

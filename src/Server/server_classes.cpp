@@ -6,6 +6,7 @@
 
 #include "../include/common_server.h"
 #include "../include/hd_plugins.h"
+#include "../include/hd_console_api.h" // HdConsoleOnSaveDeleted
 #include "../include/common_expanded_hardpoints.h" // the port: Discovery's hardpoint subtypes
 #include "../include/common_net.h"
 #include "../include/common_physys.h"
@@ -3107,7 +3108,9 @@ bool __cdecl PlayerData_DestroyCharacter(PlayerData& Slot, CHARACTER_ID const& I
     CiString CharacterKey(Record.FileName);
     Players.DeleteCharacterFromID(CharacterKey);
 
-    // .text:06d4a177 -- _unlink(path).
+    // .text:06d4a177 -- _unlink(path). HD: console.dll's hook here deletes its "<save>.fls"
+    // ship store with the file (hd_console_api.h SetSaveFileHooks).
+    HdConsoleOnSaveDeleted(Path);
     _unlink(Path);
 
     // .text:06d4a18d -- FUN_06d57760: erase the record from +0x50.

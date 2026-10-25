@@ -6,6 +6,7 @@
 
 #include "../include/common_server.h"
 #include "../include/hd_plugins.h"
+#include "../include/hd_console_api.h" // HdConsoleTakeSystemSwitch (SystemSwitchOutComplete)
 #include "../include/server_iserverimpl.h"   // IServerImpl, Server
 #include "../include/server_cobject.h"
 #include "../include/server_gameobject.h"
@@ -1195,21 +1196,38 @@ void IServerImpl::SystemSwitchOutComplete(unsigned int ship_id, unsigned int ses
         // right after controller event 0x11) stores the jump object's id, so the
         // name is a misnomer -- here it is the gate the ship jumped out through.
         unsigned int* const GateIdField = &static_cast<Ship*>(Obj)->DeathSequenceObjId;   // [ESP+0x48]
-        GameObject* const Gate = Sys->find_object(*GateIdField, 0xc40);
-        if (Gate == nullptr) return;
-        CObject* const GateRaw = Gate->Object;
-        if (GateRaw == nullptr) return;
-        if ((static_cast<unsigned int>(GateRaw->ObjectClass) & 0x303u) != 0x303u) return;
-        CSolar* const GateSolar = static_cast<CSolar*>(GateRaw);
+        // HD: console.dll's "system" command (hd_console_api.h SetSystemSwitch) patches this
+        // function for one switch: the gate test's JE at 0x06cef6d7 becomes a JMP to 0x06cef719,
+        // where `MOV EAX,[EDI+0x1b8]` has become `MOV EBX,<system>` -- no gate, the destination
+        // system is the console's and the arrival object's nickname is whatever EAX held (the
+        // null gate, so none).
+        unsigned int ConsoleSystem = 0, ConsoleObject = 0;
+        Vector ConsolePos;
+        Matrix ConsoleOrient;
+        bool const bConsoleSwitch =
+            HdConsoleTakeSystemSwitch(session_id, &ConsoleSystem, &ConsoleObject, &ConsolePos, &ConsoleOrient);
+        unsigned int DestSystemId = ConsoleSystem;
+        ID_String DestGate;
+        DestGate.Id = 0;
+        char const* GateNickname = "";
+        if (!bConsoleSwitch) {
+            GameObject* const Gate = Sys->find_object(*GateIdField, 0xc40);
+            if (Gate == nullptr) return;
+            CObject* const GateRaw = Gate->Object;
+            if (GateRaw == nullptr) return;
+            if ((static_cast<unsigned int>(GateRaw->ObjectClass) & 0x303u) != 0x303u) return;
+            CSolar* const GateSolar = static_cast<CSolar*>(GateRaw);
 
-        // .text:06cef708 .. 06cef70c -- get_type_bits (vt +0x154); the result is
-        // dropped (EAX is overwritten at .text:06cef718).
-        (void)Gate->get_type_bits();
+            // .text:06cef708 .. 06cef70c -- get_type_bits (vt +0x154); the result is
+            // dropped (EAX is overwritten at .text:06cef718).
+            (void)Gate->get_type_bits();
 
-        // .text:06cef712 .. 06cef71f -- destination system (+0x1b4) and the
-        // arrival object's nickname (+0x1b8, kept at [ESP+0x14]).
-        unsigned int const DestSystemId = GateSolar->DestSystem;
-        ID_String DestGate = GateSolar->DestGate;
+            // .text:06cef712 .. 06cef71f -- destination system (+0x1b4) and the
+            // arrival object's nickname (+0x1b8, kept at [ESP+0x14]).
+            DestSystemId = GateSolar->DestSystem;
+            DestGate = GateSolar->DestGate;
+            GateNickname = GateSolar->Nickname.get_string();
+        }
 
         // .text:06cef723 .. 06cef765 -- FUN_06d00280; a miss FDUMPs (the gate's
         // nickname is pushed though the format has no slot for it) and returns.
@@ -1217,7 +1235,7 @@ void IServerImpl::SystemSwitchOutComplete(unsigned int ship_id, unsigned int ses
         if (DestSys == nullptr) {
             FDUMP(0x100001, "%s(%d) : *** ERROR: FATAL: Couldn't find gate destination system!",
                   "E:\\FL\\Scratch\\Source\\Server\\space\\IServerS.cpp", 0x6b,
-                  GateSolar->Nickname.get_string());
+                  GateNickname);
             return;
         }
 
@@ -1260,8 +1278,17 @@ void IServerImpl::SystemSwitchOutComplete(unsigned int ship_id, unsigned int ses
         // identity orientation.
         Vector Pos;
         Matrix Orient;
-        GameObject* const Arrival = DestSys->find_solar(&DestGate.Id);
-        if (Arrival != nullptr) {
+        // HD: console.dll -- the arrival call (0x06cef85d) becomes its standoff from the named
+        // object (0x061133a0, returning no arrival object), or the default position's
+        // immediates (0x06cef8b0..) are its position and orientation; the branch at 0x06cef866
+        // skips the FDUMP either way.
+        GameObject* const Arrival = bConsoleSwitch ? nullptr : DestSys->find_solar(&DestGate.Id);
+        if (bConsoleSwitch && ConsoleObject != 0) {
+            HdConsoleSystemSwitchStandoff(ConsoleObject, &Pos, &Orient);
+        } else if (bConsoleSwitch) {
+            Pos = ConsolePos;
+            Orient = ConsoleOrient;
+        } else if (Arrival != nullptr) {
             static_cast<Solar*>(Arrival)->ChooseSystemArrivalLocation(Obj, Pos, Orient);
         } else {
             FDUMP(0x100001, "%s(%d) : *** ERROR: Couldn't find arrival gate %s.",
@@ -1291,14 +1318,18 @@ void IServerImpl::SystemSwitchOutComplete(unsigned int ship_id, unsigned int ses
         Msg3b[0] = DestSys->SystemInfo->NicknameId;
         Msg3b[2] = session_id;
         Msg3b[1] = Sys->SystemInfo->NicknameId;
-        Msg3b[3] = Arrival->get_id();
+        // HD: console.dll -- 0x06cef988 `XOR EAX,EAX; JMP +3` in place of the get_id call.
+        Msg3b[3] = Arrival != nullptr ? Arrival->get_id() : 0u;
         std::memcpy(&Msg3b[4], &Pos.x, sizeof(float));
         std::memcpy(&Msg3b[5], &Pos.y, sizeof(float));
         std::memcpy(&Msg3b[6], &Pos.z, sizeof(float));
         Server_ControllerDispatch(0, pub::Controller::EMessage::SystemEnter, Msg3b);
 
-        // .text:06cef9b7 .. 06cef9c7 -- FUN_06d4c430 on the slot: the autosave.
-        PlayerData_AutoSave(*p);
+        // .text:06cef9b7 .. 06cef9c7 -- FUN_06d4c430 on the slot: the autosave. HD: console.dll
+        // redirects this call (0x06cef9c8) to its unpatch stub (0x061131d0), which tail-calls the
+        // client's system-arrival caption (FUN_0045b490) instead: no autosave after its switch.
+        if (!bConsoleSwitch)
+            PlayerData_AutoSave(*p);
     }
 
     // PlayerLaunch — retail 0xfb20: complex launch sequence (~160 lines decompiled)

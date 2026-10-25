@@ -958,6 +958,13 @@ void CEqObj::disable_controllers()
         Eq->DisableController();
 }
 
+static bool GbHdConsoleLaunchFromDockPoint = false;
+
+void __cdecl HdConsoleLaunchFromDockPoint(bool bOn)
+{
+    GbHdConsoleLaunchFromDockPoint = bOn;
+}
+
 bool CEqObj::launch_pos(Vector& OutPos, Matrix& OutOrient, int HardpointIndex) const
 {
     // Common.dll.c 0x4a980, traced from the raw asm (062aa980-062aab42) rather than the
@@ -981,6 +988,16 @@ bool CEqObj::launch_pos(Vector& OutPos, Matrix& OutOrient, int HardpointIndex) c
     {
         // 062aa9bc-062aa9de: HardpointPosition(instance, sphere+0x04 name, &OutPos, &OutOrient).
         char const* HpName = Arch->DockingSpheres[(unsigned)HardpointIndex].HardpointName.c_str();
+        // HD: console.dll's "system" from a base (0x06113370 for the call at 0x062aa9de, when
+        // the caller is the server's launch): "HpDockMount" becomes "HpDockPoint" (FUN_06113340
+        // keeps the suffix), so the ship appears at the dock point.
+        char DockPoint[16];
+        if (GbHdConsoleLaunchFromDockPoint && strstr(HpName, "HpDockMount") != nullptr)
+        {
+            strcpy(DockPoint, "HpDockPoint");
+            strncat(DockPoint, strstr(HpName, "HpDockMount") + 11, 3);
+            HpName = DockPoint;
+        }
         HardpointPosition(this->EngineInstanceId, HpName, &OutPos, &OutOrient);
         // Discovery moors.dll (its hook of this call, 062aa9de): a moor_medium / moor_large
         // point launches the ship turned round (the sign of matrix elements 0..2 and 6..8).

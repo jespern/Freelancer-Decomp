@@ -2548,6 +2548,14 @@ namespace Hierarchy
     COMMON_API int __cdecl GetDepth(long ParentInst, long ChildInst);
 }
 COMMON_API bool __cdecl HardpointPosition(long Instance, char const* HpName, Vector* OutPos, Matrix* OutOrient);
+
+// HD: console.dll's one-shot patches of Common.dll, as flags its "system" and "anim" commands
+// set around the call (freelancer's hd_console.cpp): the server's base-launch call of
+// CEqObj::launch_pos (return address 0x06d00b14) takes the HpDockPoint hardpoint for an
+// HpDockMount one (its HardpointPosition call at 0x062aa9de redirected to 0x06113370), and
+// CShip::open_bay leaves the shields up (its JE at 0x062b2ba1 made a JMP).
+COMMON_API void __cdecl HdConsoleLaunchFromDockPoint(bool bOn);
+COMMON_API void __cdecl HdConsoleOpenBayKeepsShields(bool bOn);
 COMMON_API bool __cdecl HardpointPositionA(long Instance, char const* HpName, Vector* OutPos, Matrix* OutOrient);
 COMMON_API void __cdecl CompoundInstanceAnalyze(long Instance, void (__cdecl* Callback)(long, void*), void* Context);
 COMMON_API int __cdecl CompoundInstanceCount(long Instance);

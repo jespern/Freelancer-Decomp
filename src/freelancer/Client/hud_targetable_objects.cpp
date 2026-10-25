@@ -5,6 +5,7 @@
 // Author: Giperion.
 
 #include "hud_targetable_objects.h"
+#include "hd_console.h" // HD: console.dll's ntb
 #include "hd_client.h"
 #include "hd_plugins.h"
 
@@ -2046,7 +2047,9 @@ void HudTargetableObjects::DrawContactMarkers()
     Win3DSetBlendFunc(kWin3DBlendSrcAlpha, kWin3DBlendInvSrcAlpha);   // FUN_004220c0(5, 6)
 
     // 0x004ec070..0x004ec3dc: every scanner entry with a record (the count re-read each pass).
-    for (int Index = 0; Index < ScanEntries->Count; ++Index)
+    // HD: console.dll's "ntb off" makes the loop's JLE at 0x004ec087 a JMP: no brackets.
+    bool const bConsoleOff = HdConsoleEnabled() && HdConsoleBracketsOff();
+    for (int Index = 0; !bConsoleOff && Index < ScanEntries->Count; ++Index)
     {
         if (Index >= static_cast<int>(Contacts.size())) // port: see RebuildContacts
             break;
@@ -2108,8 +2111,11 @@ void HudTargetableObjects::DrawContactMarkers()
             // (DAT_005c9804, DAT_005d954c), halved for type 0x10000000 (DAT_005c75e0), clamped to
             // [0, 1] -- below 0 ordered (TEST AH,5 / JP) is 0, above 1 ordered (TEST AH,0x41 /
             // JNZ) is 1, unordered stays -- and the alpha byte scaled by it (ftol truncates).
+            // HD: console.dll's "ntb sight" writes 1.0 over DAT_005d954c (the brackets fade
+            // out within 1.25 m; the one under the mouse is drawn above).
+            float const FadePerMetre = HdConsoleEnabled() ? HdConsoleBracketFade(0.0004f) : 0.0004f;
             double Fade = static_cast<double>(1.25f) -
-                          static_cast<double>(Record.Distance) * static_cast<double>(0.0004f);
+                          static_cast<double>(Record.Distance) * static_cast<double>(FadePerMetre);
             if (WhiteTypeBit != 0)
                 Fade *= static_cast<double>(0.5f);
             if (Fade < 0.0)

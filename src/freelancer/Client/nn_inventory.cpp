@@ -1094,7 +1094,7 @@ void NnInventory::Update()
     RefreshItemList(&Ship.Loadout, 0, 1);
 
     // 0047b36a..0047b383: no player ship -> Inventory_Scroll slot 42 (0x37, 0, 0).
-    if (GetPlayerShipArchetypeIdRetail() == 0 && InventoryScroll != nullptr)
+    if (GetPlayerShipArchetypeIdRaw() == 0 && InventoryScroll != nullptr) // HD: console.dll exempts 0x0047b36f
         InventoryScroll->SetProperty(0x37, 0, 0);
 
     // 0047b389..0047b3c2: count +0x914 down by the capped frame time, clamping at 0.
@@ -2089,8 +2089,10 @@ void NnInventory::Slot45()
                                            1); // +0x96c
     }
 
-    // 00478e40..00479074: the cargo bars and their label, when the player has a ship.
-    if (GetPlayerShipArchetypeIdRetail() != 0) // FUN_004c3e10
+    // 00478e40..00479074: the cargo bars and their label, when the player has a ship. HD:
+    // console.dll's shipless placeholder counts here with a ship dealer open (0x00478e45).
+    if ((Dealer != nullptr && Dealer->TradeMode == 2 ? GetPlayerShipArchetypeIdRaw()
+                                                     : GetPlayerShipArchetypeIdRetail()) != 0) // FUN_004c3e10
     {
         float const BarPosition[3] = {FilterBase[0] + 0.0984f, FilterBase[1] - 0.453f,
                                       FilterBase[2]};
@@ -2130,8 +2132,9 @@ void NnInventory::Slot45()
         View->Flags = static_cast<unsigned char>(View->Flags & 0xfc);
     }
 
-    // 00479140..00479218
-    if (GetPlayerShipArchetypeIdRetail() != 0) // FUN_004c3e10
+    // 00479140..00479218 (HD: console.dll as at 0x00478e45, 0x00479145)
+    if ((Dealer != nullptr && Dealer->TradeMode == 2 ? GetPlayerShipArchetypeIdRaw()
+                                                     : GetPlayerShipArchetypeIdRetail()) != 0) // FUN_004c3e10
     {
         if (bOwnWindow != 0)
         {

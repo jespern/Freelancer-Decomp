@@ -14,6 +14,7 @@
 // spots where retail's rounding differs between otherwise identical sequences.
 
 #include "nn_navmap.h"
+#include "hd_console.h" // HD: console.dll's "show paths"
 #include "best_path.h"              // BestPathGetWaypointCount (FUN_004c4fb0), FUN_004c5040 / 5490
 #include "character_select_equip.h" // GetPlayerStarSystemIdRetail (FUN_004c4830), visit flags
 #include "client_mesh_load.h"       // ClientMeshLoadFromPath, ClientMeshHolderRender / Position
@@ -1859,7 +1860,8 @@ bool NeuroNetNavMap::BuildZoneShading()
         // 0x0049cd1f..0x0049ce29: filter modes 1 / 2 keep only the zone filter's band -- all
         // (0): neither hostile nor friendly; 1: at or below -0.6; 2: at or above 0.6.
         int const Mode = G_NavMapFilterMode;
-        if (Mode == 1 || Mode == 2)
+        // HD: console.dll's "show paths" makes the JNZ at 0x0049cd34 a JMP: no band filter.
+        if ((Mode == 1 || Mode == 2) && !(HdConsoleEnabled() && HdConsolePatrolPathsUnfiltered()))
         {
             int const ZoneFilter = G_NavMapZoneFilter;
             if (ZoneFilter == 0)

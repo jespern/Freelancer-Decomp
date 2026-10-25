@@ -8,6 +8,7 @@
 #include "msvcrt_compat.h" // MsvcrtAtoi/MsvcrtWtoi: retail MSVCRT.DLL wraps mod 2^32, the UCRT saturates
 
 #include "character_select_equip.h" // ApplyCharacterSelectEquipFields (FUN_005ab250 tail)
+#include "hd_console.h"             // HdConsoleLoadShipStore (0x005ab231)
 #include "common_ini.h"
 #include "common_misc.h"   // ParseGUID
 #include "common_server.h" // IServer
@@ -1468,6 +1469,9 @@ bool CLoginMgr::SelectCharacterById(CHARACTER_ID const& CharId)
     {
         if (Node->Data->Id == CharId) // ??8@YA_NABUCHARACTER_ID@@0@Z
         {
+            // HD: console.dll's hook of this call (0x005ab231) loads the ships stored beside
+            // the character's file first.
+            HdConsoleLoadShipStore(Node->Data->Id.Buffer);
             return SelectCharacter(Node->Data);
         }
     }

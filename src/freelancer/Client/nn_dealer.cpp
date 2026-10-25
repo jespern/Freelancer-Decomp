@@ -318,7 +318,7 @@ void NnDealer::Slot45()
     {
         if (GetIdsStringWWithRawFallback(0x486, Title, 0x40) == 0)
             Title[0] = 0;
-        HelpIds = GetPlayerShipArchetypeIdRetail() != 0 ? 0x489 : 0x499; // FUN_004c3e10
+        HelpIds = GetPlayerShipArchetypeIdRaw() != 0 ? 0x489 : 0x499; // FUN_004c3e10 (HD: console.dll exempts 0x0048146f)
     }
     else if (TradeMode == 3)
     {
@@ -567,8 +567,9 @@ void NnDealer::Slot45()
                                          0.265f, 0.06f, 1.8f, 0x48e, 1, 0, 0);
     }
 
-    // 00481efb..00481f02: the rest only when the player owns a ship.
-    if (GetPlayerShipArchetypeIdRetail() == 0) // FUN_004c3e10
+    // 00481efb..00481f02: the rest only when the player owns a ship (HD: console.dll exempts
+    // 0x00481f00, so the shipless placeholder counts).
+    if (GetPlayerShipArchetypeIdRaw() == 0) // FUN_004c3e10
         return;
 
     // 00481f08..00481f61: "BackToShipDealer" (FUN_005a0c90) -> +0x9ec.
@@ -1171,7 +1172,7 @@ intptr_t NnDealer::SetProperty(int Msg, uintptr_t A, uintptr_t B)
         }
         if (Control == ContinueButton && Inventory != nullptr) // +0x9e0
         {
-            if (GetPlayerShipArchetypeIdRetail() == 0) // FUN_004c3e10
+            if (GetPlayerShipArchetypeIdRaw() == 0) // FUN_004c3e10 (HD: console.dll exempts 0x004826f5)
             {
                 NnMainButtonOnModalOpen();
                 return 1;

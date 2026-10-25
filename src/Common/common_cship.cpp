@@ -1993,6 +1993,13 @@ int CShip::update(float Dt, unsigned Flags)
 // Listing 0x52aa0: increments BayDoorCounter, checks BayState, triggers animation
 // ============================================================================
 
+static bool GbHdConsoleOpenBayKeepsShields = false;
+
+void __cdecl HdConsoleOpenBayKeepsShields(bool bOn)
+{
+    GbHdConsoleOpenBayKeepsShields = bOn;
+}
+
 double CShip::open_bay()
 {
     // .text:062b2aa0..062b2c0c.
@@ -2036,9 +2043,10 @@ double CShip::open_bay()
     }
 
     // 062b2b7f..062b2bba: every equipment of type 0x100 (shields) is deactivated (vtable
-    // +0x30 Activate, false).
+    // +0x30 Activate, false). HD: console.dll's "anim" (bay doors) makes the loop's JE at
+    // 062b2ba1 a JMP around the call: the shields stay up.
     CEquipTraverser Walk(0x100);
-    for (CEquip* Equip = EquipManager.Traverse(Walk); Equip != nullptr;
+    for (CEquip* Equip = EquipManager.Traverse(Walk); Equip != nullptr && !GbHdConsoleOpenBayKeepsShields;
          Equip = EquipManager.Traverse(Walk))
     {
         Equip->Activate(false);

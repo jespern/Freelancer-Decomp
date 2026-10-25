@@ -1762,7 +1762,7 @@ void FRoomShipPad::CreatePlayerShip()
     // 0x0044884a..0x0044885b: malloc_strcpy(&Desc +0x34, Place->LaunchingScript (+0x3c)).
     malloc_strcpy(&Desc.LaunchScript, Place->LaunchingScript);
     // 0x00448861..0x0044886d: Archetype::GetShip(FUN_004c3e10()) into +0x00.
-    Desc.Ship = Archetype::GetShip(GetPlayerShipArchetypeIdRetail());
+    Desc.Ship = Archetype::GetShip(GetPlayerShipArchetypeIdRaw()); // HD: console.dll exempts 0x00448866
     // 0x00448871..0x0044887b: FUN_004c4060, the player's equipment list, into +0x40.
     Desc.Equipment = &GetPlayerEquipDescListRetail();
     // 0x00448876..0x004488ac: operator new(0xb0); non-null -> FUN_00446ef0(pad +0x00, &Desc);
@@ -1861,7 +1861,7 @@ void FRoomShipPadTable::Build(FRoomRuntime* Runtime, FClientMarket* Market)
 
     // 0x00448b2c..0x00448b54: with a player pad, a player ship archetype (FUN_004c3e10) and
     // "player_ship" enabled, the player's ship goes on it.
-    if (PlayerPad != -1 && GetPlayerShipArchetypeIdRetail() != 0 &&
+    if (PlayerPad != -1 && GetPlayerShipArchetypeIdRaw() != 0 && // HD: console.dll exempts 0x00448b33
         RtcSlider::is_enabled("player_ship"))
     {
         Pads[PlayerPad].CreatePlayerShip();

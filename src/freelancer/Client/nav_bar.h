@@ -181,6 +181,8 @@ private:
 void NavBarEnsure();
 // FUN_004420a0 -- every "RoomControl1..9" / "ButtonControl1..9" window deleted (no Destroy).
 void NavBarDeleteRoomControls();
+// 0x00440f94 -- the launch button's body: equipment check, launch script, the bar destroyed.
+void NavBarLaunch();
 // FUN_00442130 -- the "NavBar" window's background, the room controls and the bar itself
 // destroyed. Callers: 0x004393aa, 0x0043b55b, 0x0043b7e9, 0x005739b0.
 void NavBarDestroy();

@@ -19,7 +19,11 @@
 #include <list>
 
 // --- Getters (retail FUN_004c3e10 / 4060 / 3f00 / 3de0 / 4650 / 4670 / 4f70 / 4830) ---
-unsigned GetPlayerShipArchetypeIdRetail();          // FUN_004c3e10 → DAT_0067337c
+unsigned GetPlayerShipArchetypeIdRetail();
+// HD: the archetype as stored, the shipless placeholder included (the callers console.dll's
+// detour of FUN_004c3e10 exempts by return address: 0x00448866, 0x00448b33, 0x0047b36f,
+// 0x0048146f, 0x00481f00, 0x004826f5, and 0x00478e45 / 0x00479145 with a ship dealer open).
+unsigned GetPlayerShipArchetypeIdRaw();          // FUN_004c3e10 → DAT_0067337c
 EquipDescList& GetPlayerEquipDescListRetail();      // FUN_004c4060 → DAT_00672960
 unsigned GetPlayerEquipRevisionRetail();            // FUN_004c4f90 → DAT_00673384
 unsigned GetPlayerCollisionRevisionRetail();        // FUN_004c4fa0 → DAT_00673388

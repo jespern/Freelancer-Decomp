@@ -36,6 +36,7 @@
 #include "../include/server_savegame.h"   // pub::Save -> PlayerData_AutoSave / PlayerData_MissionSave
 #include "../include/common_casteroid.h"
 #include "../include/hd_plugins.h"
+#include "../include/hd_console_api.h" // HdConsoleOnSaveWritten
 #include <windows.h>
 #include <cstdint>
 #include <new>
@@ -2019,6 +2020,10 @@ bool __cdecl PlayerData_SerializeToFile(PlayerSlot& Player, char const* FileName
         _unlink(SavePath);
         rename(TempPath, SavePath);
     }
+
+    // HD: console.dll writes its ship store "<save>.fls" beside the save (its hook of this
+    // function at .text:06d4d275, hd_console_api.h SetSaveFileHooks).
+    HdConsoleOnSaveWritten(SavePath);
 
     // -----------------------------------------------------------------------
     // .text:06d4e18c .. .text:06d4e91c -- THE MP RECORD REFRESH. Added
