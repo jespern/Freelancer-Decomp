@@ -590,6 +590,11 @@ bool HudTargetableObjects::ProjectContact(Vector const* World, float Radius, Vec
     return true;
 }
 
+// Port: Contacts is rebuilt from the scanner's list once per render; retail kept the records in
+// a fixed in-object array (+0x374, 0x34 each) as long as the scan list can be, so walking the
+// scan list by index could never leave it. The vector only has the records of the last rebuild,
+// and the scan list grows between a server step and the next render (an object entering
+// scanner range) -- every walk by scan index stops at the vector's end.
 void HudTargetableObjects::RebuildContacts()
 {
     // FUN_004ed180. 0x004ed18a..0x004ed1da: +0x36c = Scanner + 0x24 (no null test -- Render only
@@ -862,6 +867,8 @@ void HudTargetableObjects::RebuildContacts()
     unsigned const PickObjectId = Pick->Id;   // +0xb0
     for (int Index = 0; Index < ScanEntries->Count; ++Index)
     {
+        if (Index >= static_cast<int>(Contacts.size())) // port: see RebuildContacts
+            break;
         Watchable const* const Watched = ScanEntries->Entries[Index].target();
         if (Watched == nullptr)
             continue;
@@ -1367,6 +1374,8 @@ IObjRW* HudTargetableObjects::FindHostileContactNearCursor()
     // 0x004f1ca5..0x004f1d8d: the scan list and the contact vector walked by one index.
     for (int Index = 0; Index < ScanEntries->Count; ++Index)
     {
+        if (Index >= static_cast<int>(Contacts.size())) // port: see RebuildContacts
+            break;
         IObjRW* const Object =
             ObjRwFromWatchable(const_cast<Watchable*>(ScanEntries->Entries[Index].target()));
         if (Object == nullptr)
@@ -2039,6 +2048,8 @@ void HudTargetableObjects::DrawContactMarkers()
     // 0x004ec070..0x004ec3dc: every scanner entry with a record (the count re-read each pass).
     for (int Index = 0; Index < ScanEntries->Count; ++Index)
     {
+        if (Index >= static_cast<int>(Contacts.size())) // port: see RebuildContacts
+            break;
         // 0x004ec093..0x004ec0d1: a watched object, a record with type bits, not the ship's
         // target and not the best-path waypoint's object.
         Watchable const* const Watched = ScanEntries->Entries[Index].target();
@@ -2326,6 +2337,8 @@ void HudTargetableObjects::DrawTargetReticle()
     // 0x004ee615..0x004eeac8: every scanner entry (the count re-read each pass).
     for (int Index = 0; Index < ScanEntries->Count; ++Index)
     {
+        if (Index >= static_cast<int>(Contacts.size())) // port: see RebuildContacts
+            break;
         Watchable const* const Watched = ScanEntries->Entries[Index].target();
         IObjRW* const Contact =
             (Watched != nullptr) ? ObjRwFromWatchable(const_cast<Watchable*>(Watched)) : nullptr;
@@ -4071,6 +4084,8 @@ void HudTargetableObjects::UpdateMissileAlert()
     {
         for (int Index = 0; Index < ScanEntries->Count; ++Index)
         {
+            if (Index >= static_cast<int>(Contacts.size())) // port: see RebuildContacts
+                break;
             IObjRW* const Missile =
                 ObjRwFromWatchable(const_cast<Watchable*>(ScanEntries->Entries[Index].target()));
             if (Missile == nullptr)

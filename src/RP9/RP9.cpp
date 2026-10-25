@@ -2483,6 +2483,12 @@ HRESULT FRp9Ib::LockRange(unsigned int Start, unsigned int Count, void** OutBits
             Start = Cursor;
         }
     }
+    // Port: a static index buffer rewritten from end to end is locked with DISCARD, like the
+    // vertex buffers in FDirectX9::LockVb -- without it DXVK waits for the GPU to be done with
+    // the buffer (FLWIN_HITCH_TRACE: LockIb stalls of 60 ms and more). Ignored by D3D9 on
+    // non-dynamic buffers, honoured by DXVK for any DEFAULT-pool buffer.
+    if ((Flags & D3DUSAGE_DYNAMIC) == 0 && Start == 0 && Count == Capacity)
+        LockFlags |= D3DLOCK_DISCARD;
     const HRESULT Hr = Gpu->Lock(Start * 2u, Count * 2u, &LockedBits, LockFlags);
     if (Hr >= 0)
     {
@@ -6663,6 +6669,17 @@ GENRESULT DACOM_API FDirectX9::LockVb(void* Handle, unsigned int* Offset, void**
                 LockFlags |= 0x1000;
                 StartBytes = Wrapper->Used;
             }
+        }
+        // Port: a static buffer rewritten from end to end -- the mesh groups' first fill
+        // (VMeshGroupEnsureVb) and the skinned character meshes every frame
+        // (FMeshArchetype::Skin) -- is locked with DISCARD too. Without it DXVK must wait for
+        // the GPU to finish with the buffer before handing the pointer out (LockBuffer ->
+        // WaitForResource, a whole frame's worth of work: the 60..250 ms hitches
+        // FLWIN_HITCH_TRACE caught in bases). D3D9 ignores DISCARD on non-dynamic buffers and
+        // DXVK honours it for any DEFAULT-pool buffer, so the Windows path is unchanged.
+        else if (StartBytes == 0 && RequestBytes == CapacityBytes)
+        {
+            LockFlags |= 0x2000;
         }
         // 06d12993: Lock (+0x2c)(offset, size, &node+0x10, flags) -- the data pointer lands in
         // +0x10, which doubles as the "locked" marker everywhere else.
