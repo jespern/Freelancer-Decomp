@@ -429,12 +429,22 @@ namespace
         return Value <= -0.6f;
     }
 
+    // A script's #Nickname that names no solar: the mission object (a spawned mission ship, a
+    // loot) of that nickname in the running mission (content's FlMissionObjectId), or 0.
+    unsigned int ScriptMissionObjectId(char const* Nick)
+    {
+        using FMissionIdFn = unsigned int (*)(char const*);
+        static FMissionIdFn const MissionIdFn =
+            reinterpret_cast<FMissionIdFn>(dlsym(RTLD_DEFAULT, "FlMissionObjectId"));
+        return MissionIdFn != nullptr ? MissionIdFn(Nick) : 0;
+    }
+
     // Port test aid: an input script's kill:TEXT step destroys (DESTROY_TYPE1, explode) every
     // listed object whose row label contains the text, through the in-process server's
     // pub::SpaceObj::Destroy, so mission Cnd_Destroyed conditions see ordinary kills.
     void ScriptKillContacts(std::list<FHudContactEntry>& Contacts)
     {
-        char const* const Want = FlScriptPendingKill();
+        char const* Want = FlScriptPendingKill();
         if (Want == nullptr)
             return;
         using FDestroyFn = int (*)(unsigned int, int);
@@ -442,8 +452,21 @@ namespace
             dlsym(RTLD_DEFAULT, "_ZN3pub8SpaceObj7DestroyEj11DestroyType"));
         IObjRW* const Player = static_cast<IObjRW*>(GetPlayerObjRW());
         std::vector<unsigned> Ids;
+        // hurt:TEXT,F arrives as "@hurt:F,text": the listed objects matching text get health F.
+        static float HurtFraction = -1.0f;
+        HurtFraction = -1.0f;
+        char HurtText[0x100] = "";
+        if (strncmp(Want, "@hurt:", 6) == 0)
+        {
+            float F = 0.5f;
+            if (sscanf(Want + 6, "%f,%255[^\n]", &F, HurtText) == 2)
+            {
+                HurtFraction = F;
+                Want = HurtText;
+            }
+        }
         // kill:#Nickname -- the solar whose id is the nickname's CreateID (a mission solar too),
-        // listed or not.
+        // else the mission object of that nickname (a mission ship), listed or not.
         if (Want[0] == '#')
         {
             unsigned const WantId = CreateID(Want + 1);
@@ -452,6 +475,8 @@ namespace
                 Solar->Release();
                 Ids.push_back(WantId);
             }
+            else if (unsigned int const Id = ScriptMissionObjectId(Want + 1))
+                Ids.push_back(Id);
         }
         for (std::list<FHudContactEntry>::iterator It = Contacts.begin(); It != Contacts.end() && Want[0] != '#'; ++It)
         {
@@ -484,10 +509,20 @@ namespace
             using FDestroyFn = int (*)(unsigned int, int);
             static FDestroyFn const DestroyFn = reinterpret_cast<FDestroyFn>(
                 dlsym(RTLD_DEFAULT, "_ZN3pub8SpaceObj7DestroyEj11DestroyType"));
+            using FHealthFn = int (*)(unsigned int const&, float);
+            static FHealthFn const HealthFn = reinterpret_cast<FHealthFn>(
+                dlsym(RTLD_DEFAULT, "_ZN3pub8SpaceObj17SetRelativeHealthERKjf"));
             int Done = 0;
             for (unsigned const Id : Pending)
-                if (DestroyFn != nullptr && DestroyFn(Id, 1) == 0)
+            {
+                if (HurtFraction >= 0.0f)
+                {
+                    if (HealthFn != nullptr && HealthFn(Id, HurtFraction) == 0)
+                        ++Done;
+                }
+                else if (DestroyFn != nullptr && DestroyFn(Id, 1) == 0)
                     ++Done;
+            }
             Pending.clear();
             FlScriptSetPumpHook(nullptr);
             FlScriptKillDone(Done);
@@ -504,7 +539,8 @@ namespace
         if (Want == nullptr)
             return;
         // select:#Nickname -- the object whose id is the nickname's CreateID (solars: lane rings,
-        // gates, bases), whether or not its row label has been built.
+        // gates, bases), whether or not its row label has been built; else a listed mission ship
+        // of that mission nickname.
         if (Want[0] == '#')
         {
             unsigned const WantId = CreateID(Want + 1);
@@ -523,7 +559,17 @@ namespace
                 Solar->Release();
                 SendSelectTarget(WantId);
                 FlScriptSelectDone();
+                return;
             }
+            // a mission ship by its mission nickname, when listed
+            if (unsigned int const ShipId = ScriptMissionObjectId(Want + 1))
+                for (std::list<FHudContactEntry>::iterator It = Contacts.begin(); It != Contacts.end(); ++It)
+                    if (It->Object() != nullptr && It->Id == ShipId)
+                    {
+                        SendSelectTarget(ShipId);
+                        FlScriptSelectDone();
+                        return;
+                    }
             return;
         }
         // select:@near:X,Y,Z,R -- selects nothing: done once the player's ship is within R of
@@ -546,6 +592,10 @@ namespace
                         dlsym(RTLD_DEFAULT, "_ZN3pub8SpaceObj11GetLocationEjR6VectorR6Matrix"));
                     Matrix Orient;
                     bParsed = GetLocation != nullptr && GetLocation(CreateID(Nick), Pos, Orient) == 0;
+                    // (or a mission ship by its mission nickname)
+                    if (!bParsed && GetLocation != nullptr)
+                        if (unsigned int const ShipId = ScriptMissionObjectId(Nick))
+                            bParsed = GetLocation(ShipId, Pos, Orient) == 0;
                 }
             }
             else

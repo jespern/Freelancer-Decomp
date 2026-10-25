@@ -675,10 +675,13 @@ FMissionScript::FMissionScript(unsigned int const* InControllerId,
     ElapsedTime = 0.0f;
 }
 
+static std::map<FMissionScript const*, std::string>& MissionTraceNames();
+
 // FUN_06eb7d30 (the members after the explicit loops are destroyed by their own dtors, then
 // the TU38 base FUN_06f0ed00).
 FMissionScript::~FMissionScript()
 {
+    MissionTraceNames().erase(this);
     // 06eb7d58-06eb7dbc: the active list, then every trigger's condition and actions.
     ActiveTriggers.clear();
     FTriggerMap::iterator TriggerIt = TriggerMap.begin();
@@ -819,6 +822,26 @@ static std::map<FMissionScript const*, std::string>& MissionTraceNames()
 {
     static std::map<FMissionScript const*, std::string> Names;
     return Names;
+}
+
+// Port dev aid (the input script's kill:#Nick / hurt:#Nick): the SpaceObj id of a mission object
+// named Name (a ship, loot or solar nickname; ships and loot case-insensitively) in any loaded mission
+// script, or 0.
+extern "C" __attribute__((visibility("default"))) unsigned int FlMissionObjectId(char const* Name)
+{
+    TString<0x30> Label;
+    Label = Name;
+    for (auto const& Entry : MissionTraceNames())
+    {
+        FMissionScript* const Script = const_cast<FMissionScript*>(Entry.first);
+        if (unsigned int const Id = Script->GetLabelObjectId(&Label))
+            return Id;
+        // (loot nicknames compare case-sensitively there)
+        for (FMissionLoot const& Loot : Script->MissionLoots)
+            if (Loot.bSpawned != 0 && _stricmp(Loot.Nickname.Data, Name) == 0)
+                return Loot.SpaceObjId;
+    }
+    return 0;
 }
 
 void FMissionScript::LoadMissionIni(char const* IniPath)

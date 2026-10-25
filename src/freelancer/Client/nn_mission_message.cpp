@@ -121,6 +121,14 @@ void NnMissionMessageShowScanNotice(unsigned ScannerId, unsigned GoodId)
 void NnMissionMessagePopUp(FmtStr const* Title, FmtStr const* Text, unsigned Buttons)
 {
     // FUN_0048a380 (cdecl).
+    // Port test aid: FLWIN_AUTO_POPUP=1 answers a mission's close-only pop-up (the tutorial
+    // notes) at once with "close" (8), as its Close button would, without showing it.
+    static bool const bAutoPopup = getenv("FLWIN_AUTO_POPUP") != nullptr;
+    if (bAutoPopup && (Buttons & ~8u) == 0)
+    {
+        G_Server->PopUpDialog(GetPlayerConnectionId(), 8);
+        return;
+    }
     // 0x0048a380..0x0048a398
     G_NnMissionMessageTitle = *Title;
     G_NnMissionMessageButtons = Buttons;
