@@ -628,7 +628,7 @@ void HUD_Steer::Render(FSpaceCamera* Camera, float DeltaSeconds)
     {
         IBehaviorManager* const Behavior = Ship->get_behavior_interface();
         if (Behavior != nullptr)
-            bShow = reinterpret_cast<unsigned char const*>(Behavior)[0x168];
+            bShow = Behavior->Opaque168[0]; // the field, not retail's +0x168 (LP64)
         if (static_cast<CShip*>(Ship)->is_using_tradelane())
             bShow = 0;
         else if (IsLetterboxVisible())

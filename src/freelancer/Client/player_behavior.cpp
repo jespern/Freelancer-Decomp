@@ -342,15 +342,12 @@ void UpdateMouseFlightDirection()
     IBehaviorManager* const ShipBehavior =
         (ShipEqObj != nullptr) ? ShipEqObj->get_behavior_interface() : nullptr;
 
-    // 0x004c7d1c: `pIVar9[0x168] == 0`. IBehaviorManager has no name for this byte yet (see
-    // common_iface.h's Opaque168 field); read it raw the same way retail's own byte-sized
-    // "IBehaviorManager*" indexing does.
+    // 0x004c7d1c: `pIVar9[0x168] == 0` -- common_iface.h's Opaque168, read through the field:
+    // the raw retail offset lands elsewhere in the 64-bit layout, and mouse flight never
+    // engaged (holding the left button or Space did not turn the ship).
     bool bSuppressMouseFlight = false;
     if (ShipBehavior != nullptr)
-    {
-        unsigned char const Opaque168 = reinterpret_cast<unsigned char const*>(ShipBehavior)[0x168];
-        bSuppressMouseFlight = (Opaque168 == 0);
-    }
+        bSuppressMouseFlight = (ShipBehavior->Opaque168[0] == 0);
 
     // 0x004c7d33/0x004c7d47: the cinematic letterbox, or riding a tradelane, forces the reset path
     // below regardless of the byte above.
