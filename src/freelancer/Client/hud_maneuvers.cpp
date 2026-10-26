@@ -445,6 +445,12 @@ bool HUD_Maneuvers::OnEvent(unsigned MsgId)
         {
             QueueManeuverVoice(G_ManeuverVoiceCancelled);
         }
+        // Port: with nothing to cancel the key is left to the others, so Esc can open the pause
+        // menu (menu_keymap.cpp); retail answered true here too.
+        else
+        {
+            return false;
+        }
         return true;
     }
 

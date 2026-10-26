@@ -29,6 +29,8 @@ namespace
 {
     // Retail PTR_s_USER_NONE_00614dd8 — 0xcc entries (listing .data:00614dd8..00615104).
     unsigned const kKeyCmdNicknameCount = 0xCCu;
+    unsigned const kUserCancel = 0xfu; // USER_CANCEL
+    unsigned const kUserPause = 0x14u; // USER_PAUSE
 
     char const* const GKeyCmdNicknames[kKeyCmdNicknameCount] = {
 #include "menu_keymap_nicknames.inc"
@@ -726,6 +728,7 @@ bool KeyMapRouteInputMessage(unsigned Message, unsigned Wparam, unsigned Lparam)
         // 00577a4c..00577aea: active accelerator groups (DAT_0067c21c, newest first) -> each
         // group's KeyCmd list (+0x14) -> each binding (+0x14..+0x18, 8 bytes). The key is
         // re-read from the record for every binding (00577a90).
+        bool bCancelUnhandled = false;
         if (Record->Key != 0)
         {
             for (std::list<FKeyMapGroup*>::iterator GroupIt = GActiveGroups.begin();
@@ -751,10 +754,18 @@ bool KeyMapRouteInputMessage(unsigned Message, unsigned Wparam, unsigned Lparam)
                         {
                             return true;
                         }
+                        if (Cmd->NicknameId == kUserCancel && Record->Byte18 != 0)
+                            bCancelUnhandled = true;
                     }
                 }
             }
         }
+
+        // Port: a USER_CANCEL key (Esc) nothing took opens the pause menu, as USER_PAUSE (F1)
+        // does. Retail left it unused there, and F1 on a Mac keyboard is the brightness key
+        // unless fn is held. A window with the input focus still gets the only say (mode 1).
+        if (bCancelUnhandled && Record->Byte19 == 0 && DispatchKeyCommand(kUserPause, Mode))
+            return true;
 
         // 00577aec..00577af8.
         if (bRestoreModifiers)
