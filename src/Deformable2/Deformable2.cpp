@@ -780,6 +780,11 @@ static unsigned char EnsurePartVertexBuffer(FDeformVbDesc* Vb, IRPVertexBuffer* 
 // LAB_065f6bf0, the DFM mesh's slot 3 (thiscall RET 0xC: Holder, &part+0x14, bForce),
 unsigned char FMeshArchetype::Skin(FLodHolder* Holder, FDeformVbDesc* Vb, unsigned char bForce)
 {
+    // Port: always a full rewrite. Retail rewrites only the vertices of the bones that moved and
+    // relies on the buffer keeping the rest, but the whole-buffer lock below is a DISCARD
+    // (FDirectX9::LockVb, against DXVK's GPU waits) and hands out a fresh slice whose contents
+    // are undefined: the vertices left alone came back as spikes many times a second.
+    bForce = 1;
     const float* const Root =
         Holder->BoneSlots[0].LocalTransform;
     float RootPos[3];
