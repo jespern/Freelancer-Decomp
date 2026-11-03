@@ -759,11 +759,12 @@ void HUD_Maneuvers::UpdateButtons()
 
     // 0x004d8b50..0x004d8bd3: the visible buttons laid out left to right, 0.04 apart
     // (DAT_005d845c), centred (an even count starts half a step, DAT_005d1fe4, to the right).
-    float const Start = (Shown & 1) != 0 ? 0.0f : 0.02f;
+    // HD: HudShift points the even-count load (0x004d8b5f) at FUN_004d88f0's padding
+    // (0x004d8bec) and keeps its ManeuverBar x there, 0.02 by default -- it replaces the half
+    // step; an odd count still starts at 0.
+    float const Start = (Shown & 1) != 0 ? 0.0f : HdHudShiftBase(0x004d8bec, 0.02f);
     float X = static_cast<float>(static_cast<double>(Start) -
                                  static_cast<double>(Shown / 2) * static_cast<double>(0.04f));
-    // HD: HudShift's ManeuverBar x offset, kept in FUN_004d88f0's padding (0x004d8bec).
-    X += HdHudShiftBase(0x004d8bec, 0.0f);
     for (int i = 0; i < ManeuverCount; ++i)
     {
         // Retail walks Buttons[] as far as the vector's size (hud.ini has four lines).
