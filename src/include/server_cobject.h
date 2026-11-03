@@ -425,7 +425,10 @@ struct EQInfo {
     // here before. It is raw storage rather than an EquipDescVector member because
     // retail EQInfo is trivial: pub::SpaceObj::Dock builds one on its stack with no
     // constructor or destructor call (.text:06cfa755 .. 06cfa77b).
-    unsigned int CargoOut[4];       // +0x10 .. +0x1f
+    // Port: four pointers' worth, aligned for one -- 0x10 on 32-bit, and room for the LP64
+    // EquipDescVector (0x20), which callers placement-new here (PatrolGuides' cargo scan; the
+    // retail size let it run over the next member). server_pub.cpp checks it fits.
+    alignas(void*) unsigned int CargoOut[sizeof(void*)]; // +0x10 .. +0x1f
 };
 static_assert(sizeof(EQInfo) == 0x20, "EQInfo: +0x10 carries a 0x10-byte EquipDescVector");
 

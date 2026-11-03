@@ -82,7 +82,7 @@ namespace
         }
         if (!bGotProductId)
         {
-            UuidCreate((UUID*)ProductId);
+            UuidCreate((UUID*)ProductId); // raw-offset: ok -- 0x400 bytes for a 16-byte UUID
             ProductIdSize = 0x10;
         }
         Hash.AddData(ProductId, ProductIdSize);

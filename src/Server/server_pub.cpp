@@ -3319,6 +3319,12 @@ SERVER_API EQUIPMENT_RTYPE __cdecl ActivateEquipment(const unsigned int& obj_id_
         if (eq_info->Field_0x0c == 0) return EQUIPMENT_RTYPE_INVALID; // .text:06cf947b
         GameObject* const Other = Server_LookupLiveObject(eq_info->Field_0x0c); // .text:06cf9482
         if (Other == nullptr) return EQUIPMENT_RTYPE_BAD_TYPE;   // .text:06cf948c / 06cf94af
+        // Port: the storage must hold a native EquipDescVector (server_cobject.h). Checked here
+        // through a constant, so fltransform keeps the assert live on LP64.
+        constexpr bool kCargoOutFits =
+            sizeof(eq_info->CargoOut) >= sizeof(EquipDescVector) &&
+            alignof(pub::SpaceObj::EQInfo) >= alignof(EquipDescVector);
+        static_assert(kCargoOutFits, "EQInfo::CargoOut must hold an EquipDescVector");
         EquipDescVector& Cargo = *reinterpret_cast<EquipDescVector*>(eq_info->CargoOut); // .text:06cf9490
         return Obj->scan_cargo(Other, Cargo) != 0 ? EQUIPMENT_RTYPE_BAD_TYPE
                                                    : EQUIPMENT_RTYPE_OK;                // .text:06cf9497 .. 06cf94a4

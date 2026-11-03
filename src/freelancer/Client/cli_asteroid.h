@@ -24,6 +24,7 @@
 #include "texture_shapes.h"
 
 #include <cstddef>
+#include <map>
 
 struct IMaterial;
 
@@ -115,7 +116,10 @@ struct FCliAsteroid
     unsigned char Flag00;                              // +0x00
     unsigned char Pad01[3];
     CmnAsteroid::CAsteroidField* CmnField;             // +0x04
-    unsigned char MapAt08[0x14];                       // +0x08
+    // +0x08: the cube map (FCliAsteroidCubeMap, cli_asteroid_med.h), built here in place. Port:
+    // retail's MSVC6 std::map is 0x14 bytes; a native one is larger (libc++ 0x18 on LP64), and
+    // in 0x14 its size would run into Zone. cli_asteroid_med.cpp checks it fits.
+    unsigned char MapAt08[sizeof(void*) == 4 ? 0x14 : sizeof(std::map<unsigned int, int>)];
     Universe::IZone* Zone;                             // +0x1C
     int CubeSize;                                      // +0x20
     int FillDistAt24;                                  // +0x24

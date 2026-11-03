@@ -234,14 +234,18 @@ void FCliAsteroidCube::ApplyEvent(CmnAsteroid::asteroid_marker const* Event)
 
 FCliAsteroidCubeMap& CliAsteroidCubeMap(FCliAsteroid* Field)
 {
-    return *reinterpret_cast<FCliAsteroidCubeMap*>(Field->MapAt08);
+    return *reinterpret_cast<FCliAsteroidCubeMap*>(Field->MapAt08); // raw-offset: ok -- sized for it, checked in CliAsteroidCubeMapConstruct
 }
 
 void CliAsteroidCubeMapConstruct(FCliAsteroid* Field)
 {
+    // Port: the storage must hold the native map (cli_asteroid.h); through a constant, so
+    // fltransform keeps the assert live on LP64.
+    constexpr bool kCubeMapFits = sizeof(Field->MapAt08) >= sizeof(FCliAsteroidCubeMap);
+    static_assert(kCubeMapFits, "FCliAsteroid::MapAt08 must hold an FCliAsteroidCubeMap");
     // FUN_005201e0 0x00520201..0x0052021a: the allocator bytes (+0x08, +0x09), the byte at
     // +0x14 and FUN_005274a0's head node -- one std::map here.
-    new (Field->MapAt08) FCliAsteroidCubeMap();
+    new (Field->MapAt08) FCliAsteroidCubeMap(); // raw-offset: ok -- checked above
 }
 
 void CliAsteroidCubeMapDestruct(FCliAsteroid* Field)

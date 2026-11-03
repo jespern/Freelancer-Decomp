@@ -2246,7 +2246,7 @@ void FRp9TransformCache::Commit(IDirect3DDevice9* Device, D3DTRANSFORMSTATETYPE 
         return;
     bApplyMarker = 0;
     bCommitted = 1;
-    const HRESULT Hr = Device->SetTransform(Type, (const D3DMATRIX*)Values);
+    const HRESULT Hr = Device->SetTransform(Type, (const D3DMATRIX*)Values); // raw-offset: ok -- 16 floats
     bCommitted = Hr >= 0 ? 1 : 0;
 }
 
@@ -5454,7 +5454,7 @@ GENRESULT DACOM_API FDirectX9::SetWorldN(int WorldIndex, const float* M12)
     Scratch[15] = 1.0f;
     const HRESULT Hr = Device_->SetTransform(
         (D3DTRANSFORMSTATETYPE)((unsigned long)WorldIndex + D3DTS_WORLDMATRIX(0)),
-        (D3DMATRIX*)(Scratch));
+        (D3DMATRIX*)(Scratch)); // raw-offset: ok -- 16 floats
     return (GENRESULT)Hr;
 }
 

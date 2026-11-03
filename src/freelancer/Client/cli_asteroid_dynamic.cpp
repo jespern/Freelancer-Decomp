@@ -955,7 +955,7 @@ void CliDynamicAsteroidDraw(FCliDynamicAsteroid* This, FSpaceCamera* Cam,
 
         // 0x00526576..0x005265be: the material, then DrawIndexedPrimitiveVb(prim +0xac,
         // lock[0], lock[2], count +0xa4, the indices, their count, 0).
-        Pipe->SetMaterial((const D3DMATERIAL8*)MaterialBlock);
+        Pipe->SetMaterial((const D3DMATERIAL8*)MaterialBlock); // raw-offset: ok -- 17 floats, D3DMATERIAL8
         Pipe->DrawIndexedPrimitiveVb(This->PrimitiveType, Lock.Listing.VertexBuffer,
                                      static_cast<unsigned int>(Lock.Listing.BaseVertex),
                                      static_cast<unsigned int>(This->MeshDesc.SrcCount),
