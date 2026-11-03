@@ -15,6 +15,11 @@ class Win3D;
 // it scrolled. Win3D's wheel event falls back to it when the window itself does not take it.
 bool HdWheelScroll(Win3D* Target, int Wheel);
 
+// Whether the wheel scrolls lists (HdWheelScroll) and, in space, is left to the windows while
+// the cursor is the arrow. Port: on in every game, not only HD's (WheelScroll.dll) -- a Mac's
+// wheel and trackpad are how lists scroll there.
+bool HdWheelScrollEnabled();
+
 namespace Universe
 {
     struct IZone;

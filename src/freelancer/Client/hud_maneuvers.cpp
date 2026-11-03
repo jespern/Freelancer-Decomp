@@ -482,8 +482,7 @@ bool HUD_Maneuvers::OnEvent(unsigned MsgId)
     {
         // HD: WheelScroll (0x004d845c) leaves the wheel to the windows while the cursor is the
         // arrow.
-        static const bool bWheelScroll = HdPlugins::Enabled("WheelScroll.dll");
-        if (bWheelScroll && MouseIsArrowCursor())
+        if (HdWheelScrollEnabled() && MouseIsArrowCursor())
             return false;
         // HD: TurretZoom (0x004d845c) -- in turret view the wheel moves the turret camera.
         if (HdTurretZoomEnabled() && GetHudStatus() != nullptr && GetHudStatus()->bTurretView != 0)

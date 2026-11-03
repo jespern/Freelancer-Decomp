@@ -764,10 +764,14 @@ void HdTurretZoomEase(FTurretCamera* Cam, float DeltaSeconds)
     Cam->Tether[2] += (Z.Target[1] - Cam->Tether[2]) * DeltaSeconds * Cam->AccelSpeed;
 }
 
+bool HdWheelScrollEnabled()
+{
+    return true;
+}
+
 bool HdWheelScroll(Win3D* Target, int Wheel)
 {
-    static const bool bEnabled = HdPlugins::Enabled("WheelScroll.dll");
-    if (!bEnabled || Wheel == 0)
+    if (!HdWheelScrollEnabled() || Wheel == 0)
         return false;
     for (Win3D* Window = Target; Window != nullptr; Window = Window->GetParent())
     {
