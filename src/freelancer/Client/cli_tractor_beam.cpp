@@ -6,6 +6,7 @@
 
 #include "cli_tractor_beam.h"
 
+#include "client_cliobj.h"     // Archetype::CliCompanionAt
 #include "client_equip_fx.h"   // FClientEquip
 #include "effect_type_list.h"  // EffectTypeListLink (FUN_004f7af0)
 #include "space_camera.h"      // FSpaceCamera
@@ -313,11 +314,12 @@ unsigned char CliTractorBeamInit(FCliTractorBeam* This, FClientEquip* Owner)
 
     // 0x00512bef..0x00512c6c: the CliEQTractor ([[[Owner+4]+0xc]+4], no tests) colour bytes
     // +0x54 / +0x55 / +0x56 (MOVZX, FILD) each times DAT_005c7f68 into +0x70 / +0x74 / +0x78.
+    // Port: the retail offset goes through CliCompanionAt (the 64-bit companion's "color").
     unsigned char const* const Comp =
-        reinterpret_cast<unsigned char const*>(Owner->Equip->Arch->Companion);
-    This->Color[0] = static_cast<float>(Comp[0x54]) * kByteToUnit;
-    This->Color[1] = static_cast<float>(Comp[0x55]) * kByteToUnit;
-    This->Color[2] = static_cast<float>(Comp[0x56]) * kByteToUnit;
+        Archetype::CliCompanionAt(Owner->Equip->Arch->Companion, 0x54);
+    This->Color[0] = static_cast<float>(Comp[0]) * kByteToUnit;
+    This->Color[1] = static_cast<float>(Comp[1]) * kByteToUnit;
+    This->Color[2] = static_cast<float>(Comp[2]) * kByteToUnit;
 
     // 0x00512c6f..0x00512cf0: "line" (DAT_005db700) through the inlined ShapeDB find (FDUMP
     // cmn\ShapeDB.h line 0xf2 on a miss) into +0x7c; null returns false.
