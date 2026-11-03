@@ -713,6 +713,7 @@ namespace
         // .data default.
         CEqObj* PlayerShip = nullptr;
         {
+            // raw-offset: ok -- only null-tested, and taken back off below
             unsigned char* const Plus0c = reinterpret_cast<unsigned char*>(Player) + 0xc;
             if (Plus0c != nullptr)
             {
@@ -741,6 +742,7 @@ namespace
             // while CEqObj +0x140 is below 1.0f (TEST AH,1 / JZ: a NaN passes).
             CEqObj* Ship = nullptr;
             {
+                // raw-offset: ok -- only null-tested, and taken back off below
                 unsigned char* const Plus0c = reinterpret_cast<unsigned char*>(Go) + 0xc;
                 if (Plus0c != nullptr)
                 {

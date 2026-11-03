@@ -56,7 +56,8 @@ void IVP_Environment_Process_Wake_Queue(IVP_Environment* env)
         core->Flags &= ~0x30;              // :0634bc01-:0634bc07
     }
 
-    if (env->event_queue.elems == reinterpret_cast<void**>(reinterpret_cast<uint8_t*>(&env->event_queue) + 8))
+    // Port: retail's +8 is the end of the 32-bit header -- sizeof(IVP_U_Vector_Base).
+    if (env->event_queue.elems == reinterpret_cast<void**>(reinterpret_cast<uint8_t*>(&env->event_queue) + sizeof(IVP_U_Vector_Base)))
     {
         env->event_queue.n_elems = 0;
         return;
@@ -193,7 +194,7 @@ void IVP_Environment_Notify_Object_Listeners(IVP_Environment* env, void* event_d
 // ============================================================================
 static void IVP_U_Vector_Base_Clear(IVP_U_Vector_Base& v)
 {
-    void* inlineStorage = reinterpret_cast<uint8_t*>(&v) + 8;
+    void* inlineStorage = reinterpret_cast<uint8_t*>(&v) + sizeof(IVP_U_Vector_Base); // retail +8
     if (v.elems == inlineStorage)
     {
         v.n_elems = 0;
@@ -1095,7 +1096,7 @@ void IVP_U_Vector_Base_Realloc(IVP_U_Vector_Base* v)
     // one that sits immediately after this header (the LEA EDX,[ESI+8]
     // sentinel -- the same test IVP_Environment_Process_Wake_Queue makes on
     // event_queue).
-    void** InlineBuffer = reinterpret_cast<void**>(reinterpret_cast<char*>(v) + 8);
+    void** InlineBuffer = reinterpret_cast<void**>(reinterpret_cast<char*>(v) + sizeof(IVP_U_Vector_Base)); // retail +8
     if (v->elems != InlineBuffer && v->elems != nullptr)
     {
         free(v->elems);
@@ -1726,7 +1727,10 @@ void IVP_Range_Manager::environment_will_be_deleted(IVP_Environment* /*Environme
 // ECX = 0x29 from +0x04 (0xa4 bytes, the whole object after the vptr).
 IVP_PerformanceCounter_Simple::IVP_PerformanceCounter_Simple()
 {
-    std::memset(reinterpret_cast<char*>(this) + 4, 0, 0xa4);
+    // Port: from the first member to the end -- retail's +0x04 is past a 4-byte vptr, which is
+    // 8 bytes here (+4 would clear half of it).
+    std::memset(&Field_0x04, 0,
+                reinterpret_cast<char*>(this + 1) - reinterpret_cast<char*>(&Field_0x04));
 }
 
 // LAB_06360350: `MOV dword ptr [ECX+0x10],0; RET`.
@@ -1805,8 +1809,10 @@ void IVP_PerformanceCounter_Simple::Slot04(float TimeHi, float TimeLo)
                  (double)(Counters[6].Microseconds) * Scale,
                  (double)(Counters[8].Microseconds) * Scale);
 
-    // :06360256-:0636026e -- clear +0x04..+0xa7, then +0xa0/+0xa4 = the argument.
-    std::memset(reinterpret_cast<char*>(this) + 4, 0, 0xa4);
+    // :06360256-:0636026e -- clear +0x04..+0xa7, then +0xa0/+0xa4 = the argument. Port: the
+    // members after the vptr, as in the ctor.
+    std::memset(&Field_0x04, 0,
+                reinterpret_cast<char*>(this + 1) - reinterpret_cast<char*>(&Field_0x04));
     TimeOfLastReset.time_base = TimeHi;
     TimeOfLastReset.time_offset = TimeLo;
 }

@@ -158,7 +158,7 @@ void FontAtlasEnsureScratch()
 
     void* Block = std::malloc(0x20028u);
     memset(Block, 0, 0x28u);
-    G_AtlasBmi = static_cast<BITMAPINFO*>(Block);
+    G_AtlasBmi = static_cast<BITMAPINFO*>(Block); // raw-offset: ok -- 0x28-byte header, all 32-bit fields
     G_AtlasBits = reinterpret_cast<unsigned short*>(static_cast<unsigned char*>(Block) + 0x28);
 
     BITMAPINFOHEADER& Hdr = G_AtlasBmi->bmiHeader;

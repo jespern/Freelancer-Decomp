@@ -682,8 +682,8 @@ void RpcCollisionGroupListAssignRange(FRpcCollisionGroupList* List, TIterator Fi
     FRpcCollisionGroupNode* Node = Dummy->Next;
     while (Node != Dummy && First != Last) {
         const unsigned int* Value = reinterpret_cast<const unsigned int*>(&(*First));
-        Node->Field_0x00 = Value[0];
-        Node->Field_0x04 = Value[1];
+        Node->Field_0x00 = Value[0]; // raw-offset: ok -- CollisionGroupDesc is 8 bytes of data
+        Node->Field_0x04 = Value[1]; // raw-offset: ok
         Node = Node->Next;
         ++First;
     }
@@ -716,8 +716,8 @@ void RpcCollisionGroupListAssignRange(FRpcCollisionGroupList* List, TIterator Fi
         Dummy->Prev = New;
         New->Prev->Next = New;
         const unsigned int* Value = reinterpret_cast<const unsigned int*>(&(*First));
-        New->Field_0x00 = Value[0];
-        New->Field_0x04 = Value[1];
+        New->Field_0x00 = Value[0]; // raw-offset: ok -- CollisionGroupDesc is 8 bytes of data
+        New->Field_0x04 = Value[1]; // raw-offset: ok
         ++List->Size;
         ++First;
     }

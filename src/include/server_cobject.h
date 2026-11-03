@@ -250,12 +250,6 @@ struct FCEquipManager {
     }
 };
 
-// Get CEquipManager pointer from FCObject (at offset +0xE4)
-inline FCEquipManager* GetEquipManager(FCObject* obj) {
-    if (!obj) return nullptr;
-    return *(FCEquipManager**)((char*)obj + 0xE4);
-}
-
 // ===========================================================================
 // pub::SpaceObj info structures — input to Create / CreateSolar / CreateLoot
 // Layouts reconstructed from retail Server.dll.c decompilation access patterns

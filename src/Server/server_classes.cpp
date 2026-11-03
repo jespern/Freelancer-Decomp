@@ -6124,24 +6124,16 @@ SERVER_API ChatHookFn g_pSystemChatHook = nullptr;    // RVA 0xAF60C
 // ===========================================================================
 unsigned int StarSystem::count_players(unsigned int ExcludeId) const
 {
+    // Port: through the typed list (PlayerListHead, SystemPlayerNode) -- the dword walk above
+    // is retail's 32-bit layout, and on LP64 neither +0x0C nor node[0x10] is where those fields
+    // are. No null test: .text:06d0bcb0 `MOV EDX,[ECX+0xc]` / .text:06d0bcb3 `MOV ECX,[EDX]`
+    // dereferences the sentinel at once.
     unsigned int Count = 0;
-    // PlayerListHead at this+0x0C is a pointer to the list sentinel
-    unsigned int const* Sentinel = reinterpret_cast<unsigned int const*>(
-        *reinterpret_cast<void* const*>(
-            reinterpret_cast<unsigned char const*>(this) + 0x0C));
-    // No null test: .text:06d0bcb0 `MOV EDX,[ECX+0xc]` / .text:06d0bcb3
-    // `MOV ECX,[EDX]` dereferences the sentinel at once.
-
-    // First node: dereference the sentinel to get the head pointer
-    // Retail: puVar1 = **(this + 0xc)
-    unsigned int const* Node = reinterpret_cast<unsigned int const*>(*Sentinel);
-    while (Node != Sentinel) {
-        // node[0x10] = player ID at offset 0x40 bytes (0x10 dwords)
-        if (Node[0x10] != ExcludeId) {
+    SystemPlayerNode const* const Sentinel = static_cast<SystemPlayerNode const*>(PlayerListHead);
+    for (SystemPlayerNode const* Node = Sentinel->Next; Node != Sentinel; Node = Node->Next) {
+        if (Node->View.PlayerId != ExcludeId) {
             Count++;
         }
-        // Advance to next node: node = *node (first dword = next pointer)
-        Node = reinterpret_cast<unsigned int const*>(*Node);
     }
     return Count;
 }
